@@ -8,6 +8,7 @@ env-var separator (e.g. ``CAMSERV_INFERENCE__DEVICE=cuda``).
 
 from __future__ import annotations
 
+import os
 import re
 from enum import Enum
 from pathlib import Path

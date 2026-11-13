@@ -21,6 +21,26 @@
       this.initKeyboardShortcuts();
       this.loadInitialData();
       this.startTelemetryLoop();
+
+      // Hash and query param routing support
+      const urlParams = new URLSearchParams(window.location.search);
+      const targetScreen = window.location.hash.replace("#", "") || urlParams.get("screen");
+      if (targetScreen && document.getElementById(`screen-${targetScreen}`)) {
+        this.switchScreen(targetScreen);
+      }
+      if (urlParams.get("theme") === "light") {
+        document.body.setAttribute("data-theme", "light");
+        const btnTheme = document.getElementById("btn-theme-toggle");
+        if (btnTheme) btnTheme.textContent = "🌙 Dark";
+        const logoImg = document.querySelector(".brand-header img.brand-logo");
+        if (logoImg) logoImg.src = "/assets/logo-primary-light.png";
+      }
+      window.addEventListener("hashchange", () => {
+        const h = window.location.hash.replace("#", "");
+        if (h && document.getElementById(`screen-${h}`)) {
+          this.switchScreen(h);
+        }
+      });
     }
 
     initEventListeners() {
@@ -78,7 +98,7 @@
 
           const logoImg = document.querySelector(".brand-header img.brand-logo");
           if (logoImg) {
-            logoImg.src = newTheme === "dark" ? "/assets/logo-primary-dark.svg" : "/assets/logo-primary-light.svg";
+            logoImg.src = newTheme === "dark" ? "/assets/camserv-logo-transparent.png" : "/assets/logo-primary-light.png";
           }
         });
       }
