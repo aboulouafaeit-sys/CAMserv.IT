@@ -149,6 +149,11 @@ class TrackingMetrics:
         if n_gt == 0 or n_pred == 0:
             self._total_fp += n_pred
             self._total_misses += n_gt
+            if n_pred == 0:
+                for gid in gt_ids:
+                    if gid in self._prev_mapping:
+                        self.fragmentation_count += 1
+                self._prev_mapping = {}
             for cls in gt_classes:
                 acc = self._per_class[cls]
                 acc.gt_count += 1

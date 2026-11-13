@@ -457,21 +457,26 @@ class ByteTracker:
             new_tracks.append(t)
 
         # ==============================================================
-        # Rebuild track pools
+        # Rebuild track pools (deduplicated by track_id)
         # ==============================================================
-        self._tracked = [
+        tracked_candidates = [
             t
             for t in (tracked_stracks + lost_stracks + new_tracks)
             if t.state == TrackState.Tracked
         ]
-        self._lost = [
+        self._tracked = list({t.track_id: t for t in tracked_candidates}.values())
+
+        lost_candidates = [
             t
             for t in (all_tracks + still_unmatched)
             if t.state == TrackState.Lost and t.time_since_update <= self.max_age
         ]
-        self._removed.extend(
+        self._lost = list({t.track_id: t for t in lost_candidates if t.track_id not in {tr.track_id for tr in self._tracked}}.values())
+
+        removed_candidates = [
             t for t in (all_tracks + still_unmatched) if t.state == TrackState.Removed
-        )
+        ]
+        self._removed = list({t.track_id: t for t in (self._removed + removed_candidates)}.values())
 
         # ---- Return confirmed tracks ---------------------------------
         output_stracks = [

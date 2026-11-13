@@ -536,6 +536,14 @@ class UltralyticsDetector:
     Wraps ``ultralytics.YOLO`` and normalises output into Detection dataclasses.
     """
 
+    _device: str = "0"
+    _model_name: str = "yolov8n.pt"
+    _conf_thresh: float = 0.35
+    _iou_thresh: float = 0.45
+    _fp16: bool = False
+    _img_size: int = 640
+    _model: Any = None
+
     def __init__(
         self,
         model_name: str = "yolov8n.pt",
@@ -777,7 +785,7 @@ class DetectorFactory:
         input_size: tuple[int, int],
     ) -> ONNXDetector | UltralyticsDetector:
         if backend in (DetectorBackend.TENSORRT, DetectorBackend.ONNX_GPU):
-            return ONNXDetector(
+            det = ONNXDetector(
                 model_path=model_path,
                 confidence_threshold=confidence_threshold,
                 iou_threshold=iou_threshold,
@@ -785,8 +793,10 @@ class DetectorFactory:
                 force_cpu=False,
                 input_size=input_size,
             )
+            det._using_gpu = True
+            return det
         if backend == DetectorBackend.ONNX_CPU:
-            return ONNXDetector(
+            det = ONNXDetector(
                 model_path=model_path,
                 confidence_threshold=confidence_threshold,
                 iou_threshold=iou_threshold,
@@ -794,6 +804,8 @@ class DetectorFactory:
                 force_cpu=True,
                 input_size=input_size,
             )
+            det._using_gpu = False
+            return det
         if backend == DetectorBackend.ULTRALYTICS:
             return UltralyticsDetector(
                 model_name=ultralytics_model,
