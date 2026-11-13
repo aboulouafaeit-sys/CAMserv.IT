@@ -188,4 +188,12 @@ def create_app(settings: CamservSettings | None = None) -> FastAPI:
 
     app.include_router(api_v1_router)
 
+    # ---------------------------------------------------------------------------
+    # Mount CAMserv Enterprise Web Console
+    # ---------------------------------------------------------------------------
+    web_dir = Path(__file__).resolve().parent.parent / "web"
+    if web_dir.exists():
+        from starlette.staticfiles import StaticFiles
+        app.mount("/", StaticFiles(directory=str(web_dir), html=True), name="web_console")
+
     return app

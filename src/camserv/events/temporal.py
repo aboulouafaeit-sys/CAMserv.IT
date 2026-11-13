@@ -182,8 +182,8 @@ class TemporalEventEngine:
             ]
 
             reasoning = (
-                f"Anonymous track #{track.track_id} transitioned from an upright stance (AR={earlier_ar:.2f}) "
-                f"to a prostrate ground position (AR={current_ar:.2f}) and remained stationary for {ts.prostrate_duration_sec:.1f}s. "
+                f"Anonymous track #{track.track_id} transitioned from an upright stance (aspect_ratio={earlier_ar:.2f}) "
+                f"to a prostrate ground position (aspect_ratio={current_ar:.2f}) and remained stationary for {ts.prostrate_duration_sec:.1f}s. "
                 "Kinematic pattern satisfies fall event hypothesis."
             )
 

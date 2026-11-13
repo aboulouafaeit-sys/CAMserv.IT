@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CAMserv — Security Intelligence Platform</title>
+  <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div id="app-root">
+    <!-- Left Navigation Command Rail -->
+    <aside id="sidebar">
+      <div class="brand-header">
+        <img src="/assets/logo-primary-dark.svg" alt="CAMserv" class="brand-logo">
+      </div>
+
+      <div class="nav-scroll">
+        <div class="nav-section-title">Operations</div>
+        <div class="nav-item active" data-screen="overview">
+          <span class="icon">📊</span>
+          <span>Executive Overview</span>
+        </div>
+        <div class="nav-item" data-screen="live">
+          <span class="icon">📹</span>
+          <span>Live Monitoring</span>
+          <span class="badge" id="badge-active-cams">4</span>
+        </div>
+        <div class="nav-item" data-screen="cameras">
+          <span class="icon">⚙️</span>
+          <span>Camera Management</span>
+        </div>
+        <div class="nav-item" data-screen="events">
+          <span class="icon">🚨</span>
+          <span>Intelligent Event Center</span>
+          <span class="badge" id="badge-pending-events">2</span>
+        </div>
+
+        <div class="nav-section-title">Forensics & Analytics</div>
+        <div class="nav-item" data-screen="tracking">
+          <span class="icon">🎯</span>
+          <span>Anonymous Tracking</span>
+        </div>
+        <div class="nav-item" data-screen="investigation">
+          <span class="icon">🔍</span>
+          <span>Incident Investigation</span>
+        </div>
+        <div class="nav-item" data-screen="evidence">
+          <span class="icon">🔒</span>
+          <span>Evidence Vault</span>
+        </div>
+        <div class="nav-item" data-screen="analytics">
+          <span class="icon">📈</span>
+          <span>Analytics & Reports</span>
+        </div>
+
+        <div class="nav-section-title">Infrastructure & Security</div>
+        <div class="nav-item" data-screen="nvr">
+          <span class="icon">📡</span>
+          <span>Device & NVR</span>
+        </div>
+        <div class="nav-item" data-screen="security">
+          <span class="icon">🛡️</span>
+          <span>Security & Access</span>
+        </div>
+        <div class="nav-item" data-screen="health">
+          <span class="icon">🩺</span>
+          <span>System Health</span>
+        </div>
+        <div class="nav-item" data-screen="config">
+          <span class="icon">⚡</span>
+          <span>Deployment & Config</span>
+        </div>
+      </div>
+
+      <div class="system-status-card">
+        <div class="status-row">
+          <span style="font-weight: 600; color: var(--text-primary);">Pipeline Engine</span>
+          <span><span class="status-dot green"></span> <span style="color: var(--accent-emerald);">ONLINE</span></span>
+        </div>
+        <div class="status-row" style="color: var(--text-muted);">
+          <span>Backend: <span id="side-backend" style="color: var(--accent-cyan);">ONNX_GPU</span></span>
+          <span id="side-fps">60.2 FPS</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Application Workspace -->
+    <main id="workspace">
+      <!-- Top Navigation Bar -->
+      <header id="top-bar">
+        <div class="view-heading">
+          <span class="breadcrumb" id="top-breadcrumb">Operations /</span>
+          <h1 id="top-title">Executive Overview</h1>
+        </div>
+
+        <div class="top-bar-actions">
+          <div class="telemetry-pill">
+            <span>P50 Latency:</span>
+            <span class="val" id="pill-p50">14.2 ms</span>
+          </div>
+          <div class="telemetry-pill">
+            <span>P99 Latency:</span>
+            <span class="val" id="pill-p99">28.7 ms</span>
+          </div>
+          <div class="telemetry-pill">
+            <span>GPU VRAM:</span>
+            <span class="val" id="pill-vram">1.8 / 6.0 GB</span>
+          </div>
+          <div class="btn btn-secondary mono" style="font-size: 11px;">
+            👤 OPERATOR (dev)
+          </div>
+        </div>
+      </header>
+
+      <!-- Screen 01: Executive Overview -->
+      <section class="screen-container active" id="screen-overview">
+        <div class="kpi-grid">
+          <div class="kpi-card">
+            <div class="kpi-title">Active Cameras</div>
+            <div class="kpi-value" id="kpi-cams">4 / 4</div>
+            <div class="kpi-trend">● 100% Operational • 0 Dropped</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-title">Open Events (Requires Review)</div>
+            <div class="kpi-value" style="color: var(--accent-amber);" id="kpi-alerts">2 PENDING</div>
+            <div class="kpi-trend">● Human Verification Required</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-title">24h Event Volume</div>
+            <div class="kpi-value" id="kpi-volume">148</div>
+            <div class="kpi-trend">● 14 Critical • 32 High • 102 Normal</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-title">Forensic Audit Chain</div>
+            <div class="kpi-value" style="color: var(--accent-emerald);">VERIFIED</div>
+            <div class="kpi-trend">● 100% Cryptographic Continuity</div>
+          </div>
+        </div>
+
+        <div class="table-panel">
+          <div class="table-header-bar">
+            <h3>Recent High-Priority Events & Anomalies</h3>
+            <button class="btn btn-primary" onclick="window.camservApp.switchScreen('events')">View Event Center</button>
+          </div>
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Time (UTC)</th>
+                <th>Camera</th>
+                <th>Event Type</th>
+                <th>Severity</th>
+                <th>Confidence</th>
+                <th>Verification</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="overview-events-body">
+              <!-- Dynamically populated -->
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Screen 02: Live Monitoring -->
+      <section class="screen-container" id="screen-live">
+        <div style="margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center;">
+          <div style="font-size: 13px; color: var(--text-muted);">
+            Active Layout: <span style="color: var(--text-primary); font-weight: 600;">2x2 Quad Multi-View</span>
+          </div>
+          <div style="display: flex; gap: 8px;">
+            <button class="btn btn-secondary" id="btn-toggle-boxes">Toggle Bounding Boxes</button>
+            <button class="btn btn-secondary" id="btn-toggle-privacy">Toggle Privacy Blur</button>
+          </div>
+        </div>
+        <div class="video-grid" id="live-video-grid">
+          <!-- Dynamically populated camera streams -->
+        </div>
+      </section>
+
+      <!-- Screen 03: Camera Management -->
+      <section class="screen-container" id="screen-cameras">
+        <div class="table-panel">
+          <div class="table-header-bar">
+            <h3>Connected Camera Inventory & Calibration</h3>
+            <button class="btn btn-primary" id="btn-open-add-cam">+ Register Camera</button>
+          </div>
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Name</th>
+                <th>RTSP / Endpoint URL</th>
+                <th>Resolution</th>
+                <th>Target FPS</th>
+                <th>Privacy Zones</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="cameras-table-body">
+              <!-- Dynamically populated -->
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Screen 04: Intelligent Event Center -->
+      <section class="screen-container" id="screen-events">
+        <div class="table-panel">
+          <div class="table-header-bar">
+            <h3>Security Event & Anomaly Intelligence</h3>
+            <div style="display: flex; gap: 8px;">
+              <select id="filter-event-severity" style="padding: 4px 8px; background: var(--bg-canvas); color: var(--text-primary); border: 1px solid var(--border-subtle); border-radius: 4px;">
+                <option value="">All Severities</option>
+                <option value="critical">Critical</option>
+                <option value="high">High</option>
+                <option value="medium">Medium</option>
+              </select>
+            </div>
+          </div>
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Event ID</th>
+                <th>Timestamp (UTC)</th>
+                <th>Camera</th>
+                <th>Type</th>
+                <th>Severity</th>
+                <th>Confidence</th>
+                <th>Status</th>
+                <th>Human Verification</th>
+              </tr>
+            </thead>
+            <tbody id="events-table-body">
+              <!-- Dynamically populated -->
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Screen 05: Anonymous Tracking Visualization -->
+      <section class="screen-container" id="screen-tracking">
+        <div class="kpi-grid">
+          <div class="kpi-card">
+            <div class="kpi-title">Active Anonymous Tracks</div>
+            <div class="kpi-value" id="track-active-count">6</div>
+            <div class="kpi-trend">● Transient Integer IDs Only</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-title">MOTA (Tracking Accuracy)</div>
+            <div class="kpi-value" style="color: var(--accent-emerald);">94.8%</div>
+            <div class="kpi-trend">● MOTP: 0.12 pixel error</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-title">ID Switches (24h)</div>
+            <div class="kpi-value">3</div>
+            <div class="kpi-trend">● Bounded Kalman Association</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-title">Biometric Identity Stored</div>
+            <div class="kpi-value" style="color: var(--accent-emerald);">ZERO</div>
+            <div class="kpi-trend">● GDPR Compliant Anonymity</div>
+          </div>
+        </div>
+
+        <div class="table-panel">
+          <div class="table-header-bar">
+            <h3>Active Track Telemetry</h3>
+          </div>
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Anonymous ID</th>
+                <th>Class</th>
+                <th>Camera</th>
+                <th>State</th>
+                <th>Age (Frames)</th>
+                <th>Velocity (px/s)</th>
+                <th>Confidence</th>
+              </tr>
+            </thead>
+            <tbody id="tracking-table-body">
+              <!-- Dynamically populated -->
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Screen 06: Incident Investigation -->
+      <section class="screen-container" id="screen-investigation">
+        <div class="kpi-card" style="margin-bottom: 20px;">
+          <h3 style="font-size: 15px; margin-bottom: 8px;">Multi-Camera Incident Timeline Reconstruction</h3>
+          <p style="color: var(--text-muted); font-size: 12px; margin-bottom: 14px;">
+            Correlates temporal detection graphs across adjacent cameras to establish synchronized incident chronologies without persistent identity tracking.
+          </p>
+          <div style="background: #050811; padding: 16px; border-radius: var(--radius-md); font-family: var(--font-mono); font-size: 12px; border: 1px solid var(--border-subtle);">
+            <div>[21:14:02 UTC] cam-north-01: Anonymous Track #104 entered Restricted Perimeter Zone A (Confidence 0.94)</div>
+            <div>[21:14:18 UTC] cam-north-01: Kinematic aspect ratio drop (1.82s stationary) -> Fall Detection Hypothesis Triggered</div>
+            <div>[21:14:22 UTC] cam-perimeter-02: Correlated adjacent camera confirms prostrate subject in loading dock</div>
+            <div>[21:14:30 UTC] System: Escalated to CRITICAL alert. Assigned to Human Operator Review.</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 07: Evidence Vault -->
+      <section class="screen-container" id="screen-evidence">
+        <div class="table-panel">
+          <div class="table-header-bar">
+            <h3>Tamper-Evident Forensic Evidence Records</h3>
+            <button class="btn btn-secondary" onclick="window.camservApp.openEvidenceVerifier()">Audit Package (.ZIP)</button>
+          </div>
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Package ID</th>
+                <th>Event Association</th>
+                <th>Camera ID</th>
+                <th>Time Range</th>
+                <th>SHA-256 Digest</th>
+                <th>Digital Signature</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="evidence-table-body">
+              <!-- Dynamically populated -->
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Screen 08: Analytics & Reports -->
+      <section class="screen-container" id="screen-analytics">
+        <div class="kpi-grid">
+          <div class="kpi-card">
+            <div class="kpi-title">Person Detections (24h)</div>
+            <div class="kpi-value">1,420</div>
+            <div class="kpi-trend">● Smoothed hourly volume</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-title">Vehicles Classified</div>
+            <div class="kpi-value">684</div>
+            <div class="kpi-trend">● 482 Cars, 128 Trucks, 74 Motorcycles</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-title">Compliance Data Purges</div>
+            <div class="kpi-value" style="color: var(--accent-emerald);">AUTOMATED</div>
+            <div class="kpi-trend">● 7-day transient / 30-day evidence retention</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 09: Device & NVR -->
+      <section class="screen-container" id="screen-nvr">
+        <div class="table-panel">
+          <div class="table-header-bar">
+            <h3>ONVIF Auto-Discovery & Third-Party NVR Interconnect</h3>
+            <button class="btn btn-primary" id="btn-scan-onvif">Broadcast WS-Discovery Probe</button>
+          </div>
+          <div style="padding: 18px;" id="onvif-scan-output">
+            <p style="color: var(--text-muted); font-size: 13px;">
+              Ready to probe local subnet for ONVIF Profile S/T compliant IP cameras and NVR video transmitters.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 10: Security & Access Control -->
+      <section class="screen-container" id="screen-security">
+        <div class="table-panel">
+          <div class="table-header-bar">
+            <h3>Cryptographic Audit Log Inspector (logs/audit.jsonl)</h3>
+            <span class="badge-pill badge-verified" id="badge-audit-chain">HASH CHAIN INTACT</span>
+          </div>
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Index</th>
+                <th>Timestamp (UTC)</th>
+                <th>Actor</th>
+                <th>Action</th>
+                <th>Resource</th>
+                <th>Result</th>
+                <th>SHA-256 Chained Hash</th>
+              </tr>
+            </thead>
+            <tbody id="audit-table-body">
+              <!-- Dynamically populated -->
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Screen 11: System Health -->
+      <section class="screen-container" id="screen-health">
+        <div class="kpi-grid">
+          <div class="kpi-card">
+            <div class="kpi-title">Host Processor</div>
+            <div class="kpi-value mono" style="font-size: 16px;" id="health-cpu">10 physical / 20 logical</div>
+            <div class="kpi-trend">● Core temperature & scheduler normal</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-title">Physical Memory</div>
+            <div class="kpi-value mono" style="font-size: 16px;" id="health-ram">18.4 GB free / 32.5 GB</div>
+            <div class="kpi-trend">● Zero paging pressure</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-title">GPU Accelerator</div>
+            <div class="kpi-value mono" style="font-size: 16px;" id="health-gpu">RTX 3060 Laptop (CUDA 13.5)</div>
+            <div class="kpi-trend">● Compute Capability 8.6</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-title">Pipeline Queue Depth</div>
+            <div class="kpi-value mono" style="color: var(--accent-emerald);">4 / 32</div>
+            <div class="kpi-trend">● Drop Oldest Backpressure Idle</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 12: Deployment & Configuration -->
+      <section class="screen-container" id="screen-config">
+        <div class="table-panel" style="padding: 24px;">
+          <h3 style="margin-bottom: 16px;">Runtime Platform Settings</h3>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+            <div class="form-group">
+              <label>Inference Accelerator Backend</label>
+              <select id="cfg-backend">
+                <option value="onnx_gpu" selected>ONNX Runtime GPU (CUDA 13.5)</option>
+                <option value="onnx_cpu">ONNX Runtime CPU Fallback</option>
+                <option value="tensorrt">NVIDIA TensorRT</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Tracking Algorithm</label>
+              <select id="cfg-tracking">
+                <option value="bytetrack" selected>ByteTrack (High-Performance 2-Stage)</option>
+                <option value="botsort">BoT-SORT (Camera Motion Compensation + Re-ID)</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Detection Confidence Threshold</label>
+              <input type="number" step="0.05" min="0.1" max="0.95" value="0.45" id="cfg-conf">
+            </div>
+            <div class="form-group">
+              <label>Privacy Face & Body Blur Strength</label>
+              <input type="number" min="5" max="55" step="2" value="25" id="cfg-blur">
+            </div>
+          </div>
+          <div style="margin-top: 20px; display: flex; justify-content: flex-end;">
+            <button class="btn btn-primary" onclick="alert('Configuration updated and validated.');">Apply & Save</button>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Human Verification Modal -->
+  <div class="modal-overlay" id="modal-verify">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 id="verify-modal-title">Human-in-the-Loop Event Verification</h3>
+        <span style="cursor: pointer;" onclick="window.camservApp.closeModal('modal-verify')">✕</span>
+      </div>
+      <div class="modal-body">
+        <div id="verify-modal-desc" style="font-size: 13px; line-height: 1.6; color: var(--text-primary);"></div>
+        <div style="background: #050811; padding: 12px; border-radius: var(--radius-sm); border: 1px solid var(--border-subtle); font-family: var(--font-mono); font-size: 11px;" id="verify-modal-reasoning"></div>
+        <div class="form-group">
+          <label>Operator Audit Notes</label>
+          <textarea id="verify-notes" rows="3" placeholder="Enter rationale for sign-off or dismissal..."></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="window.camservApp.submitVerification('dismissed')">Dismiss (False Alarm)</button>
+        <button class="btn btn-primary" onclick="window.camservApp.submitVerification('verified')">Confirm & Dispatch</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Register Camera Modal -->
+  <div class="modal-overlay" id="modal-add-cam">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>Register IP Camera or NVR Stream</h3>
+        <span style="cursor: pointer;" onclick="window.camservApp.closeModal('modal-add-cam')">✕</span>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>Camera ID (Unique)</label>
+          <input type="text" id="add-cam-id" placeholder="cam-loading-dock-01">
+        </div>
+        <div class="form-group">
+          <label>Display Name</label>
+          <input type="text" id="add-cam-name" placeholder="North Loading Dock">
+        </div>
+        <div class="form-group">
+          <label>RTSP Stream URL</label>
+          <input type="text" id="add-cam-url" placeholder="rtsp://admin:pass@192.168.1.100:554/live/ch1">
+        </div>
+        <div class="form-group">
+          <label>Target FPS</label>
+          <input type="number" id="add-cam-fps" value="15" min="5" max="60">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="window.camservApp.closeModal('modal-add-cam')">Cancel</button>
+        <button class="btn btn-primary" onclick="window.camservApp.submitAddCamera()">Register</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

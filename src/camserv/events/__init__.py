@@ -1,5 +1,12 @@
 """camserv.events package exports."""
-from camserv.events.alerts import AlertManager, AlertRule, NotificationChannel
+from camserv.events.alerts import (
+    AlertChannel,
+    AlertManager,
+    AlertRateLimiter,
+    EmailChannel,
+    WebhookChannel,
+    WebSocketChannel,
+)
 from camserv.events.detector import EventDetector as RuleEventDetector
 from camserv.events.detector import EventRule
 from camserv.events.temporal import (
@@ -9,12 +16,15 @@ from camserv.events.temporal import (
 )
 
 __all__ = [
+    "AlertChannel",
     "AlertManager",
-    "AlertRule",
+    "AlertRateLimiter",
+    "EmailChannel",
     "EventRule",
-    "NotificationChannel",
     "ObservationEvidence",
     "RuleEventDetector",
     "TemporalEventEngine",
     "TemporalTrackState",
+    "WebhookChannel",
+    "WebSocketChannel",
 ]

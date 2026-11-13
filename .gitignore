@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+.env
+data/*.db
+data/*.db-wal
+data/*.db-shm
+data/evidence/*.zip
+data/evidence/*
+!data/evidence/.gitkeep
