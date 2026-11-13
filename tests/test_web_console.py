@@ -39,15 +39,15 @@ def test_web_console_static_assets(client: TestClient) -> None:
     assert resp_js.status_code == 200
     assert "CAMservClient" in resp_js.text
 
-    # Brand SVG symbol
-    resp_sym = client.get("/assets/logo-symbol.svg")
+    # Brand PNG assets (official AI-generated suite)
+    resp_sym = client.get("/assets/camserv-logo-transparent.png")
     assert resp_sym.status_code == 200
-    assert "<svg" in resp_sym.text
+    assert len(resp_sym.content) > 1000
 
     # Favicon
-    resp_fav = client.get("/assets/favicon.svg")
+    resp_fav = client.get("/assets/favicon.png")
     assert resp_fav.status_code == 200
-    assert "<svg" in resp_fav.text
+    assert len(resp_fav.content) > 100
 
 
 @pytest.mark.unit

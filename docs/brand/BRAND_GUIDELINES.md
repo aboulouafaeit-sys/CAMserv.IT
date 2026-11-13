@@ -1,7 +1,8 @@
 # CAMserv Official Brand Identity & Design Guidelines
-**Creative Direction & Industrial Brand Manual**  
-**Version:** 1.0 (Commercial Enterprise Edition)  
-**Author:** Chief Creative Director & Principal Brand Architect
+
+**Creative Direction & Commercial Brand Manual**  
+**Version:** 2.0 (Official AI-Illustrated Edition)  
+**Author:** Chief Creative Director & AI Visual Design Specialist
 
 ---
 
@@ -9,55 +10,75 @@
 
 ### 1.1 Brand Personality
 CAMserv is **authoritative, mathematically precise, privacy-first, and technologically superior**.  
-It is built for critical infrastructure operators, forensic investigators, corporate security executives, and municipal engineers who demand verifiable certainty over marketing hype.
+It is engineered for critical infrastructure operators, forensic investigators, corporate security executives, and municipal engineers who demand verifiable certainty over marketing hype.
 
-### 1.2 Visual Philosophy: "The Coherent Prism"
-Traditional security products default to tired, defensive clichés: padlocks, clip-art shields, all-seeing eyes, and cartoon cameras.  
-CAMserv breaks with this cliché. Our visual mark is **The Sentinel Optical Aperture**—a six-segment interlocking geometric aperture formed by precision-refracted optical planes. It embodies:
-1. **Dynamic Perspective:** Multi-camera situational awareness.
-2. **Mathematical Precision:** Predictable kinematic vector estimation.
-3. **Anonymity by Design:** Optical refraction masking personal data before persistent storage.
-4. **Invariant Focus:** The central core dot representing cryptographic immutability.
+### 1.2 Visual Philosophy: "The Cybernetic Sentinel"
+CAMserv has superseded all generic geometric clip-art and assembled vectors with an original, professionally illustrated visual identity generated via **Google Imagen 3**.
+
+The core visual mark is the **Vigilant Sentinel Crest**—an organic-cybernetic synthesis combining:
+1. **The Raptor Crest:** Represents vigilant oversight, aerial awareness, and high-altitude situational command.
+2. **The Optical Aperture Iris:** Represents video stream acquisition, precision lenses, and real-time optical tracking.
+3. **Neural Circuit Nodes:** Highlights on-device machine learning inference, kinematic velocity estimation, and graph-based event reasoning.
+4. **The Protective Shield Geometry:** Emphasizes non-biometric privacy protection, cryptographic sealing (AES-256-GCM, SHA-256 hash chains), and strict GDPR conformity.
 
 ---
 
 ## 2. Color Palette & Design Tokens
 
-CAMserv utilizes an intentional **Tactical Deep Dark Mode** palette engineered for 24/7 security control room environments to minimize eye strain while highlighting actionable signals with clinical contrast.
+CAMserv utilizes an intentional **Tactical Command Dark Mode** palette engineered for 24/7 security control room environments to minimize eye fatigue while highlighting actionable signals with clinical contrast. A high-contrast **Light Mode** is provided for daytime dispatch and executive briefing environments.
 
-### 2.1 Core Surfaces
+### 2.1 Core Surfaces & Canvases
 | Token Name | Hex Code | Purpose |
 | :--- | :--- | :--- |
-| `--color-canvas` | `#0B0F19` | Deep obsidian background canvas |
-| `--color-surface` | `#111827` | Panel and card background |
-| `--color-surface-hover` | `#1E293B` | Interactive row and button hover state |
-| `--color-border` | `#1F2937` | Subtle divider lines |
-| `--color-border-active` | `#374151` | Focused and highlighted borders |
+| `--color-canvas-dark` | `#0A0F1D` | Deep obsidian command canvas |
+| `--color-surface-dark` | `#111827` | Primary card and panel surface |
+| `--color-surface-hover` | `#1F2937` | Interactive row and button hover state |
+| `--color-border-dark` | `#1E293B` | Subtle technical boundary lines |
+| `--color-canvas-light` | `#F8FAFC` | High-contrast daytime canvas |
+| `--color-surface-light` | `#FFFFFF` | Daytime panel surface |
 
-### 2.2 Semantic & Functional Accents
+### 2.2 Semantic Accents & Telemetry
 | Token Name | Hex Code | Meaning / Utilization |
 | :--- | :--- | :--- |
-| `--color-cyber-cyan` | `#06B6D4` | Primary brand accent; active camera streams, telemetry |
-| `--color-emerald` | `#10B981` | Normal status, verified events, healthy hardware |
-| `--color-amber` | `#F59E0B` | Warning, medium severity events, pending human review |
-| `--color-crimson` | `#EF4444` | Critical events, fall detection, tamper triggers |
-| `--color-indigo` | `#6366F1` | Machine learning inference, model version indicators |
+| `--color-electric-cyan` | `#00E5FF` | Primary brand accent; active camera streams, telemetry |
+| `--color-cyber-indigo` | `#3B82F6` | Deep learning models, inference accelerators, tracking vectors |
+| `--color-emerald` | `#10B981` | Healthy system status, verified evidence, GDPR compliance |
+| `--color-amber` | `#F59E0B` | Medium severity events, pending human verification (HITL) |
+| `--color-crimson` | `#EF4444` | High/Critical alarms, restricted zone violations, tamper alerts |
 
 ### 2.3 Typography Scale
 * **Display / UI Wordmark:** `Inter`, `-apple-system`, `BlinkMacSystemFont`, `Segoe UI`, sans-serif.
-* **Forensic / Telemetry Data:** `JetBrains Mono`, `Fira Code`, `Consolas`, monospace. All coordinates, hashes, timestamps, and confidence scores MUST render in monospace with tabular figures (`font-variant-numeric: tabular-nums`).
+* **Forensic / Telemetry Data:** `JetBrains Mono`, `Consolas`, monospace. All coordinates, hashes, timestamps, and confidence scores MUST render in monospace with tabular figures (`font-variant-numeric: tabular-nums`).
 
 ---
 
-## 3. Logo Assets & Sizing Rules
+## 3. Official Master Brand Asset Suite
 
-### 3.1 Primary Mark Hierarchy
-1. **Master Horizontal Logo (`logo-primary-dark.svg`):** Used in navigation headers, documentation headers, and software splash screens.
-2. **Sentinel Aperture Mark (`logo-symbol.svg`):** Standalone app launcher icon, packaging insignia, hardware faceplate badge.
-3. **Monochrome Engraving Variant (`logo-monochrome.svg`):** Laser-engraved NVR chassis, thermal receipts, single-color packaging prints.
-4. **Optimized Favicon (`favicon.svg`):** High-legibility 32x32 rounded badge for browser tabs and mobile home screens.
+All primary visual assets are high-resolution PNGs residing in `assets/branding/` and `src/camserv/web/assets/`:
 
-### 3.2 Clear Space & Proportions
-* The logo must always maintain an exclusion zone equal to at least half the height of the central aperture mark ($0.5H$) on all four sides.
-* Minimum digital display size: 24px height for symbol mark; 160px width for horizontal wordmark.
-* Never warp, skew, recolor with unapproved gradients, or encase the logo inside a generic shield.
+```
+assets/branding/
+├── camserv-logo-master.png           # 1024x1024 Master Illustrated Artwork (Obsidian)
+├── camserv-logo-transparent.png      # 1024x1024 Isolated Falcon Crest (Alpha Channel)
+├── camserv-logo-dark-background.png  # 1024x1024 Dark Mode Console Emblem
+├── camserv-logo-light-background.png # 1024x1024 Light Mode High-Contrast Emblem
+├── camserv-symbol.png                # 1024x1024 Standalone Brand Symbol
+├── camserv-wordmark.png              # 800x200 Horizontal Lockup with Typography
+├── camserv-app-icon.png              # 512x512 Launcher & Container Icon
+├── camserv-favicon.png               # 32x32 Favicon PNG
+├── favicon.ico                       # Multi-Resolution Windows/Web Icon (16-256px)
+└── favicon-{16,32,48,64,128,192,256,512,1024}x...png
+```
+
+---
+
+## 4. Usage Rules & Clear Space
+
+### 4.1 Safe Clear Space
+Maintain a clear margin of at least $0.25 \times X$ (where $X$ is the emblem width) around all sides of the mark. No typography, interface controls, or competing graphics may infringe into this boundary.
+
+### 4.2 Prohibited Alterations
+* **DO NOT** stretch, skew, or alter the 1:1 aspect ratio of the emblem.
+* **DO NOT** recolor the emblem with arbitrary unapproved tints.
+* **DO NOT** place the dark emblem against busy, multi-colored photographic backgrounds without a translucent backing plate.
+* **DO NOT** substitute generic clip-art or geometric shapes for the official illustrated mark.
