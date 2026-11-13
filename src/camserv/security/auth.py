@@ -25,7 +25,7 @@ from typing import Any, Callable
 
 import jwt
 import structlog
-from fastapi import Depends, HTTPException, Security, status
+from fastapi import Depends, HTTPException, Request, Security, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer, SecurityScopes
 
 logger = structlog.get_logger(__name__)
@@ -437,6 +437,15 @@ class AuthManager:
         return identity
 
 
+async def get_current_user(
+    request: Request,
+    creds: HTTPAuthorizationCredentials | None = Security(bearer_scheme),
+) -> UserIdentity:
+    """FastAPI dependency: resolves caller identity from app.state.auth_manager."""
+    auth_manager: AuthManager = getattr(request.app.state, "auth_manager")
+    return await auth_manager.get_current_user(creds)
+
+
 # ---------------------------------------------------------------------------
 # RBAC Decorators & Dependencies
 # ---------------------------------------------------------------------------
@@ -444,7 +453,7 @@ class AuthManager:
 def require_role(*allowed_roles: Role) -> Callable[..., Any]:
     """Dependency factory checking that caller has at least one of the allowed roles."""
 
-    def _role_checker(identity: UserIdentity = Depends(AuthManager.get_current_user)) -> UserIdentity:
+    def _role_checker(identity: UserIdentity = Depends(get_current_user)) -> UserIdentity:
         if identity.role not in allowed_roles and identity.role != Role.ADMIN:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -458,7 +467,7 @@ def require_role(*allowed_roles: Role) -> Callable[..., Any]:
 def require_permission(permission: str) -> Callable[..., Any]:
     """Dependency factory checking that caller has specific permission."""
 
-    def _permission_checker(identity: UserIdentity = Depends(AuthManager.get_current_user)) -> UserIdentity:
+    def _permission_checker(identity: UserIdentity = Depends(get_current_user)) -> UserIdentity:
         if not identity.has_permission(permission):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,

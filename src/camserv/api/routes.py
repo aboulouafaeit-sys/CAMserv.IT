@@ -175,6 +175,23 @@ async def list_cameras(
     ]
 
 
+@router.get(
+    "/cameras/{camera_id}",
+    response_model=CameraResponse,
+    tags=["Cameras"],
+    summary="Get single camera details",
+)
+async def get_camera(
+    request: Request,
+    camera_id: str,
+    current_user: UserIdentity = Depends(require_permission("cameras:read")),
+) -> CameraResponse:
+    cameras = getattr(request.app.state, "cameras", {})
+    if camera_id not in cameras:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Camera '{camera_id}' not found")
+    return CameraResponse(**cameras[camera_id])
+
+
 @router.post(
     "/cameras",
     response_model=CameraResponse,
