@@ -1,0 +1,17 @@
+# CAMserv Master Engineering Task Registry
+**Universal Hardware Adaptation, Brand Identity Redesign & Multi-Agent Execution**
+
+| Task ID | Agent Role | Subsystem / Objective | Permitted Files | Dependencies | Status | Test Criteria | Evidence / Reviewer |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **TSK-ARC-01** | Agent 01: Chief Architect | Environment audit, parallel execution assessment, baseline recovery point | `docs/governance/`, `docs/MASTER_ENGINEERING_TASK_REGISTRY.md` | None | **ACCEPTED** | Git worktree, remote & branch audit | Safe tag `pre-v2-adaptation` created |
+| **TSK-BRD-01** | Agent 13: Creative Director | 3 Creative Brand Directions, Concept Evaluation & Master Selection | `docs/brand/BRAND_CONCEPTS.md`, `brand/` | None | **IN_PROGRESS** | Silhouette legibility, vector geometry | Original sketches & rationale |
+| **TSK-BRD-02** | Agent 13: Creative Director | Production Vector Logo Suite (`logo-master.svg`, `dark`, `light`, `mono`, `symbol-only`) | `brand/`, `src/camserv/web/assets/` | TSK-BRD-01 | **PLANNED** | W3C SVG validation, scaling 16px-1024px | Crisp rendering across themes |
+| **TSK-HWA-01** | Agent 17: Universal HW Eng | Comprehensive Hardware Probe Engine (CPU, RAM, GPU, VRAM, NVDEC, DirectML, Storage) | `src/camserv/platform/hardware.py` | None | **PLANNED** | Mock & real host hardware probe | Zero admin privilege escalation |
+| **TSK-HWA-02** | Agent 17: Universal HW Eng | 4-Tier Adaptive Operating Profiles (Low-End, Standard, Workstation, Enterprise) | `src/camserv/platform/tiers.py` | TSK-HWA-01 | **PLANNED** | Profile instantiation & constraints | Bounded CPU/RAM memory ceilings |
+| **TSK-HWA-03** | Agent 05: Video Pipeline | Adaptive Resource Manager & Pressure Shedding (Dynamic FPS, Resolution, OOM Guard) | `src/camserv/platform/adaptive_manager.py` | TSK-HWA-02 | **PLANNED** | Memory pressure load tests | Automated resolution drop & recovery |
+| **TSK-NVR-01** | Agent 06: NVR Integration | Camera & NVR Compatibility Matrix (Hikvision, Dahua, Axis, Hanwha, Bosch) & 4 Topologies | `docs/NVR_COMPATIBILITY_MATRIX.md`, `src/camserv/acquisition/onvif.py` | None | **PLANNED** | RTSP handshake & reconnect latency | Tested simulated manufacturer quirks |
+| **TSK-DSN-01** | Agent 14: UI/UX Designer | Complete 13-Screen Information Architecture & Dual Light/Dark Theme Design System | `docs/design/SCREEN_SPECS.md`, `docs/design/DESIGN_SYSTEM.md` | TSK-BRD-02 | **PLANNED** | Contrast ratio AAA / AA compliance | Mapped user flows & empty states |
+| **TSK-DSN-02** | Agent 15 & 16: Frontend Eng | Production Dual-Theme Web Console implementation for all 13 screens | `src/camserv/web/` | TSK-DSN-01 | **PLANNED** | Chrome/Firefox/Edge compatibility | Zero-lag rendering, responsive grid |
+| **TSK-AIE-01** | Agent 04: AI Event Intel | Multi-Frame Temporal Analytics & False Alarm Filter with Uncertainty Bounds | `src/camserv/events/temporal.py` | None | **PLANNED** | Aspect ratio, dwell time, smoke test | Precision, Recall, FPR, FNR doc |
+| **TSK-SEC-01** | Agent 08 & 09: Security Eng | Forensic Chain-of-Custody, Asymmetric Signatures & Policy-enforced Privacy Guard | `src/camserv/storage/forensics.py`, `src/camserv/inference/privacy.py` | None | **PLANNED** | Cryptographic tamper detection test | Non-repudiation verified |
+| **TSK-QAR-01** | Agent 12: Independent QA | Comprehensive Multi-Layer Test Expansion (Unit, Stress, Low-End Tier, 72h Harness) | `tests/` | All | **PLANNED** | 100% test pass rate | Multi-tier test suite passes |

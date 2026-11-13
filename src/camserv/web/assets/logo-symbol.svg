@@ -1,38 +1,34 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100" fill="none">
   <defs>
-    <linearGradient id="camserv_cyan" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#06B6D4" />
-      <stop offset="100%" stop-color="#0284C7" />
-    </linearGradient>
-    <linearGradient id="camserv_emerald" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#10B981" />
-      <stop offset="100%" stop-color="#059669" />
-    </linearGradient>
-    <linearGradient id="camserv_indigo" x1="0%" y1="0%" x2="100%" y2="100%">
+    <linearGradient id="cs_sentinel_upper" x1="10%" y1="10%" x2="90%" y2="50%">
       <stop offset="0%" stop-color="#6366F1" />
-      <stop offset="100%" stop-color="#4F46E5" />
+      <stop offset="100%" stop-color="#06B6D4" />
     </linearGradient>
+    <linearGradient id="cs_sentinel_lower" x1="10%" y1="50%" x2="90%" y2="90%">
+      <stop offset="0%" stop-color="#06B6D4" />
+      <stop offset="100%" stop-color="#10B981" />
+    </linearGradient>
+    <linearGradient id="cs_prism_core" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#06B6D4" />
+      <stop offset="100%" stop-color="#38BDF8" />
+    </linearGradient>
+    <filter id="cs_glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#06B6D4" flood-opacity="0.25" />
+    </filter>
   </defs>
 
-  <!-- Sentinel Aperture Segment A (Top-Right) -->
-  <path d="M 50 12 L 85 32 L 67 42 L 50 32 Z" fill="url(#camserv_cyan)" />
+  <!-- Upper Monolith Bastion (Gesture 'C') -->
+  <path d="M 18 18 L 68 18 L 84 34 L 84 44 L 62 44 L 52 34 L 34 34 L 34 52 L 20 66 L 18 64 Z" 
+        fill="url(#cs_sentinel_upper)" 
+        filter="url(#cs_glow)" />
 
-  <!-- Sentinel Aperture Segment B (Right-Bottom) -->
-  <path d="M 88 38 L 88 78 L 70 68 L 70 48 Z" fill="url(#camserv_cyan)" opacity="0.85" />
+  <!-- Lower Monolith Bastion (Gesture 'S') -->
+  <path d="M 82 82 L 32 82 L 16 66 L 16 56 L 38 56 L 48 66 L 66 66 L 66 48 L 80 34 L 82 36 Z" 
+        fill="url(#cs_sentinel_lower)" 
+        filter="url(#cs_glow)" />
 
-  <!-- Sentinel Aperture Segment C (Bottom) -->
-  <path d="M 85 82 L 50 100 L 50 80 L 67 70 Z" fill="url(#camserv_emerald)" />
-
-  <!-- Sentinel Aperture Segment D (Bottom-Left) -->
-  <path d="M 45 98 L 12 78 L 30 68 L 45 78 Z" fill="url(#camserv_emerald)" opacity="0.85" />
-
-  <!-- Sentinel Aperture Segment E (Left-Top) -->
-  <path d="M 12 72 L 12 32 L 30 42 L 30 62 Z" fill="url(#camserv_indigo)" />
-
-  <!-- Sentinel Aperture Segment F (Top-Left) -->
-  <path d="M 15 28 L 50 10 L 50 28 L 32 38 Z" fill="url(#camserv_indigo)" opacity="0.85" />
-
-  <!-- Core Prism Focus (Invariant Centre) -->
-  <circle cx="50" cy="50" r="7.5" fill="#F8FAFC" />
-  <circle cx="50" cy="50" r="14" stroke="#06B6D4" stroke-width="1.5" stroke-dasharray="2 3" opacity="0.75" />
+  <!-- Central Invariant Optical Diamond (Core Focal Focus) -->
+  <polygon points="50,38 62,50 50,62 38,50" 
+           fill="url(#cs_prism_core)" />
+  <circle cx="50" cy="50" r="3" fill="#FFFFFF" />
 </svg>
