@@ -4,7 +4,7 @@
    ========================================================================== */
 
 :root {
-  /* Surfaces & Canvas */
+  /* Surfaces & Canvas (Dark Theme Default) */
   --bg-canvas: #0b0f19;
   --bg-surface: #111827;
   --bg-surface-elevated: #1f2937;
@@ -41,6 +41,35 @@
   --radius-md: 8px;
   --radius-lg: 12px;
 }
+
+[data-theme="light"] {
+  /* Surfaces & Canvas (Clean Light Theme) */
+  --bg-canvas: #f8fafc;
+  --bg-surface: #ffffff;
+  --bg-surface-elevated: #f1f5f9;
+  --bg-surface-hover: #e2e8f0;
+  --border-subtle: #e2e8f0;
+  --border-active: #cbd5e1;
+  --border-focus: #0284c7;
+
+  /* Typography Colors */
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #64748b;
+  --text-accent: #0284c7;
+
+  /* Semantic Signal Accents */
+  --accent-cyan: #0284c7;
+  --accent-cyan-glow: rgba(2, 132, 199, 0.12);
+  --accent-emerald: #059669;
+  --accent-emerald-glow: rgba(5, 150, 105, 0.12);
+  --accent-amber: #d97706;
+  --accent-amber-glow: rgba(217, 119, 6, 0.12);
+  --accent-crimson: #dc2626;
+  --accent-crimson-glow: rgba(220, 38, 38, 0.12);
+  --accent-indigo: #4f46e5;
+}
+
 
 * {
   box-sizing: border-box;

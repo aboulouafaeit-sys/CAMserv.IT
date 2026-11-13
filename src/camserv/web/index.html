@@ -59,13 +59,17 @@
           <span class="icon">📡</span>
           <span>Device & NVR</span>
         </div>
-        <div class="nav-item" data-screen="security">
+        <div class="nav-item" data-screen="privacy">
           <span class="icon">🛡️</span>
+          <span>Privacy Management</span>
+        </div>
+        <div class="nav-item" data-screen="security">
+          <span class="icon">🔒</span>
           <span>Security & Access</span>
         </div>
         <div class="nav-item" data-screen="health">
           <span class="icon">🩺</span>
-          <span>System Health</span>
+          <span>System Health & Tiers</span>
         </div>
         <div class="nav-item" data-screen="config">
           <span class="icon">⚡</span>
@@ -107,6 +111,9 @@
             <span>GPU VRAM:</span>
             <span class="val" id="pill-vram">1.8 / 6.0 GB</span>
           </div>
+          <button class="btn btn-secondary mono" id="btn-theme-toggle" style="font-size: 11px;">
+            ☀️ Theme
+          </button>
           <div class="btn btn-secondary mono" style="font-size: 11px;">
             👤 OPERATOR (dev)
           </div>
@@ -365,7 +372,44 @@
         </div>
       </section>
 
-      <!-- Screen 10: Security & Access Control -->
+      <!-- Screen 10: Privacy Management -->
+      <section class="screen-container" id="screen-privacy">
+        <div class="kpi-grid">
+          <div class="kpi-card">
+            <div class="kpi-title">Privacy Redaction Filter</div>
+            <div class="kpi-value" style="color: var(--accent-emerald);">ON-DEVICE ACTIVE</div>
+            <div class="kpi-trend">● Dynamic Face & Body Obfuscation</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-title">Biometric Identity Stored</div>
+            <div class="kpi-value" style="color: var(--accent-emerald);">0 (ZERO)</div>
+            <div class="kpi-trend">● Strict Zero-Biometrics Schema</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-title">Geometric Exclusion Zones</div>
+            <div class="kpi-value">2 Active</div>
+            <div class="kpi-trend">● Public Sidewalk & Reception Masked</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-title">Automated Retention Purge</div>
+            <div class="kpi-value">7d / 30d</div>
+            <div class="kpi-trend">● Cryptographic Shredding Active</div>
+          </div>
+        </div>
+
+        <div class="table-panel" style="padding: 20px;">
+          <h3 style="margin-bottom: 12px;">GDPR & EU AI Act Conformity Safeguards</h3>
+          <p style="color: var(--text-muted); font-size: 13px; line-height: 1.6; margin-bottom: 16px;">
+            CAMserv enforces privacy by default at the acquisition boundary. Video frames undergo irreversible geometric zone masking and facial blurring before long-term persistence or external streaming.
+          </p>
+          <div style="display: flex; gap: 10px;">
+            <button class="btn btn-secondary" onclick="alert('DPIA Compliance Report generated: docs/PRIVACY.md');">View DPIA Documentation</button>
+            <button class="btn btn-primary" onclick="alert('Triggered automated retention purge.');">Run Manual Retention Purge</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 11: Security & Access Control -->
       <section class="screen-container" id="screen-security">
         <div class="table-panel">
           <div class="table-header-bar">

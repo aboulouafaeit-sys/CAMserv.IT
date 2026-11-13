@@ -66,6 +66,22 @@
           this.performONVIFScan();
         });
       }
+
+      // Theme Toggle (Dual Dark/Light Mode)
+      const btnTheme = document.getElementById("btn-theme-toggle");
+      if (btnTheme) {
+        btnTheme.addEventListener("click", () => {
+          const currentTheme = document.body.getAttribute("data-theme") || "dark";
+          const newTheme = currentTheme === "dark" ? "light" : "dark";
+          document.body.setAttribute("data-theme", newTheme);
+          btnTheme.textContent = newTheme === "dark" ? "☀️ Light" : "🌙 Dark";
+
+          const logoImg = document.querySelector(".brand-header img.brand-logo");
+          if (logoImg) {
+            logoImg.src = newTheme === "dark" ? "/assets/logo-primary-dark.svg" : "/assets/logo-primary-light.svg";
+          }
+        });
+      }
     }
 
     initKeyboardShortcuts() {
@@ -118,6 +134,7 @@
         evidence: "Tamper-Evident Evidence Vault",
         analytics: "Visual Intelligence & Trend Reports",
         nvr: "Device & NVR Integration",
+        privacy: "Privacy & Compliance Management",
         security: "Security, RBAC & Audit Log",
         health: "System Health & Pipeline Telemetry",
         config: "Deployment & Runtime Settings",
