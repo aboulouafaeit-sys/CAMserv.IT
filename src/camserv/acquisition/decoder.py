@@ -157,7 +157,14 @@ class FrameDecoderImpl:
     ) -> Frame:
         """CPU/GPU transformations applied to the raw frame array."""
         img = frame.image
-        if img is None or not isinstance(img, np.ndarray):
+        if (
+            img is None
+            or not isinstance(img, np.ndarray)
+            or img.size == 0
+            or img.ndim < 2
+            or img.shape[0] == 0
+            or img.shape[1] == 0
+        ):
             raise DecodingError(f"Invalid frame buffer for frame_id {frame.frame_id}")
 
         dest_size = target_size or self.config.target_size

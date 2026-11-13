@@ -157,6 +157,8 @@ class Detection:
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     is_prediction: bool = True
     embedding: np.ndarray | None = None
+    polygon: list[tuple[float, float]] | None = None
+    keypoints: list[tuple[float, float, float]] | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:

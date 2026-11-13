@@ -1,4 +1,9 @@
 """camserv.storage package exports."""
+from camserv.storage.adaptive_vault import (
+    AdaptiveRetentionVault,
+    ForensicChunkSeal,
+    SceneMetadataRecord,
+)
 from camserv.storage.evidence import EvidenceRecord, EvidenceStore
 from camserv.storage.forensics import (
     EvidencePackager,
@@ -20,4 +25,7 @@ __all__ = [
     "RedisCache",
     "SQLiteStore",
     "VerificationResult",
+    "AdaptiveRetentionVault",
+    "ForensicChunkSeal",
+    "SceneMetadataRecord",
 ]

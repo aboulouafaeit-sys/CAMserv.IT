@@ -176,13 +176,25 @@
 
       <!-- Screen 02: Live Monitoring -->
       <section class="screen-container" id="screen-live">
-        <div style="margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center;">
+        <div class="hud-narrative-bar">
+          <div class="hud-narrative-badge">ZERO-API LIVE NARRATIVE</div>
+          <div class="hud-narrative-content" id="live-narrative-text">
+            <strong>[EN]</strong> Object (ID #402) detected approaching northern fence at 0.4 m/s. Repeated bending in nighttime-enhanced zone. Threat Level: 88%.
+            &nbsp;|&nbsp;
+            <span dir="rtl" style="font-family: 'Segoe UI', Tahoma, sans-serif;"><strong>[AR]</strong> تم رصد الكائن (المعرف #402) يقترب من السياج الشمالي بسرعة 0.4 م/ث مع حركات انحناء في منطقة معززة للرؤية الليلية. مستوى التهديد: 88%.</span>
+          </div>
+          <div class="hud-preroll-pill">● RAM Pre-Roll: 15s Armed</div>
+        </div>
+
+        <div style="margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
           <div style="font-size: 13px; color: var(--text-muted);">
-            Active Layout: <span style="color: var(--text-primary); font-weight: 600;">2x2 Quad Multi-View</span>
+            Active Layout: <span style="color: var(--text-primary); font-weight: 600;">2x2 Quad Multi-View</span> • Mode: <span style="color: var(--accent-cyan); font-weight: 600;">Cinematic Contours & 3D Ground Ring</span>
           </div>
           <div style="display: flex; gap: 8px;">
-            <button class="btn btn-secondary" id="btn-toggle-boxes">Toggle Bounding Boxes</button>
-            <button class="btn btn-secondary" id="btn-toggle-privacy">Toggle Privacy Blur</button>
+            <button class="btn btn-primary" id="btn-toggle-hud">Cinematic Contours (ON)</button>
+            <button class="btn btn-secondary" id="btn-toggle-pose">Skeletal Pose (ON)</button>
+            <button class="btn btn-secondary" id="btn-toggle-isp">Software ISP (CLAHE)</button>
+            <button class="btn btn-secondary" id="btn-toggle-privacy">Privacy Blur</button>
           </div>
         </div>
         <div class="video-grid" id="live-video-grid">

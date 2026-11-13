@@ -14,6 +14,11 @@ from camserv.events.temporal import (
     TemporalEventEngine,
     TemporalTrackState,
 )
+from camserv.events.threat_engine import (
+    LocalThreatEngine,
+    SecurityNarrative,
+    ThreatScoreBreakdown,
+)
 
 __all__ = [
     "AlertChannel",
@@ -25,6 +30,9 @@ __all__ = [
     "RuleEventDetector",
     "TemporalEventEngine",
     "TemporalTrackState",
+    "LocalThreatEngine",
+    "SecurityNarrative",
+    "ThreatScoreBreakdown",
     "WebhookChannel",
     "WebSocketChannel",
 ]

@@ -25,6 +25,17 @@ from camserv.inference.detector import (
     UltralyticsDetector,
     nms,
 )
+from camserv.inference.hud_renderer import (
+    CinematicHUDRenderer,
+    ThreatVisualState,
+)
+from camserv.inference.segmentation import (
+    COCO_KEYPOINT_NAMES,
+    COCO_SKELETON_PAIRS,
+    SegmentationEngine,
+    SegmentedContour,
+    SkeletalPose,
+)
 from camserv.inference.privacy import (
     BlurMethod,
     PrivacyConfig,
@@ -80,4 +91,12 @@ __all__ = [
     "InferenceBenchmark",
     "LatencyStats",
     "MemoryUsage",
+    # Cinematic HUD & Segmentation
+    "CinematicHUDRenderer",
+    "ThreatVisualState",
+    "SegmentationEngine",
+    "SegmentedContour",
+    "SkeletalPose",
+    "COCO_KEYPOINT_NAMES",
+    "COCO_SKELETON_PAIRS",
 ]

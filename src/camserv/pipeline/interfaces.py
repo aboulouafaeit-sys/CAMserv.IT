@@ -113,6 +113,23 @@ class BoundingBox:
     x2: float
     y2: float
 
+    def __getitem__(self, idx: int) -> float:
+        if idx in (0, -4):
+            return self.x1
+        elif idx in (1, -3):
+            return self.y1
+        elif idx in (2, -2):
+            return self.x2
+        elif idx in (3, -1):
+            return self.y2
+        raise IndexError(f"BoundingBox index out of range: {idx}")
+
+    def __iter__(self):
+        yield self.x1
+        yield self.y1
+        yield self.x2
+        yield self.y2
+
     @property
     def width(self) -> float:
         return self.x2 - self.x1
@@ -185,6 +202,8 @@ class Detection:
     timestamp: datetime
     is_prediction: bool = True
     embedding: np.ndarray | None = None
+    polygon: list[tuple[float, float]] | None = None
+    keypoints: list[tuple[float, float, float]] | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -207,6 +226,10 @@ class Track:
     velocity: tuple[float, float] = (0.0, 0.0)
     trajectory: list[tuple[float, float]] = field(default_factory=list)
     last_seen: datetime | None = None
+    polygon: list[tuple[float, float]] | None = None
+    keypoints: list[tuple[float, float, float]] | None = None
+    threat_score: float = 0.0
+    threat_state: str = "normal"
     metadata: dict[str, Any] = field(default_factory=dict)
 
 

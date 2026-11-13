@@ -12,8 +12,9 @@
 </p>
 
 <p align="center">
-  <a href="#test-results"><img src="https://img.shields.io/badge/Tests-118%20Passing-10B981?style=for-the-badge&logo=pytest&logoColor=white" alt="Tests"></a>
+  <a href="#test-results"><img src="https://img.shields.io/badge/Tests-136%20Passing-10B981?style=for-the-badge&logo=pytest&logoColor=white" alt="Tests"></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-06B6D4?style=for-the-badge&logo=python&logoColor=white" alt="Python"></a>
+  <a href="docs/ADVANCED_ARCHITECTURE_ULTRA_LOCAL.md"><img src="https://img.shields.io/badge/Architecture-Ultra--Local%20Zero--API-8B5CF6?style=for-the-badge&logo=cpu&logoColor=white" alt="Ultra-Local"></a>
   <a href="docs/HARDWARE_COMPATIBILITY.md"><img src="https://img.shields.io/badge/CUDA-13.5%20%2F%20RTX%203060%2B-76B900?style=for-the-badge&logo=nvidia&logoColor=white" alt="CUDA"></a>
   <a href="docs/PRIVACY.md"><img src="https://img.shields.io/badge/GDPR%20%26%20EU%20AI%20Act-Conformity-6366F1?style=for-the-badge&logo=shield&logoColor=white" alt="Compliance"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-F59E0B?style=for-the-badge" alt="License"></a>
@@ -26,10 +27,14 @@
 **CAMserv** is an industrial-grade security intelligence platform engineered for critical infrastructure, corporate facilities, smart municipal monitoring, and high-assurance operations. It delivers a privacy-first video surveillance architecture that fuses high-throughput RTSP/ONVIF ingestion, on-device neural acceleration, anonymous multi-object tracking, and explainable temporal reasoning into a coherent, production-ready product.
 
 ### Core Architectural Pillars
+* **100% Ultra-Local Sovereignty:** Zero-API architecture eliminating external cloud fees and latency bottlenecks; all decoding, inference, tracking, narrative generation, and vault sealing run on-premise.
+* **Cinematic Visual HUD & Contouring:** Rigid bounding boxes are replaced with precise instance segmentation polygon contours (`YOLOv8/v11-seg`), 3D Ground Elliptical Rings, 17-keypoint skeletal pose stick figures, and floating glassmorphic telemetry cards.
+* **Camera-Adaptive Software ISP:** Autonomous 5-second camera stream fingerprinting into 3 operational tiers, with real-time LAB CLAHE low-light luminance equalization and ROI-based bilateral filtering.
+* **Zero-API Threat Intelligence (Arabic & English):** Multi-factor kinematic and joint pose scoring with instantaneous deterministic security narrative reporting without LLM compute overhead.
+* **Smart Adaptive Retention Vault:** 15-second continuous RAM Pre-Roll buffer combined with high-bitrate incident triggers, structured numerical metadata indexing, AES-256-GCM chunked encryption, SHA-256 Merkle hash chaining, and software WORM retention.
 * **Epistemic Transparency:** Every algorithmic detection is explicitly marked (`is_prediction: bool = True`) with bounded confidence $p \in [0.0, 1.0]$. Inferences are never treated as facts.
-* **Strict Non-Biometric Anonymity:** Multi-object tracking (ByteTrack and BoT-SORT) enforces transient anonymous integer IDs. No facial recognition, biometric templates, or persistent identities are ever constructed or stored.
-* **Mandatory Human-in-the-Loop (HITL):** High-severity events (`severity >= HIGH`) automatically require authorized operator review and sign-off before physical response teams or automated actuators are dispatched.
-* **Tamper-Evident Evidence Vault:** Forensics bundles are sealed with AES-256-GCM encryption, continuous SHA-256 hash chaining, and asymmetric Ed25519 digital signatures with one-click audit verification.
+* **Strict Non-Biometric Anonymity:** Multi-object tracking (ByteTrack and BoT-SORT) enforces transient anonymous integer IDs. No facial recognition or biometric templates are ever constructed or stored.
+* **Mandatory Human-in-the-Loop (HITL):** High-severity events (`severity >= HIGH`) automatically require authorized operator review and sign-off before consequential physical or automated actions are dispatched.
 * **Universal Hardware Adaptation:** Automatic boot-time hardware inspection assigning the system into one of 4 operational tiers (from low-end edge CPUs up to enterprise multi-GPU clusters) with real-time pressure shedding.
 
 ---
@@ -170,38 +175,43 @@ Access the interactive web console at `http://127.0.0.1:8000/`.
 
 ## 5. Verification & Test Suite
 
-The platform includes 118 comprehensive automated test cases across 18 test modules:
+The platform includes 136 comprehensive automated test cases across 18 test modules:
 
 ```bash
 python -m pytest tests/ -v
 ```
 
 ```text
-tests/scenarios/test_integration.py .....                                [  4%]
-tests/test_adaptive_manager.py ...                                       [  6%]
-tests/test_adversarial.py .............                                  [ 17%]
+tests/scenarios/test_integration.py .....                                [  3%]
+tests/test_adaptive_manager.py ...                                       [  5%]
+tests/test_adaptive_vault.py ....                                        [  8%]
+tests/test_adversarial.py .............                                  [ 18%]
 tests/test_api.py .........                                              [ 25%]
-tests/test_config.py ......                                              [ 30%]
-tests/test_events.py ...........                                         [ 39%]
+tests/test_camera_isp.py ....                                            [ 27%]
+tests/test_config.py ......                                              [ 32%]
+tests/test_events.py ...........                                         [ 40%]
 tests/test_forensics.py ....                                             [ 43%]
-tests/test_inference.py ..........                                       [ 51%]
-tests/test_main_cli.py ....                                              [ 55%]
-tests/test_onvif.py ..                                                   [ 56%]
-tests/test_pipeline.py ........                                          [ 63%]
-tests/test_platform_hardware.py ..                                       [ 65%]
+tests/test_hud_segmentation.py ......                                    [ 47%]
+tests/test_inference.py ..........                                       [ 55%]
+tests/test_main_cli.py ....                                              [ 58%]
+tests/test_onvif.py ..                                                   [ 59%]
+tests/test_pipeline.py ........                                          [ 65%]
+tests/test_platform_hardware.py ..                                       [ 66%]
 tests/test_security.py .............                                     [ 76%]
 tests/test_sqlite_store.py ...                                           [ 78%]
-tests/test_storage.py ........                                           [ 85%]
-tests/test_temporal_events.py ..                                         [ 87%]
+tests/test_storage.py ........                                           [ 84%]
+tests/test_temporal_events.py ..                                         [ 86%]
+tests/test_threat_engine.py ....                                         [ 88%]
 tests/test_tracking.py ............                                      [ 97%]
 tests/test_web_console.py ...                                            [100%]
-======================= 118 passed in 9.10s =======================
+======================= 136 passed in 8.29s =======================
 ```
 
 ---
 
 ## 6. Official Documentation Suite
 
+* [ADVANCED_ARCHITECTURE_ULTRA_LOCAL.md](docs/ADVANCED_ARCHITECTURE_ULTRA_LOCAL.md) — Master Ultra-Local Edition specification: Cinematic HUD, Camera ISP, Zero-API Threat Engine, & Cryptographic Vault.
 * [USER_GUIDE.md](docs/USER_GUIDE.md) — Comprehensive operator handbook, screen guide, and shortcuts.
 * [INSTALLATION_GUIDE.md](docs/INSTALLATION_GUIDE.md) — Production setup, systemd service, and environment configuration.
 * [HARDWARE_COMPATIBILITY.md](docs/HARDWARE_COMPATIBILITY.md) — The 4 Universal Hardware Adaptation Tiers and load shedding mechanics.

@@ -15,6 +15,8 @@
       this.tracks = [];
       this.auditEntries = [];
       this.showBoxes = true;
+      this.showPose = true;
+      this.enableISP = true;
       this.showPrivacy = true;
 
       this.initEventListeners();
@@ -53,11 +55,32 @@
       });
 
       // Toggles
-      const btnBoxes = document.getElementById("btn-toggle-boxes");
-      if (btnBoxes) {
-        btnBoxes.addEventListener("click", () => {
+      const btnHUD = document.getElementById("btn-toggle-hud") || document.getElementById("btn-toggle-boxes");
+      if (btnHUD) {
+        btnHUD.addEventListener("click", () => {
           this.showBoxes = !this.showBoxes;
-          btnBoxes.textContent = this.showBoxes ? "Hide Bounding Boxes" : "Show Bounding Boxes";
+          btnHUD.textContent = this.showBoxes ? "Cinematic Contours (ON)" : "Cinematic Contours (OFF)";
+          btnHUD.className = this.showBoxes ? "btn btn-primary" : "btn btn-secondary";
+          this.renderLiveStreams();
+        });
+      }
+
+      const btnPose = document.getElementById("btn-toggle-pose");
+      if (btnPose) {
+        btnPose.addEventListener("click", () => {
+          this.showPose = !this.showPose;
+          btnPose.textContent = this.showPose ? "Skeletal Pose (ON)" : "Skeletal Pose (OFF)";
+          btnPose.className = this.showPose ? "btn btn-primary" : "btn btn-secondary";
+          this.renderLiveStreams();
+        });
+      }
+
+      const btnISP = document.getElementById("btn-toggle-isp");
+      if (btnISP) {
+        btnISP.addEventListener("click", () => {
+          this.enableISP = !this.enableISP;
+          btnISP.textContent = this.enableISP ? "Software ISP (CLAHE Active)" : "Software ISP (Bypassed)";
+          btnISP.className = this.enableISP ? "btn btn-primary" : "btn btn-secondary";
           this.renderLiveStreams();
         });
       }
@@ -66,7 +89,7 @@
       if (btnPrivacy) {
         btnPrivacy.addEventListener("click", () => {
           this.showPrivacy = !this.showPrivacy;
-          btnPrivacy.textContent = this.showPrivacy ? "Disable Privacy Mask" : "Enable Privacy Mask";
+          btnPrivacy.textContent = this.showPrivacy ? "Privacy Mask (ON)" : "Privacy Mask (OFF)";
           this.renderLiveStreams();
         });
       }
@@ -330,22 +353,196 @@
       if (!grid) return;
       grid.innerHTML = "";
 
+      const streamMetadata = [
+        {
+          ispClass: "hud-isp-tier3",
+          ispText: "ISP: Tier 3 (Noisy) • Night CLAHE Active",
+          threatLevel: 88,
+          threatState: "critical",
+          behavior: "Fence Intrusion (Bending)",
+          speed: "0.4 m/s",
+          cardStyle: "",
+          color: "#EF4444",
+          fillColor: "rgba(239, 68, 68, 0.16)",
+          contour: "M 180 140 C 190 125, 230 120, 240 145 C 255 170, 260 210, 250 250 C 240 280, 255 310, 245 340 C 235 365, 215 365, 205 340 C 195 310, 185 270, 175 230 C 165 190, 170 155, 180 140 Z",
+          hasReticle: true,
+          hasGroundRing: false,
+          hasSkeleton: true,
+          hasTrail: false,
+          skeleton: [
+            // Nose, eyes, shoulders, hips, knees, ankles
+            { x1: 210, y1: 155, x2: 215, y2: 175 }, // Head to shoulder
+            { x1: 195, y1: 175, x2: 235, y2: 175 }, // Shoulders
+            { x1: 195, y1: 175, x2: 190, y2: 220 }, // L Arm
+            { x1: 190, y1: 220, x2: 220, y2: 265 }, // L Forearm (Bending down)
+            { x1: 235, y1: 175, x2: 245, y2: 220 }, // R Arm
+            { x1: 245, y1: 220, x2: 235, y2: 265 }, // R Forearm
+            { x1: 215, y1: 175, x2: 210, y2: 240 }, // Spine
+            { x1: 195, y1: 240, x2: 225, y2: 240 }, // Hips
+            { x1: 195, y1: 240, x2: 190, y2: 295 }, // L Thigh
+            { x1: 190, y1: 295, x2: 195, y2: 345 }, // L Calf
+            { x1: 225, y1: 240, x2: 235, y2: 295 }, // R Thigh
+            { x1: 235, y1: 295, x2: 230, y2: 345 }, // R Calf
+          ]
+        },
+        {
+          ispClass: "hud-isp-tier2",
+          ispText: "ISP: Tier 2 • Standard 1080p",
+          threatLevel: 60,
+          threatState: "warning",
+          behavior: "Hurried Approach",
+          speed: "2.1 m/s",
+          cardStyle: "warning",
+          color: "#F59E0B",
+          fillColor: "rgba(245, 158, 11, 0.14)",
+          contour: "M 220 130 C 230 115, 270 115, 280 130 C 290 155, 290 200, 285 240 C 280 270, 285 300, 280 330 C 270 350, 240 350, 230 330 C 220 295, 225 250, 215 210 C 210 170, 210 145, 220 130 Z",
+          hasReticle: false,
+          hasGroundRing: false,
+          hasSkeleton: true,
+          hasTrail: true,
+          trail: [[120, 280], [160, 270], [190, 255], [220, 240], [250, 230]],
+          skeleton: [
+            { x1: 250, y1: 140, x2: 250, y2: 165 },
+            { x1: 235, y1: 165, x2: 265, y2: 165 },
+            { x1: 235, y1: 165, x2: 225, y2: 210 },
+            { x1: 265, y1: 165, x2: 275, y2: 210 },
+            { x1: 250, y1: 165, x2: 250, y2: 235 },
+            { x1: 240, y1: 235, x2: 260, y2: 235 },
+            { x1: 240, y1: 235, x2: 230, y2: 290 },
+            { x1: 230, y1: 290, x2: 225, y2: 335 },
+            { x1: 260, y1: 235, x2: 270, y2: 290 },
+            { x1: 270, y1: 290, x2: 275, y2: 335 },
+          ]
+        },
+        {
+          ispClass: "hud-isp-tier1",
+          ispText: "ISP: Tier 1 • 4K Clean Stream",
+          threatLevel: 14,
+          threatState: "safe",
+          behavior: "Normal Transit",
+          speed: "1.1 m/s",
+          cardStyle: "safe",
+          color: "#00E5FF",
+          fillColor: "rgba(0, 229, 255, 0.12)",
+          contour: "M 200 120 C 210 105, 250 105, 260 120 C 270 145, 270 190, 265 230 C 260 260, 265 290, 260 320 C 250 340, 220 340, 210 320 C 200 285, 205 240, 195 200 C 190 160, 190 135, 200 120 Z",
+          hasReticle: false,
+          hasGroundRing: true,
+          hasSkeleton: false,
+          hasTrail: false,
+        },
+        {
+          ispClass: "hud-isp-tier2",
+          ispText: "ISP: Tier 2 • Standard 1080p",
+          threatLevel: 8,
+          threatState: "safe",
+          behavior: "Staff Entry",
+          speed: "0.8 m/s",
+          cardStyle: "safe",
+          color: "#00E5FF",
+          fillColor: "rgba(0, 229, 255, 0.08)",
+          contour: "M 210 130 C 220 115, 250 115, 260 130 C 270 155, 265 195, 260 235 C 255 265, 260 295, 255 325 C 245 340, 225 340, 215 325 C 205 295, 210 250, 205 210 C 200 170, 200 145, 210 130 Z",
+          hasReticle: false,
+          hasGroundRing: true,
+          hasSkeleton: false,
+          hasTrail: false,
+        }
+      ];
+
       this.cameras.forEach((cam, idx) => {
+        const meta = streamMetadata[idx % streamMetadata.length];
         const card = document.createElement("div");
         card.className = "video-card";
+
+        // SVG overlays for Cinematic HUD
+        let svgElements = "";
+        if (this.showBoxes) {
+          // Polygon Contour
+          svgElements += `
+            <path d="${meta.contour}" fill="${meta.fillColor}" stroke="${meta.color}" stroke-width="2.5" filter="drop-shadow(0 0 6px ${meta.color})" />
+          `;
+
+          // Motion trail
+          if (meta.hasTrail && meta.trail) {
+            let trailD = `M ${meta.trail[0][0]} ${meta.trail[0][1]}`;
+            for (let i = 1; i < meta.trail.length; i++) {
+              trailD += ` L ${meta.trail[i][0]} ${meta.trail[i][1]}`;
+            }
+            svgElements += `
+              <path d="${trailD}" fill="none" stroke="${meta.color}" stroke-width="3" stroke-linecap="round" stroke-dasharray="4 4" opacity="0.8" />
+            `;
+          }
+
+          // 3D Ground Elliptical Ring
+          if (meta.hasGroundRing) {
+            svgElements += `
+              <ellipse cx="235" cy="335" rx="42" ry="14" fill="none" stroke="${meta.color}" stroke-width="2" opacity="0.9" filter="drop-shadow(0 0 5px ${meta.color})" />
+              <circle cx="235" cy="335" r="3" fill="${meta.color}" />
+            `;
+          }
+
+          // Skeletal Pose Overlay
+          if (this.showPose && meta.hasSkeleton && meta.skeleton) {
+            meta.skeleton.forEach((b) => {
+              svgElements += `<line x1="${b.x1}" y1="${b.y1}" x2="${b.x2}" y2="${b.y2}" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round" />`;
+              svgElements += `<circle cx="${b.x1}" cy="${b.y1}" r="3" fill="${meta.color}" />`;
+              svgElements += `<circle cx="${b.x2}" cy="${b.y2}" r="3" fill="${meta.color}" />`;
+            });
+          }
+
+          // Target Lock-On Reticle
+          if (meta.hasReticle) {
+            const rx1 = 155, ry1 = 110, rx2 = 280, ry2 = 360, arm = 18;
+            svgElements += `
+              <path d="M ${rx1} ${ry1+arm} L ${rx1} ${ry1} L ${rx1+arm} ${ry1}" fill="none" stroke="${meta.color}" stroke-width="2.5" />
+              <path d="M ${rx2-arm} ${ry1} L ${rx2} ${ry1} L ${rx2} ${ry1+arm}" fill="none" stroke="${meta.color}" stroke-width="2.5" />
+              <path d="M ${rx1} ${ry2-arm} L ${rx1} ${ry2} L ${rx1+arm} ${ry2}" fill="none" stroke="${meta.color}" stroke-width="2.5" />
+              <path d="M ${rx2-arm} ${ry2} L ${rx2} ${ry2} L ${rx2} ${ry2-arm}" fill="none" stroke="${meta.color}" stroke-width="2.5" />
+            `;
+          }
+        }
+
+        // Privacy Blur Mask (for cam 4 or when enabled)
+        let privacyElement = "";
+        if (this.showPrivacy && (idx === 3 || (cam.privacy_zones && cam.privacy_zones.length > 0))) {
+          privacyElement = `
+            <div style="position: absolute; top: 20px; right: 20px; width: 140px; height: 90px; background: rgba(15, 23, 42, 0.7); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px dashed rgba(255, 255, 255, 0.3); border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 10px; color: #fff; font-family: var(--font-mono);">
+              🛡️ PRIVACY MASK
+            </div>
+          `;
+        }
+
+        // Floating Glassmorphic HUD Card
+        let hudCard = "";
+        if (this.showBoxes) {
+          hudCard = `
+            <div class="hud-glass-card ${meta.cardStyle}" style="top: 80px; left: 140px;">
+              [Threat: ${meta.threatLevel}% | ${meta.behavior} | Speed: ${meta.speed}]
+            </div>
+          `;
+        }
+
         card.innerHTML = `
           <div class="video-header">
             <span>📹 ${cam.name} (${cam.id})</span>
-            <span style="color: var(--accent-emerald);">● 15 FPS</span>
+            <div style="display: flex; align-items: center;">
+              <span class="hud-isp-pill ${meta.ispClass}">${meta.ispText}</span>
+              <span style="color: var(--accent-emerald); margin-left: 8px;">● 25 FPS</span>
+            </div>
           </div>
-          <div class="video-canvas-box">
+          <div class="video-canvas-box" style="position: relative; overflow: hidden; background: radial-gradient(circle at center, #0d1527 0%, #050811 100%);">
             <div class="video-overlay-badge mono">[LIVE RTSP] ${cam.width}x${cam.height}</div>
-            <div class="video-placeholder-text">
-              <div style="font-size: 24px; margin-bottom: 6px;">📹</div>
-              <div>RTSP STREAM CONNECTED</div>
-              <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">
-                ${this.showBoxes ? "● BBoxes Active" : "○ BBoxes Off"} • 
-                ${this.showPrivacy ? "🛡️ Privacy Mask On" : "○ Privacy Mask Off"}
+            
+            <!-- SVG HUD Layer -->
+            <svg style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none;" viewBox="0 0 480 380">
+              ${svgElements}
+            </svg>
+
+            ${privacyElement}
+            ${hudCard}
+
+            <div class="video-placeholder-text" style="pointer-events: none; opacity: 0.6; position: absolute; bottom: 12px; left: 14px; text-align: left;">
+              <div style="font-size: 10px; color: var(--text-muted); font-family: var(--font-mono);">
+                BUFFER: 15s RING • THREAT EVAL: 100% LOCAL ZERO-API
               </div>
             </div>
           </div>
