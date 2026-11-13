@@ -1,0 +1,156 @@
+[build-system]
+requires = ["setuptools>=68.0", "setuptools-scm>=8.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "camserv"
+version = "0.1.0"
+description = "Advanced Security Intelligence Platform — real-time video analytics with privacy-preserving AI inference."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11"
+authors = [
+    { name = "CAMserv Contributors" },
+]
+keywords = ["security", "surveillance", "video-analytics", "onnx", "computer-vision"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Security",
+]
+
+dependencies = [
+    # --- Core ---
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+    "pyyaml>=6.0",
+    "structlog>=23.0",
+    "cryptography>=41.0",
+    "pyjwt[crypto]>=2.8",
+    "aiohttp>=3.9",
+    "uvicorn[standard]>=0.24",
+    "fastapi>=0.104",
+]
+
+[project.optional-dependencies]
+inference = [
+    "onnxruntime-gpu>=1.16",
+    "ultralytics>=8.0",
+]
+tracking = [
+    "numpy>=1.26",
+    "scipy>=1.11",
+    "lap>=0.5",
+    "filterpy>=1.4",
+]
+database = [
+    "redis[hiredis]>=5.0",
+    "pymilvus>=2.3",
+]
+testing = [
+    "pytest>=7.4",
+    "pytest-asyncio>=0.23",
+    "pytest-cov>=4.1",
+    "hypothesis>=6.90",
+    "faker>=20.0",
+]
+all = [
+    "camserv[inference,tracking,database]",
+]
+dev = [
+    "camserv[all,testing]",
+    "ruff>=0.1",
+    "mypy>=1.7",
+    "pre-commit>=3.6",
+]
+
+[project.scripts]
+camserv = "camserv.main:main"
+
+[project.urls]
+Homepage = "https://github.com/camserv/camserv"
+Documentation = "https://camserv.readthedocs.io"
+Repository = "https://github.com/camserv/camserv"
+Issues = "https://github.com/camserv/camserv/issues"
+
+# ---------------------------------------------------------------------------
+# Setuptools — src layout
+# ---------------------------------------------------------------------------
+[tool.setuptools.packages.find]
+where = ["src"]
+
+# ---------------------------------------------------------------------------
+# Ruff
+# ---------------------------------------------------------------------------
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "S", "B", "A", "C4", "PT", "RUF"]
+ignore = ["S101"]  # allow assert in tests
+
+[tool.ruff.lint.isort]
+known-first-party = ["camserv"]
+
+# ---------------------------------------------------------------------------
+# Pytest
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "--strict-markers --tb=short -q"
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "gpu: marks tests that require a GPU",
+    "integration: marks integration tests",
+    "unit: marks unit tests",
+    "adversarial: marks adversarial and robustness tests",
+]
+
+# ---------------------------------------------------------------------------
+# Mypy
+# ---------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = [
+    "lap.*",
+    "filterpy.*",
+    "ultralytics.*",
+    "onnxruntime.*",
+    "milvus.*",
+    "pymilvus.*",
+    "redis.*",
+]
+ignore_missing_imports = true
+
+# ---------------------------------------------------------------------------
+# Coverage
+# ---------------------------------------------------------------------------
+[tool.coverage.run]
+source = ["camserv"]
+branch = true
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.",
+]
