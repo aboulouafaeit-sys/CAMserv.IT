@@ -1,0 +1,26 @@
+name: Feature Proposal
+description: Propose an architecture, protocol, or functional enhancement for CAMserv
+title: "[FEATURE]: "
+labels: ["enhancement", "architecture"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem Statement / Operational Motivation
+      description: What operational or architectural challenge does this address?
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution & Interface Design
+      description: Describe the design, Protocol changes, or new module.
+    validations:
+      required: true
+  - type: textarea
+    id: privacy-security
+    attributes:
+      label: Privacy and Security Impact
+      description: How does this proposal ensure zero PII leaks and preserve epistemic transparency?
+    validations:
+      required: true

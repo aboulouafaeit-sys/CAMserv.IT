@@ -1,289 +1,184 @@
-# CAMserv — Advanced Security Intelligence Platform
+<p align="center">
+  <img src="src/camserv/web/assets/logo-primary-dark.svg" alt="CAMserv Logo" width="460">
+</p>
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
+<p align="center">
+  <strong>Advanced, Modular, Privacy-Preserving Security Intelligence Platform</strong><br>
+  Real-time video analytics, anonymous multi-object tracking, on-device AI inference, and tamper-evident digital forensics.
+</p>
 
-> Real-time, privacy-preserving video analytics with GPU-accelerated AI inference, multi-object tracking, and intelligent event detection.
-
----
-
-## Overview
-
-**CAMserv** is a modular security intelligence platform that transforms standard IP camera feeds into actionable security insights. It combines state-of-the-art object detection (YOLOv8 via ONNX Runtime), multi-object tracking (DeepSORT / ByteTrack), and a rule-based event engine — all running on-premise with full control over your data.
-
-### Key Principles
-
-- **Privacy by Design** — GDPR & EU AI Act compliant. Face blurring, privacy zones, automatic data purging, and right-to-erasure built in.
-- **Human-in-the-Loop** — All AI predictions carry confidence scores and are clearly labeled as predictions. Consequential decisions (identity matches, high-severity alerts) are queued for human review before action.
-- **On-Premise First** — Your video never leaves your network. All inference runs locally on your GPU.
-- **Epistemic Humility** — Deep neural network outputs are probabilistic inferences, never treated as absolute ground truth.
+<p align="center">
+  <a href="#test-results"><img src="https://img.shields.io/badge/Tests-115%20Passing-10B981?style=for-the-badge&logo=pytest&logoColor=white" alt="Tests"></a>
+  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-06B6D4?style=for-the-badge&logo=python&logoColor=white" alt="Python"></a>
+  <a href="#hardware-compatibility"><img src="https://img.shields.io/badge/CUDA-13.5%20%2F%20RTX%203060%2B-76B900?style=for-the-badge&logo=nvidia&logoColor=white" alt="CUDA"></a>
+  <a href="docs/PRIVACY.md"><img src="https://img.shields.io/badge/GDPR%20%26%20EU%20AI%20Act-Conformity-6366F1?style=for-the-badge&logo=shield&logoColor=white" alt="Compliance"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-F59E0B?style=for-the-badge" alt="License"></a>
+</p>
 
 ---
 
-## Architecture
+## 1. Executive Summary
+
+**CAMserv** is an industrial-grade security intelligence platform engineered for critical infrastructure, corporate facilities, and high-assurance environments. It combines high-throughput video ingestion, on-device neural acceleration, anonymous multi-object tracking, and explainable temporal reasoning into a coherent, privacy-first product.
+
+### Core Architectural Pillars
+* **Epistemic Transparency:** Every algorithmic detection is explicitly flagged (`is_prediction: bool = True`) with bounded confidence $p \in [0.0, 1.0]$. Inferences are never treated as facts.
+* **Strict Non-Biometric Anonymity:** Multi-object tracking (ByteTrack and BoT-SORT) enforces transient anonymous integer IDs. No facial recognition, biometric templates, or persistent identities are ever constructed or stored.
+* **Mandatory Human-in-the-Loop (HITL):** High-severity events (`severity >= HIGH`) automatically require authorized operator review and sign-off before consequential physical or automated actions are dispatched.
+* **Digital Forensics & Non-Repudiation:** Evidence bundles are cryptographically sealed with AES-256-GCM encryption, continuous SHA-256 hash chaining, and asymmetric Ed25519 digital signatures.
+* **On-Device Execution & Graceful Fallback:** Native execution on NVIDIA TensorRT / CUDA with automated fallback to ONNX Runtime CPU.
+
+---
+
+## 2. The 12 Official CAMserv Product Screens
+
+CAMserv features an embedded, high-performance web console served directly at `http://localhost:8000/`:
+
+| Screen # | Operational View | Purpose & Technical Scope |
+| :---: | :--- | :--- |
+| **01** | **Executive Overview** | Real-time KPI summaries, active camera statuses, pending review queue, and 24h event volume. |
+| **02** | **Live Monitoring** | Quad/multi-view video wall with real-time bounding box and dynamic privacy-mask overlays. |
+| **03** | **Camera Management** | RTSP/ONVIF camera inventory with interactive polygon geometric privacy mask editor. |
+| **04** | **Intelligent Event Center** | Filterable security event stream with multi-frame observation graphs and operator sign-off workflow. |
+| **05** | **Anonymous Tracking** | Real-time spatial tracking visualization, kinematic velocities, MOTA/MOTP accuracy metrics. |
+| **06** | **Incident Investigation** | Multi-camera synchronized temporal timeline reconstruction and cross-camera correlation. |
+| **07** | **Evidence Vault** | Tamper-evident evidence storage with one-click cryptographic hash chain auditing. |
+| **08** | **Analytics & Reports** | Crowd density trend analysis, vehicle classification breakdowns, and automated GDPR purge logs. |
+| **09** | **Device & NVR Integration** | Subnet ONVIF WS-Discovery scanner and NVR stream stability benchmark utility. |
+| **10** | **Security & Access Control** | User RBAC management (`ADMIN`, `OPERATOR`, `VIEWER`, `AUDITOR`) and immutable audit log viewer. |
+| **11** | **System Health** | Host CPU/RAM/GPU diagnostics, DDSketch P50/P95/P99 latency histograms, queue fill ratios. |
+| **12** | **Deployment & Config** | Live platform configuration tuning with schema validation and automated backup triggers. |
+
+---
+
+## 3. High-Level System Architecture
 
 ```mermaid
 graph TD
-    subgraph Ingestion
-        CAM1[Camera 1 - RTSP] --> INGEST[Stream Ingester]
-        CAM2[Camera 2 - RTSP] --> INGEST
-        CAMN[Camera N] --> INGEST
+    subgraph INGEST ["1. Video Acquisition & Decoding"]
+        CAM1["ONVIF / RTSP Cameras"] --> INGESTION["CameraStream Engine"]
+        NVR["Enterprise NVRs (Hikvision/Dahua/Axis)"] --> INGESTION
+        INGESTION --> DECODER["FrameDecoder (Resizing, Color, Dedup)"]
     end
 
-    subgraph "Processing Pipeline"
-        INGEST --> DECODE[Frame Decoder]
-        DECODE --> PREPROC[Preprocessor]
-        PREPROC --> DETECT["ONNX Inference Engine<br/>(YOLOv8 · FP16)"]
-        DETECT --> TRACK["Multi-Object Tracker<br/>(DeepSORT / ByteTrack)"]
-        TRACK --> EVENTS[Event Engine]
+    subgraph ENGINE ["2. Core Processing Pipeline"]
+        DECODER --> BACKPRESSURE["Bounded Queue (drop_oldest)"]
+        BACKPRESSURE --> DETECTOR["ObjectDetector (ONNX GPU/CPU / FP16)"]
+        DETECTOR --> PRIVACY["PrivacyFilter (Face & Body Blurring)"]
+        PRIVACY --> TRACKER["Anonymous Multi-Object Tracker (ByteTrack / BoT-SORT)"]
+        TRACKER --> EVENTS["TemporalEventEngine (State Machines & Kinematics)"]
     end
 
-    subgraph "Data Layer"
-        REDIS[(Redis<br/>Cache · PubSub)]
-        MILVUS[(Milvus<br/>Vector Store)]
-        DISK[(Disk<br/>Video Archive)]
+    subgraph STORAGE ["3. Persistence & Forensics"]
+        EVENTS --> SQLITE[("SQLite WAL Store<br/>(Cameras, Events, Users)")]
+        EVENTS --> REDIS[("Redis Cache<br/>(Active Tracks & State)")]
+        EVENTS --> MILVUS[("Milvus Vector Store<br/>(Non-Biometric Scene Vectors)")]
+        EVENTS --> EVIDENCE[("Tamper-Evident Evidence Store<br/>(AES-256-GCM + Ed25519 Signatures)")]
+        EVENTS --> AUDIT[("Immutable Audit Trail<br/>(SHA-256 Hash Chain)")]
     end
 
-    subgraph "API & Clients"
-        EVENTS --> API[FastAPI Server]
-        API --> WS[WebSocket Streams]
-        API --> REST[REST API]
-        API --> WEBHOOK[Webhook Dispatch]
+    subgraph PRESENTATION ["4. User Experience & Interfaces"]
+        SQLITE --> FASTAPI["FastAPI Production API"]
+        REDIS --> FASTAPI
+        EVIDENCE --> FASTAPI
+        AUDIT --> FASTAPI
+        FASTAPI --> CONSOLE["CAMserv Web Console (12 Screens)"]
+        FASTAPI --> WS["Real-time WebSocket Feeds"]
+        FASTAPI --> CLI["Unified CLI Engine (camserv)"]
     end
-
-    TRACK --> MILVUS
-    EVENTS --> REDIS
-    DETECT --> REDIS
-    API --> REDIS
-    API --> MILVUS
-    INGEST --> DISK
-
-    CONFIG[Config Manager<br/>Pydantic Settings] -.-> INGEST
-    CONFIG -.-> DETECT
-    CONFIG -.-> TRACK
-    CONFIG -.-> EVENTS
-    CONFIG -.-> API
-
-    style DETECT fill:#ff9900,color:#000
-    style REDIS fill:#dc382d,color:#fff
-    style MILVUS fill:#00a1ea,color:#fff
 ```
 
 ---
 
-## Features
+## 4. Quickstart & Installation
 
-### 🎥 Camera Management
-- Multi-camera RTSP/HTTP stream ingestion with auto-reconnect
-- Configurable FPS, resolution, and codec per camera
-- Ring-buffer frame management with back-pressure control
+### 4.1 Prerequisites
+* Python 3.11, 3.12, 3.13, or 3.14
+* Git
+* (Recommended) NVIDIA GPU with CUDA 12.x or 13.x
 
-### 🧠 AI Inference
-- YOLOv8 object detection via ONNX Runtime GPU (FP16)
-- Batched inference for multi-camera efficiency
-- Configurable confidence and NMS thresholds
-- **All detections are predictions with associated confidence scores**
-
-### 🔍 Multi-Object Tracking
-- DeepSORT, ByteTrack, and BoTSORT algorithms
-- Kalman filter state estimation with configurable noise
-- Re-identification via vector similarity search (Milvus)
-- Anonymous integer track identifiers only — zero PII linkage
-
-### ⚡ Event Engine
-- Rule-based event detection: intrusion, loitering, crowd density, tripwire
-- Configurable severity levels and cooldown periods
-- Webhook notifications and WebSocket real-time streaming
-- **Human-in-the-loop review for consequential events**
-
-### 🔒 Privacy & Compliance
-- GDPR: data subject access/erasure, retention policies, audit logging
-- EU AI Act: risk classification, transparency, human oversight
-- Real-time face blurring and configurable privacy zones
-- Automatic data purging with configurable retention
-
-### 🛡️ Security
-- JWT authentication (HS256/RS256) with refresh tokens
-- Role-based access control (admin, operator, viewer, auditor)
-- TLS 1.3, tamper-evident audit logs (HMAC chain)
-- Rate limiting and CORS policy
-
-### 📊 Analytics & API
-- RESTful API with OpenAPI documentation
-- WebSocket streams for live video and events
-- Zone-based analytics and occupancy tracking
-- Prometheus metrics endpoint
-
----
-
-## Quick Start
-
-### Prerequisites
-
-- Python 3.11+
-- NVIDIA GPU with CUDA 12.x / 13.x (recommended: RTX 3060 or better)
-- Redis 7+
-- Milvus 2.3+
-- Docker & Docker Compose (for containerized deployment)
-
-### Installation
-
+### 4.2 Installation
 ```bash
 # Clone the repository
-git clone https://github.com/camserv/camserv.git
-cd camserv
+git clone git@github.com:aboulouafaeit-sys/CAMserv.IT.git
+cd CAMserv.IT
 
-# Create virtual environment
-python -m venv .venv
-.venv\Scripts\activate  # Windows
-# source .venv/bin/activate  # Linux/macOS
-
-# Install with all extras
-pip install -e ".[all,dev]"
-
-# Set required environment variable
-set CAMSERV_SECURITY__JWT__SECRET_KEY=your-secret-key-at-least-32-characters-long
-
-# Run the platform
-camserv
+# Install in editable mode with all dependencies
+pip install -e ".[all]"
 ```
 
-### Docker Compose (Recommended)
+### 4.3 Command-Line Interface (CLI)
+CAMserv includes a unified CLI for runtime, forensics, and diagnostics:
 
 ```bash
-# Start all services (API, Redis, Milvus, Nginx)
-docker compose up -d
+# 1. Run Host Hardware Diagnostic Probe
+python -m camserv.main detect-hw
 
-# View logs
-docker compose logs -f camserv-api
+# 2. Verify Cryptographic Audit Log Integrity
+python -m camserv.main audit-verify
+
+# 3. Scan Local Subnet for ONVIF Compliant Cameras
+python -m camserv.main nvr-scan
+
+# 4. Test Specific RTSP Endpoint Compatibility
+python -m camserv.main nvr-scan --url rtsp://admin:pass@192.168.1.100:554/live/ch0
+
+# 5. Offline Independent Forensic Verification of an Evidence Package
+python -m camserv.main verify-evidence evidence_archive.zip --public-key server_pubkey.pem
+
+# 6. Launch the CAMserv Server & Web Console
+python -m camserv.main serve --host 127.0.0.1 --port 8000
 ```
 
-See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for full deployment instructions.
+Once running, navigate to `http://localhost:8000/` in any modern web browser to access the **CAMserv Enterprise Web Console**.
 
-### Configuration
+---
 
-CAMserv uses environment variables with the `CAMSERV_` prefix:
+## 5. Verification & Test Suite
+
+The platform includes 115 comprehensive automated test cases across 17 test modules:
 
 ```bash
-# Core
-CAMSERV_ENVIRONMENT=production
-CAMSERV_LOG_LEVEL=INFO
-CAMSERV_HOST=0.0.0.0
-CAMSERV_PORT=8000
-
-# Inference
-CAMSERV_INFERENCE__DEVICE=cuda
-CAMSERV_INFERENCE__MODEL_PATH=models/yolov8n.onnx
-CAMSERV_INFERENCE__CONFIDENCE_THRESHOLD=0.45
-
-# Security
-CAMSERV_SECURITY__JWT__SECRET_KEY=<your-secret>
-CAMSERV_SECURITY__TLS_ENABLED=true
-
-# Storage
-CAMSERV_STORAGE__REDIS__HOST=redis
-CAMSERV_STORAGE__MILVUS__HOST=milvus
+# Execute the full automated test suite
+python -m pytest tests/ -v
 ```
 
-See [src/camserv/config/settings.py](src/camserv/config/settings.py) for the full schema.
-
----
-
-## Verification & Testing
-
-CAMserv comes with a rigorous test suite covering unit, integration, and adversarial conditions:
-
-```bash
-# Run all tests with coverage report
-pytest --cov=camserv --cov-report=term-missing
-
-# Run adversarial robustness test suite
-pytest -m adversarial
-
-# Run integration pipeline scenarios
-pytest tests/scenarios/
-```
-
-### Performance Benchmarking
-
-To benchmark the inference and tracking pipeline against your local GPU:
-
-```bash
-python -m camserv.inference.benchmarks --streams 4 --batch-size 4 --iterations 500
+```text
+tests/scenarios/test_integration.py .....                                [  4%]
+tests/test_adversarial.py .............                                  [ 15%]
+tests/test_api.py .........                                              [ 23%]
+tests/test_config.py ......                                              [ 28%]
+tests/test_events.py ...........                                         [ 38%]
+tests/test_forensics.py ....                                             [ 41%]
+tests/test_inference.py ..........                                       [ 50%]
+tests/test_main_cli.py ....                                              [ 53%]
+tests/test_onvif.py ..                                                   [ 55%]
+tests/test_pipeline.py ........                                          [ 62%]
+tests/test_platform_hardware.py ..                                       [ 64%]
+tests/test_security.py .............                                     [ 75%]
+tests/test_sqlite_store.py ...                                           [ 78%]
+tests/test_storage.py ........                                           [ 85%]
+tests/test_temporal_events.py ..                                         [ 86%]
+tests/test_tracking.py ............                                      [ 97%]
+tests/test_web_console.py ...                                            [100%]
+======================== 115 passed in 12.58s =========================
 ```
 
 ---
 
-## Documentation
+## 6. Architecture & Governance Records
 
-| Document | Description |
-|----------|-------------|
-| [Architecture](docs/ARCHITECTURE.md) | System design, data flow, component interfaces, performance budgets |
-| [Security](docs/SECURITY.md) | Threat model, encryption, authentication, RBAC, audit logging |
-| [Privacy](docs/PRIVACY.md) | GDPR, EU AI Act, data minimization, anonymization pipeline |
-| [API Reference](docs/API.md) | REST endpoints, WebSocket streams, schemas, authentication |
-| [Deployment](docs/DEPLOYMENT.md) | Docker Compose, hardware requirements, TLS, monitoring, backups |
-
----
-
-## Project Structure
-
-```
-CAMserv/
-├── src/
-│   └── camserv/
-│       ├── __init__.py           # Package init, version
-│       ├── main.py               # Application entry point
-│       ├── config/
-│       │   ├── __init__.py
-│       │   └── settings.py       # Pydantic configuration
-│       ├── acquisition/          # Camera RTSP capture & decoders
-│       ├── inference/            # ONNX detection & scene analytics
-│       ├── tracking/             # ByteTrack & Kalman filtering
-│       ├── events/               # Event engine & alerting
-│       ├── privacy/              # Anonymization & masking
-│       ├── api/                  # FastAPI routes & WebSocket
-│       ├── storage/              # Redis & Milvus adapters
-│       └── security/             # Auth, RBAC, audit
-├── models/                       # ONNX model files
-├── tests/                        # Test suite
-├── docs/                         # Documentation
-├── docker-compose.yml
-├── Dockerfile
-├── pyproject.toml
-└── README.md
-```
+For in-depth architectural and legal documentation:
+* [ARCHITECTURE.md](docs/ARCHITECTURE.md) — Subsystem interfaces, performance budgets, and queue mechanics.
+* [SECURITY.md](docs/SECURITY.md) — STRIDE threat modeling, key management, and cryptographic protocols.
+* [PRIVACY.md](docs/PRIVACY.md) — GDPR compliance, EU AI Act conformity assessment, and DPIA templates.
+* [API.md](docs/API.md) — Complete REST and WebSocket API specification.
+* [DEPLOYMENT.md](docs/DEPLOYMENT.md) — Production Docker Compose, Nginx TLS 1.3, and clustering guide.
+* [BRAND_GUIDELINES.md](docs/brand/BRAND_GUIDELINES.md) — Visual identity system, typography, and vector assets.
+* [Architecture Decision Records (ADRs)](docs/adr/) — Formal record of architectural decisions.
 
 ---
 
-## Deployment Overview
+## 7. License
 
-CAMserv is designed for on-premise deployment with Docker Compose:
-
-| Service | Role | Port |
-|---------|------|------|
-| `camserv-api` | FastAPI application server (GPU) | 8000 |
-| `camserv-worker` | Background pipeline workers (GPU) | — |
-| `redis` | Cache, pub/sub, session store | 6379 |
-| `milvus` | Vector similarity search | 19530 |
-| `nginx` | TLS termination, reverse proxy | 443 |
-
-**Hardware Recommendations:**
-
-| Scale | Cameras | GPU | RAM | Storage |
-|-------|---------|-----|-----|---------|
-| Small | 1–4 | RTX 3060 (6GB) | 16 GB | 500 GB |
-| Medium | 5–8 | RTX 3070 (8GB) | 32 GB | 1 TB |
-| Large | 9–16 | RTX 4080 (16GB) | 64 GB | 2 TB+ |
-
----
-
-## License
-
-This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
-
----
-
-## Disclaimer
-
-> **Important:** CAMserv is an analytical tool that produces **predictions**, not facts. All detections, classifications, and event determinations are probabilistic outputs of machine learning models and carry associated confidence scores. No automated action with real-world consequences should be taken without **human review and confirmation**. Users are responsible for ensuring deployment complies with local laws and regulations governing video surveillance and data processing.
+CAMserv is distributed under the [MIT License](LICENSE).

@@ -1,0 +1,36 @@
+name: Bug Report
+description: Report an anomaly, failure, or unexpected behavior in the CAMserv platform
+title: "[BUG]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: Thank you for helping keep CAMserv reliable and resilient.
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: A clear and concise technical explanation of the issue.
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Host Environment
+      description: OS version, GPU hardware, CUDA version, Python version.
+      placeholder: "e.g. Windows 11 / Ubuntu 24.04, RTX 3060, CUDA 13.5, Python 3.14"
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: Exact steps or CLI commands to trigger the issue.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant Logs & Stack Traces
+      description: Structured logs from structlog or pytest failures.
+      render: shell
