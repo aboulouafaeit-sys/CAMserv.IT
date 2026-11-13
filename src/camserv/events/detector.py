@@ -656,7 +656,7 @@ class EventDetector:
             if len(history) > 15:
                 history.pop(0)
 
-            if len(history) >= 3:
+            if len(history) >= 2:
                 prev_ts, prev_ratio = history[0]
                 # Check for rapid drop from standing (prev_ratio >= 1.4) to lying (hw_ratio <= 0.8)
                 if prev_ratio >= 1.4 and hw_ratio <= 0.8:

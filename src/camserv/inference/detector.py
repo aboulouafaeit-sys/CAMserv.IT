@@ -325,6 +325,15 @@ class ONNXDetector:
     CPU (``CPUExecutionProvider``) transparently if GPU initialization fails.
     """
 
+    _using_gpu: bool = False
+    _model_path: str = "yolov8n.onnx"
+    _conf_thresh: float = 0.35
+    _iou_thresh: float = 0.45
+    _fp16: bool = False
+    _input_size: tuple[int, int] = (640, 640)
+    _session: Any = None
+    _input_name: str = ""
+
     def __init__(
         self,
         model_path: str = "yolov8n.onnx",
@@ -339,19 +348,19 @@ class ONNXDetector:
         self._iou_thresh = iou_threshold
         self._fp16 = fp16
         self._input_size = input_size
-        self._session: Any = None
-        self._input_name: str = ""
-        self._using_gpu: bool = False
+        self._session = None
+        self._input_name = ""
+        self._using_gpu = not force_cpu
 
         self._init_session(force_cpu=force_cpu)
 
     @property
     def backend_name(self) -> str:
-        return f"onnx_{'gpu' if self._using_gpu else 'cpu'}"
+        return f"onnx_{'gpu' if getattr(self, '_using_gpu', False) else 'cpu'}"
 
     @property
     def model_name(self) -> str:
-        return f"onnx:{self._model_path}"
+        return f"onnx:{getattr(self, '_model_path', 'yolov8n.onnx')}"
 
     @property
     def class_names(self) -> list[str]:

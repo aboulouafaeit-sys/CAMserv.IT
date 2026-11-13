@@ -4,7 +4,7 @@ Builds higher-level situational awareness on top of raw detections: crowd
 density, vehicle flow, environmental hazards (smoke / fire), camera-tampering
 detection, and multi-camera event correlation.
 
-All outputs carry confidence scores and uncertainty bounds.  Observations are
+All outputs carry confidence scores and uncertainty bounds. Observations are
 classified as *verified* (multi-frame confirmed) or *uncertain* (single-frame).
 """
 
@@ -20,7 +20,7 @@ from typing import Any, Sequence
 import numpy as np
 import structlog
 
-from camserv.inference.detector import Detection
+from camserv.inference.detector import BoundingBox, Detection
 
 logger = structlog.get_logger(__name__)
 
@@ -32,8 +32,8 @@ logger = structlog.get_logger(__name__)
 class ObservationStatus(str, Enum):
     """Whether an observation has been confirmed across multiple frames."""
 
-    UNCERTAIN = "uncertain"    # single-frame only
-    VERIFIED = "verified"      # confirmed across ≥ N frames
+    UNCERTAIN = "uncertain"    # single-frame observation
+    VERIFIED = "verified"      # confirmed across >= N consecutive frames
 
 
 class HazardType(str, Enum):
@@ -59,10 +59,16 @@ class Zone:
     x2: float
     y2: float
 
-    def contains_centre(self, bbox: tuple[float, float, float, float]) -> bool:
+    def contains_centre(self, bbox: Any) -> bool:
         """Check if the centre of *bbox* falls within this zone."""
-        cx = (bbox[0] + bbox[2]) / 2
-        cy = (bbox[1] + bbox[3]) / 2
+        if hasattr(bbox, "center"):
+            cx, cy = bbox.center
+        elif hasattr(bbox, "x1"):
+            cx = (bbox.x1 + bbox.x2) / 2
+            cy = (bbox.y1 + bbox.y2) / 2
+        else:
+            cx = (bbox[0] + bbox[2]) / 2
+            cy = (bbox[1] + bbox[3]) / 2
         return self.x1 <= cx <= self.x2 and self.y1 <= cy <= self.y2
 
 
@@ -105,7 +111,7 @@ class VehicleFlowResult:
     zone_name: str
     vehicle_count: int
     flow_rate: float  # vehicles per second (smoothed)
-    composition: dict[str, int]  # class_name → count
+    composition: dict[str, int]  # class_name -> count
     confidence: float
     status: ObservationStatus
 
@@ -137,11 +143,8 @@ class TamperingResult:
 # Scene analyser
 # ---------------------------------------------------------------------------
 
-# How many consecutive frames a hazard must appear in to be "verified".
 _HAZARD_CONFIRM_FRAMES: int = 3
-# History window for flow-rate estimation (seconds).
 _FLOW_WINDOW_SEC: float = 10.0
-# Default tampering threshold on structural similarity drop.
 _TAMPER_THRESHOLD: float = 0.35
 
 
@@ -169,11 +172,10 @@ class SceneAnalyzer:
         self._hazard_confirm = hazard_confirm_frames
         self._tamper_threshold = tamper_threshold
 
-        # Per-camera hazard tracking: camera_id → {class_name → consecutive count}
+        # Per-camera hazard tracking: camera_id -> {class_name -> consecutive count}
         self._hazard_streaks: dict[str, dict[str, int]] = defaultdict(
             lambda: defaultdict(int)
         )
-        # Per-camera latest hazard bboxes for correlation
         self._hazard_bboxes: dict[str, dict[str, tuple[float, float, float, float]]] = (
             defaultdict(dict)
         )
@@ -186,7 +188,7 @@ class SceneAnalyzer:
         # Per-camera reference frame for tampering detection
         self._reference_frames: dict[str, np.ndarray] = {}
 
-        # Cross-camera event buffer for correlation (camera_id → list of SceneObservation)
+        # Cross-camera event buffer for correlation
         self._event_buffer: dict[str, list[SceneObservation]] = defaultdict(list)
 
     # --------------------------------------------------------------------- #
@@ -198,11 +200,7 @@ class SceneAnalyzer:
         detections: list[Detection],
         frame_shape: tuple[int, ...],
     ) -> list[CrowdDensityResult]:
-        """Count persons in each zone and return density estimates.
-
-        If no zones are configured the entire frame is treated as a single
-        zone.
-        """
+        """Count persons in each zone and return density estimates."""
         person_boxes = [
             d.bbox for d in detections if d.class_name == "person"
         ]
@@ -216,9 +214,8 @@ class SceneAnalyzer:
             in_zone = [b for b in person_boxes if zone.contains_centre(b)]
             count = len(in_zone)
             area = max((zone.x2 - zone.x1) * (zone.y2 - zone.y1), 1.0)
-            density = count / (area / 1e4)  # per 10k px²
+            density = count / (area / 1e4)
 
-            # Confidence degrades at very high or very low counts
             conf = min(0.95, 0.5 + 0.05 * count) if count > 0 else 0.8
             margin = max(1, int(count * 0.15))
 
@@ -255,11 +252,9 @@ class SceneAnalyzer:
         ts = timestamp or time.time()
         vehicle_dets = [d for d in detections if d.class_name in self._VEHICLE_CLASSES]
 
-        # Record timestamp for each vehicle detection
         for _ in vehicle_dets:
             self._vehicle_history[camera_id].append(ts)
 
-        # Compute flow rate over window
         history = self._vehicle_history[camera_id]
         cutoff = ts - _FLOW_WINDOW_SEC
         recent = [t for t in history if t >= cutoff]
@@ -315,14 +310,19 @@ class SceneAnalyzer:
 
             current_hazards.add(d.class_name)
             self._hazard_streaks[camera_id][d.class_name] += 1
-            self._hazard_bboxes[camera_id][d.class_name] = d.bbox
+            raw_box = (
+                (d.bbox.x1, d.bbox.y1, d.bbox.x2, d.bbox.y2)
+                if hasattr(d.bbox, "x1")
+                else (d.bbox[0], d.bbox[1], d.bbox[2], d.bbox[3])
+            )
+            self._hazard_bboxes[camera_id][d.class_name] = raw_box
             streak = self._hazard_streaks[camera_id][d.class_name]
 
             verified = streak >= self._hazard_confirm
             results.append(
                 HazardResult(
                     hazard_type=HazardType(d.class_name),
-                    bbox=d.bbox,
+                    bbox=raw_box,
                     confidence=round(d.confidence, 4),
                     frame_count=streak,
                     status=ObservationStatus.VERIFIED
@@ -357,17 +357,22 @@ class SceneAnalyzer:
         frame: np.ndarray,
         camera_id: str,
     ) -> TamperingResult:
-        """Detect significant scene changes that may indicate camera tampering.
-
-        Compares the current frame against a slowly-updated reference using a
-        simple structural similarity proxy (normalised mean-squared error on
-        downscaled greyscale).
-        """
-        import cv2  # type: ignore[import-untyped]
-
-        small = cv2.resize(
-            cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY), (64, 64)
-        ).astype(np.float32)
+        """Detect significant scene changes that may indicate camera tampering."""
+        try:
+            import cv2  # type: ignore[import-untyped]
+            small = cv2.resize(
+                cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY), (64, 64)
+            ).astype(np.float32)
+        except ImportError:
+            # Pure NumPy fallback
+            if frame.ndim == 3:
+                gray = np.mean(frame, axis=2).astype(np.float32)
+            else:
+                gray = frame.astype(np.float32)
+            h, w = gray.shape[:2]
+            y_idx = np.linspace(0, h - 1, 64).astype(int)
+            x_idx = np.linspace(0, w - 1, 64).astype(int)
+            small = gray[y_idx][:, x_idx]
 
         if camera_id not in self._reference_frames:
             self._reference_frames[camera_id] = small
@@ -383,7 +388,6 @@ class SceneAnalyzer:
         mse = float(np.mean((small - ref) ** 2)) / (255.0 ** 2)
         score = min(1.0, mse / self._tamper_threshold)
 
-        # Slowly update reference (exponential moving average)
         alpha = 0.01
         self._reference_frames[camera_id] = (
             ref * (1 - alpha) + small * alpha
@@ -419,13 +423,7 @@ class SceneAnalyzer:
         time_window_sec: float = 5.0,
         spatial_overlap_threshold: float = 0.3,
     ) -> list[SceneObservation]:
-        """Correlate events across cameras by time and spatial proximity.
-
-        Events of the same type occurring within *time_window_sec* on
-        different cameras and (if applicable) with overlapping bounding boxes
-        are merged into a single correlated observation.
-        """
-        # Buffer incoming observations
+        """Correlate events across cameras by time and spatial proximity."""
         for obs in observations:
             self._event_buffer[obs.camera_id].append(obs)
 
@@ -450,7 +448,6 @@ class SceneAnalyzer:
                         if dt > time_window_sec:
                             continue
 
-                        # Spatial check via bbox overlap in details if present
                         bbox_a = obs_a.details.get("bbox")
                         bbox_b = obs_b.details.get("bbox")
                         if bbox_a and bbox_b:
@@ -492,7 +489,6 @@ class SceneAnalyzer:
         if correlated:
             logger.info("events_correlated", count=len(correlated))
 
-        # Prune old events (keep last 100 per camera)
         for cam in self._event_buffer:
             if len(self._event_buffer[cam]) > 100:
                 self._event_buffer[cam] = self._event_buffer[cam][-100:]
@@ -601,15 +597,17 @@ class SceneAnalyzer:
 
     @staticmethod
     def _iou(
-        a: tuple[float, float, float, float],
-        b: tuple[float, float, float, float],
+        a: Any,
+        b: Any,
     ) -> float:
         """Compute Intersection-over-Union for two bounding boxes."""
-        x1 = max(a[0], b[0])
-        y1 = max(a[1], b[1])
-        x2 = min(a[2], b[2])
-        y2 = min(a[3], b[3])
+        ax1, ay1, ax2, ay2 = (a.x1, a.y1, a.x2, a.y2) if hasattr(a, "x1") else (a[0], a[1], a[2], a[3])
+        bx1, by1, bx2, by2 = (b.x1, b.y1, b.x2, b.y2) if hasattr(b, "x1") else (b[0], b[1], b[2], b[3])
+        x1 = max(ax1, bx1)
+        y1 = max(ay1, by1)
+        x2 = min(ax2, bx2)
+        y2 = min(ay2, by2)
         inter = max(0.0, x2 - x1) * max(0.0, y2 - y1)
-        area_a = (a[2] - a[0]) * (a[3] - a[1])
-        area_b = (b[2] - b[0]) * (b[3] - b[1])
+        area_a = (ax2 - ax1) * (ay2 - ay1)
+        area_b = (bx2 - bx1) * (by2 - by1)
         return inter / (area_a + area_b - inter + 1e-6)

@@ -237,7 +237,7 @@ class KalmanBoxTracker:
             logger.warning("kalman_singular_covariance_mahalanobis")
             return float("inf")
 
-        d: float = float(y.T @ S_inv @ y)
+        d: float = float(np.squeeze(y.T @ S_inv @ y))
         return d
 
     def gating_distance(

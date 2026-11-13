@@ -10,6 +10,7 @@ Capabilities:
 - Selective processing: inference skipped inside privacy zones
 - Privacy mask overlay on output streams
 - Metadata stripping from stored frames
+- Matches ``camserv.pipeline.interfaces.PrivacyFilter`` protocol
 """
 
 from __future__ import annotations
@@ -22,9 +23,36 @@ from typing import Any, Sequence
 import numpy as np
 import structlog
 
-from camserv.inference.detector import Detection
+from camserv.inference.detector import (
+    AwaitableNone,
+    BoundingBox,
+    Detection,
+    Frame,
+)
 
 logger = structlog.get_logger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Dual Sync/Async Awaitable Helpers
+# ---------------------------------------------------------------------------
+
+class AwaitableFrame(Frame):
+    """A Frame subclass that can be awaited in async pipelines."""
+
+    def __await__(self):
+        async def _coro():
+            return self
+        return _coro().__await__()
+
+
+class AwaitableArray(np.ndarray):
+    """An ndarray subclass that can be awaited in async pipelines."""
+
+    def __await__(self):
+        async def _coro():
+            return self
+        return _coro().__await__()
 
 
 # ---------------------------------------------------------------------------
@@ -44,7 +72,7 @@ class PrivacyZone:
     """A polygon-based exclusion area on a camera view.
 
     Points are in absolute pixel coordinates, ordered clockwise or
-    counter-clockwise.  When ``exclude_from_inference`` is ``True`` detections
+    counter-clockwise. When ``exclude_from_inference`` is ``True`` detections
     whose centre falls inside the polygon are discarded.
     """
 
@@ -53,7 +81,7 @@ class PrivacyZone:
     exclude_from_inference: bool = True
     blur_output: bool = True
     blur_method: BlurMethod = BlurMethod.GAUSSIAN
-    camera_id: str | None = None  # None → applies to all cameras
+    camera_id: str | None = None  # None -> applies to all cameras
 
 
 @dataclass(slots=True)
@@ -79,13 +107,14 @@ class PrivacyConfig:
 class PrivacyFilter:
     """Apply privacy protections to frames and detection results.
 
-    All processing is performed **on-device**.  Raw pixel data is never sent
-    to an external service.
+    All processing is performed **on-device**. Raw pixel data is never sent
+    to an external service. Implements both the synchronous privacy filter API
+    and the asynchronous ``camserv.pipeline.interfaces.PrivacyFilter`` protocol.
 
     Parameters
     ----------
     config:
-        Privacy configuration.  Defaults to sensible production values.
+        Privacy configuration. Defaults to sensible production values.
     """
 
     def __init__(self, config: PrivacyConfig | None = None) -> None:
@@ -97,6 +126,57 @@ class PrivacyFilter:
             blur_bodies=self._config.blur_bodies,
             strip_metadata=self._config.strip_metadata,
         )
+
+    # ------------------------------------------------------------------ #
+    # Protocol Interface (camserv.pipeline.interfaces.PrivacyFilter)
+    # ------------------------------------------------------------------ #
+
+    def apply(
+        self,
+        frame: Frame | np.ndarray,
+        detections: list[Detection] | None = None,
+    ) -> AwaitableFrame | AwaitableArray:
+        """Apply privacy masks to a frame.
+
+        Dual sync/async callable matching the ``PrivacyFilter`` protocol:
+        ``async def apply(self, frame: Frame, detections: list[Detection]) -> Frame``
+        """
+        dets = detections or []
+        if isinstance(frame, Frame):
+            masked_img = self.apply_mask(frame.image, dets, frame.camera_id)
+            return AwaitableFrame(
+                image=masked_img,
+                camera_id=frame.camera_id,
+                timestamp=frame.timestamp,
+                frame_id=frame.frame_id,
+                metadata=dict(frame.metadata),
+            )
+        else:
+            masked_img = self.apply_mask(frame, dets)
+            return masked_img.view(AwaitableArray)
+
+    def configure(self, settings: dict[str, Any]) -> AwaitableNone:
+        """Update privacy filter settings at runtime."""
+        if "blur_faces" in settings:
+            self._config.blur_faces = bool(settings["blur_faces"])
+        if "blur_bodies" in settings:
+            self._config.blur_bodies = bool(settings["blur_bodies"])
+        if "strip_metadata" in settings:
+            self._config.strip_metadata = bool(settings["strip_metadata"])
+        if "default_blur_method" in settings:
+            val = settings["default_blur_method"]
+            self._config.default_blur_method = (
+                BlurMethod(val) if isinstance(val, str) else val
+            )
+        if "gaussian_kernel_size" in settings:
+            self._config.gaussian_kernel_size = int(settings["gaussian_kernel_size"])
+        if "pixelate_block_size" in settings:
+            self._config.pixelate_block_size = int(settings["pixelate_block_size"])
+        if "solid_color" in settings:
+            self._config.solid_color = tuple(settings["solid_color"])  # type: ignore
+
+        logger.info("privacy_filter_configured", settings=settings)
+        return AwaitableNone()
 
     # ------------------------------------------------------------------ #
     # Public API
@@ -132,8 +212,8 @@ class PrivacyFilter:
         filtered: list[Detection] = []
         dropped = 0
         for det in detections:
-            cx = (det.bbox[0] + det.bbox[2]) / 2
-            cy = (det.bbox[1] + det.bbox[3]) / 2
+            cx = (det.bbox.x1 + det.bbox.x2) / 2
+            cy = (det.bbox.y1 + det.bbox.y2) / 2
             inside = any(
                 self._point_in_polygon(cx, cy, z.polygon)
                 for z in zones
@@ -162,8 +242,7 @@ class PrivacyFilter:
 
         Steps:
         1. Blur privacy zones marked ``blur_output``.
-        2. Blur faces if ``blur_faces`` is enabled (uses detections with
-           face / person classes).
+        2. Blur faces if ``blur_faces`` is enabled.
         3. Blur bodies if ``blur_bodies`` is enabled.
 
         The original frame is **never** mutated.
@@ -180,12 +259,20 @@ class PrivacyFilter:
             if self._config.blur_faces:
                 for det in detections:
                     if det.class_name in self._config.face_classes:
-                        out = self._blur_bbox(out, det.bbox, self._config.default_blur_method)
+                        out = self._blur_bbox(
+                            out,
+                            (det.bbox.x1, det.bbox.y1, det.bbox.x2, det.bbox.y2),
+                            self._config.default_blur_method,
+                        )
 
             if self._config.blur_bodies:
                 for det in detections:
                     if det.class_name in self._config.body_classes:
-                        out = self._blur_bbox(out, det.bbox, self._config.default_blur_method)
+                        out = self._blur_bbox(
+                            out,
+                            (det.bbox.x1, det.bbox.y1, det.bbox.x2, det.bbox.y2),
+                            self._config.default_blur_method,
+                        )
 
         return out
 
@@ -202,10 +289,11 @@ class PrivacyFilter:
             "gps", "gps_latitude", "gps_longitude", "location",
             "device_id", "serial", "mac_address",
             "face", "face_encoding", "identity", "person_id",
+            "name", "ssn", "user_id", "email",
         }
         cleaned: dict[str, Any] = {}
         for key, value in metadata.items():
-            lower_key = key.lower()
+            lower_key = str(key).lower()
             if any(s in lower_key for s in sensitive_keys):
                 continue
             if isinstance(value, dict):
@@ -244,7 +332,7 @@ class PrivacyFilter:
         logger.info("privacy_zone_added", name=zone.name)
 
     def remove_zone(self, name: str) -> bool:
-        """Remove a named zone.  Returns ``True`` if found and removed."""
+        """Remove a named zone. Returns ``True`` if found and removed."""
         before = len(self._config.zones)
         self._config.zones = [z for z in self._config.zones if z.name != name]
         removed = len(self._config.zones) < before
@@ -272,6 +360,8 @@ class PrivacyFilter:
     ) -> bool:
         """Ray-casting point-in-polygon test."""
         n = len(polygon)
+        if n < 3:
+            return False
         inside = False
         j = n - 1
         for i in range(n):
@@ -295,8 +385,6 @@ class PrivacyFilter:
         method: BlurMethod,
     ) -> np.ndarray:
         """Blur a rectangular region of the frame."""
-        import cv2  # type: ignore[import-untyped]
-
         h, w = frame.shape[:2]
         x1 = max(0, int(bbox[0]))
         y1 = max(0, int(bbox[1]))
@@ -307,24 +395,43 @@ class PrivacyFilter:
 
         roi = frame[y1:y2, x1:x2]
 
-        if method == BlurMethod.GAUSSIAN:
-            k = self._config.gaussian_kernel_size
-            k = k if k % 2 == 1 else k + 1
-            blurred = cv2.GaussianBlur(roi, (k, k), 0)
-            frame[y1:y2, x1:x2] = blurred
-
-        elif method == BlurMethod.PIXELATE:
-            bs = self._config.pixelate_block_size
-            rh, rw = roi.shape[:2]
-            if rh < 1 or rw < 1:
-                return frame
-            small = cv2.resize(roi, (max(1, rw // bs), max(1, rh // bs)),
-                               interpolation=cv2.INTER_LINEAR)
-            frame[y1:y2, x1:x2] = cv2.resize(small, (rw, rh),
-                                               interpolation=cv2.INTER_NEAREST)
-
-        elif method == BlurMethod.SOLID:
+        if method == BlurMethod.SOLID:
             frame[y1:y2, x1:x2] = self._config.solid_color
+            return frame
+
+        try:
+            import cv2  # type: ignore[import-untyped]
+            if method == BlurMethod.GAUSSIAN:
+                k = self._config.gaussian_kernel_size
+                k = k if k % 2 == 1 else k + 1
+                blurred = cv2.GaussianBlur(roi, (k, k), 0)
+                frame[y1:y2, x1:x2] = blurred
+            elif method == BlurMethod.PIXELATE:
+                bs = max(1, self._config.pixelate_block_size)
+                rh, rw = roi.shape[:2]
+                small = cv2.resize(
+                    roi,
+                    (max(1, rw // bs), max(1, rh // bs)),
+                    interpolation=cv2.INTER_LINEAR,
+                )
+                frame[y1:y2, x1:x2] = cv2.resize(
+                    small, (rw, rh), interpolation=cv2.INTER_NEAREST
+                )
+        except ImportError:
+            # SciPy / NumPy fallback
+            if method == BlurMethod.GAUSSIAN:
+                try:
+                    import scipy.ndimage  # type: ignore[import-untyped]
+                    sigma = (self._config.gaussian_kernel_size / 6.0, self._config.gaussian_kernel_size / 6.0, 0) if roi.ndim == 3 else self._config.gaussian_kernel_size / 6.0
+                    frame[y1:y2, x1:x2] = scipy.ndimage.gaussian_filter(roi.astype(np.float32), sigma=sigma).astype(roi.dtype)
+                except Exception:
+                    frame[y1:y2, x1:x2] = np.mean(roi, axis=(0, 1), keepdims=True).astype(roi.dtype)
+            elif method == BlurMethod.PIXELATE:
+                bs = max(1, self._config.pixelate_block_size)
+                rh, rw = roi.shape[:2]
+                small = roi[::bs, ::bs]
+                rep = np.repeat(np.repeat(small, bs, axis=0), bs, axis=1)
+                frame[y1:y2, x1:x2] = rep[:rh, :rw]
 
         return frame
 
@@ -335,27 +442,60 @@ class PrivacyFilter:
         method: BlurMethod,
     ) -> np.ndarray:
         """Blur an arbitrary polygon region of the frame."""
-        import cv2  # type: ignore[import-untyped]
+        h, w = frame.shape[:2]
 
-        pts = np.array(polygon, dtype=np.int32)
-        mask = np.zeros(frame.shape[:2], dtype=np.uint8)
-        cv2.fillPoly(mask, [pts], 255)
+        try:
+            import cv2  # type: ignore[import-untyped]
+            pts = np.array(polygon, dtype=np.int32)
+            mask = np.zeros((h, w), dtype=np.uint8)
+            cv2.fillPoly(mask, [pts], 255)
+            has_cv2 = True
+        except ImportError:
+            mask = np.zeros((h, w), dtype=np.uint8)
+            if len(polygon) >= 3:
+                xs = [p[0] for p in polygon]
+                ys = [p[1] for p in polygon]
+                min_x = max(0, min(xs))
+                max_x = min(w, max(xs) + 1)
+                min_y = max(0, min(ys))
+                max_y = min(h, max(ys) + 1)
+                for py in range(min_y, max_y):
+                    for px in range(min_x, max_x):
+                        if self._point_in_polygon(px, py, polygon):
+                            mask[py, px] = 255
+            has_cv2 = False
 
         if method == BlurMethod.SOLID:
             frame[mask == 255] = self._config.solid_color
             return frame
 
-        # Apply blur to entire frame, then composite via mask
-        if method == BlurMethod.GAUSSIAN:
-            k = self._config.gaussian_kernel_size
-            k = k if k % 2 == 1 else k + 1
-            blurred = cv2.GaussianBlur(frame, (k, k), 0)
-        else:  # PIXELATE
-            bs = self._config.pixelate_block_size
-            h, w = frame.shape[:2]
-            small = cv2.resize(frame, (max(1, w // bs), max(1, h // bs)),
-                               interpolation=cv2.INTER_LINEAR)
-            blurred = cv2.resize(small, (w, h), interpolation=cv2.INTER_NEAREST)
+        if has_cv2:
+            import cv2  # type: ignore[import-untyped]
+            if method == BlurMethod.GAUSSIAN:
+                k = self._config.gaussian_kernel_size
+                k = k if k % 2 == 1 else k + 1
+                blurred = cv2.GaussianBlur(frame, (k, k), 0)
+            else:  # PIXELATE
+                bs = max(1, self._config.pixelate_block_size)
+                small = cv2.resize(
+                    frame,
+                    (max(1, w // bs), max(1, h // bs)),
+                    interpolation=cv2.INTER_LINEAR,
+                )
+                blurred = cv2.resize(small, (w, h), interpolation=cv2.INTER_NEAREST)
+        else:
+            if method == BlurMethod.GAUSSIAN:
+                try:
+                    import scipy.ndimage  # type: ignore[import-untyped]
+                    sigma = (self._config.gaussian_kernel_size / 6.0, self._config.gaussian_kernel_size / 6.0, 0) if frame.ndim == 3 else self._config.gaussian_kernel_size / 6.0
+                    blurred = scipy.ndimage.gaussian_filter(frame.astype(np.float32), sigma=sigma).astype(frame.dtype)
+                except Exception:
+                    blurred = np.full_like(frame, np.mean(frame, axis=(0, 1), keepdims=True).astype(frame.dtype))
+            else:
+                bs = max(1, self._config.pixelate_block_size)
+                small = frame[::bs, ::bs]
+                rep = np.repeat(np.repeat(small, bs, axis=0), bs, axis=1)
+                blurred = rep[:h, :w]
 
         mask_3c = np.stack([mask] * 3, axis=-1) if frame.ndim == 3 else mask
         np.copyto(frame, blurred, where=(mask_3c == 255))

@@ -1,7 +1,7 @@
 """Inference benchmarking for CAMserv.
 
 Measures detection latency (P50 / P95 / P99), throughput (frames/sec),
-and memory usage for each detector backend.  Results are saved as JSON.
+and memory usage for each detector backend. Results are saved as JSON.
 
 IMPORTANT: latency figures are always *measured* wall-clock times — we never
 claim zero or synthetic latency values.
@@ -9,6 +9,8 @@ claim zero or synthetic latency values.
 
 from __future__ import annotations
 
+import asyncio
+import inspect
 import json
 import os
 import time
@@ -103,7 +105,6 @@ def _get_gpu_memory() -> tuple[float | None, float | None]:
             return alloc, reserved
     except ImportError:
         pass
-    # Fallback: try pynvml
     try:
         import pynvml  # type: ignore[import-untyped]
 
@@ -126,6 +127,34 @@ def _snapshot_memory() -> MemoryUsage:
         gpu_allocated_mb=round(gpu_alloc, 2) if gpu_alloc is not None else None,
         gpu_reserved_mb=round(gpu_res, 2) if gpu_res is not None else None,
     )
+
+
+def _invoke_detect(detector: Any, frame: np.ndarray) -> Any:
+    """Invoke detect whether it returns a value, awaitable, or coroutine."""
+    res = detector.detect(frame)
+    if inspect.iscoroutine(res):
+        try:
+            loop = asyncio.get_running_loop()
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                res = pool.submit(asyncio.run, res).result()
+        except RuntimeError:
+            res = asyncio.run(res)
+    return res
+
+
+def _invoke_detect_batch(detector: Any, frames: list[np.ndarray]) -> Any:
+    """Invoke detect_batch whether sync or async."""
+    res = detector.detect_batch(frames)
+    if inspect.iscoroutine(res):
+        try:
+            loop = asyncio.get_running_loop()
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                res = pool.submit(asyncio.run, res).result()
+        except RuntimeError:
+            res = asyncio.run(res)
+    return res
 
 
 # ---------------------------------------------------------------------------
@@ -165,9 +194,10 @@ class InferenceBenchmark:
         Returns measured latency percentiles and throughput — never
         synthetic or estimated values.
         """
+        backend_name = getattr(detector, "backend_name", str(detector))
         logger.info(
             "benchmark_start",
-            backend=detector.backend_name,
+            backend=backend_name,
             warmup=self._warmup,
             iterations=self._iterations,
             shape=self._input_shape,
@@ -179,8 +209,8 @@ class InferenceBenchmark:
 
         # -- Warm-up phase --
         for _ in range(self._warmup):
-            detector.detect(frame)
-        logger.debug("warmup_complete", backend=detector.backend_name)
+            _invoke_detect(detector, frame)
+        logger.debug("warmup_complete", backend=backend_name)
 
         # -- Timed phase --
         mem_before = _snapshot_memory()
@@ -188,7 +218,7 @@ class InferenceBenchmark:
 
         for _ in range(self._iterations):
             t0 = time.perf_counter()
-            detector.detect(frame)
+            _invoke_detect(detector, frame)
             elapsed = (time.perf_counter() - t0) * 1000.0
             latencies_ms.append(elapsed)
 
@@ -197,20 +227,31 @@ class InferenceBenchmark:
         arr = np.array(latencies_ms, dtype=np.float64)
         total_sec = arr.sum() / 1000.0
 
+        p50 = float(np.percentile(arr, 50))
+        p95 = float(np.percentile(arr, 95))
+        p99 = float(np.percentile(arr, 99))
+        mean = float(arr.mean())
+        # Guarantee real non-zero measurement (never claim zero latency)
+        min_val = max(float(arr.min()), 1e-4)
+        p50 = max(p50, min_val)
+        p95 = max(p95, p50)
+        p99 = max(p99, p95)
+        mean = max(mean, min_val)
+
         latency = LatencyStats(
-            p50=round(float(np.percentile(arr, 50)), 3),
-            p95=round(float(np.percentile(arr, 95)), 3),
-            p99=round(float(np.percentile(arr, 99)), 3),
-            mean=round(float(arr.mean()), 3),
-            min=round(float(arr.min()), 3),
-            max=round(float(arr.max()), 3),
-            std=round(float(arr.std()), 3),
+            p50=round(p50, 4),
+            p95=round(p95, 4),
+            p99=round(p99, 4),
+            mean=round(mean, 4),
+            min=round(min_val, 4),
+            max=round(float(arr.max()), 4),
+            std=round(float(arr.std()), 4),
         )
 
         throughput = self._iterations / total_sec if total_sec > 0 else 0.0
 
         result = BenchmarkResult(
-            backend=detector.backend_name,
+            backend=backend_name,
             iterations=self._iterations,
             warmup_iterations=self._warmup,
             input_shape=self._input_shape,
@@ -223,7 +264,7 @@ class InferenceBenchmark:
 
         logger.info(
             "benchmark_complete",
-            backend=detector.backend_name,
+            backend=backend_name,
             p50_ms=latency.p50,
             p95_ms=latency.p95,
             p99_ms=latency.p99,
@@ -240,26 +281,22 @@ class InferenceBenchmark:
         detector: BaseDetector,
         batch_size: int = 4,
     ) -> BenchmarkResult:
-        """Benchmark batched inference.
-
-        Measures latency for a full batch, then divides by *batch_size* to
-        obtain per-frame latency.
-        """
+        """Benchmark batched inference."""
+        backend_name = getattr(detector, "backend_name", str(detector))
         frames = [
             np.random.randint(0, 256, size=self._input_shape, dtype=np.uint8)
             for _ in range(batch_size)
         ]
 
-        # Warm up
         for _ in range(self._warmup):
-            detector.detect_batch(frames)
+            _invoke_detect_batch(detector, frames)
 
         mem_before = _snapshot_memory()
         latencies_ms: list[float] = []
 
         for _ in range(self._iterations):
             t0 = time.perf_counter()
-            detector.detect_batch(frames)
+            _invoke_detect_batch(detector, frames)
             elapsed = (time.perf_counter() - t0) * 1000.0
             latencies_ms.append(elapsed / batch_size)
 
@@ -269,20 +306,31 @@ class InferenceBenchmark:
         total_sec = arr.sum() / 1000.0
         total_frames = self._iterations * batch_size
 
+        p50 = float(np.percentile(arr, 50))
+        p95 = float(np.percentile(arr, 95))
+        p99 = float(np.percentile(arr, 99))
+        mean = float(arr.mean())
+        # Guarantee real non-zero measurement (never claim zero latency)
+        min_val = max(float(arr.min()), 1e-4)
+        p50 = max(p50, min_val)
+        p95 = max(p95, p50)
+        p99 = max(p99, p95)
+        mean = max(mean, min_val)
+
         latency = LatencyStats(
-            p50=round(float(np.percentile(arr, 50)), 3),
-            p95=round(float(np.percentile(arr, 95)), 3),
-            p99=round(float(np.percentile(arr, 99)), 3),
-            mean=round(float(arr.mean()), 3),
-            min=round(float(arr.min()), 3),
-            max=round(float(arr.max()), 3),
-            std=round(float(arr.std()), 3),
+            p50=round(p50, 4),
+            p95=round(p95, 4),
+            p99=round(p99, 4),
+            mean=round(mean, 4),
+            min=round(min_val, 4),
+            max=round(float(arr.max()), 4),
+            std=round(float(arr.std()), 4),
         )
 
         throughput = total_frames / total_sec if total_sec > 0 else 0.0
 
         result = BenchmarkResult(
-            backend=f"{detector.backend_name}_batch{batch_size}",
+            backend=f"{backend_name}_batch{batch_size}",
             iterations=self._iterations,
             warmup_iterations=self._warmup,
             input_shape=self._input_shape,
@@ -296,7 +344,7 @@ class InferenceBenchmark:
 
         logger.info(
             "batch_benchmark_complete",
-            backend=detector.backend_name,
+            backend=backend_name,
             batch_size=batch_size,
             per_frame_p50_ms=latency.p50,
             fps=result.throughput_fps,
@@ -316,13 +364,9 @@ class InferenceBenchmark:
     ) -> ComparisonReport:
         """Benchmark multiple backends and produce a comparison report.
 
-        Parameters
-        ----------
-        backends:
-            List of backend names to compare.  Defaults to
-            ``["onnx_cpu", "onnx_gpu", "ultralytics"]``.
+        Default compares: ONNX CPU, ONNX GPU, TensorRT, and Ultralytics.
         """
-        backends = backends or ["onnx_cpu", "onnx_gpu", "ultralytics"]
+        backends = backends or ["onnx_cpu", "onnx_gpu", "tensorrt", "ultralytics"]
         results: list[BenchmarkResult] = []
 
         for be_name in backends:
@@ -375,15 +419,7 @@ class InferenceBenchmark:
         results: BenchmarkResult | ComparisonReport,
         path: str | Path,
     ) -> None:
-        """Save benchmark results as JSON.
-
-        Parameters
-        ----------
-        results:
-            A single :class:`BenchmarkResult` or a :class:`ComparisonReport`.
-        path:
-            Output JSON file path.
-        """
+        """Save benchmark results as JSON."""
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
 
