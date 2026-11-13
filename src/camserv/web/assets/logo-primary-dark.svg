@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 380 80" width="380" height="80" fill="none">
+  <defs>
+    <linearGradient id="camserv_cyan_d" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#06B6D4" />
+      <stop offset="100%" stop-color="#0284C7" />
+    </linearGradient>
+    <linearGradient id="camserv_emerald_d" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#10B981" />
+      <stop offset="100%" stop-color="#059669" />
+    </linearGradient>
+    <linearGradient id="camserv_indigo_d" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6366F1" />
+      <stop offset="100%" stop-color="#4F46E5" />
+    </linearGradient>
+  </defs>
+
+  <!-- Left Symbol (Centered at X=45, Y=40, scaled ~0.65) -->
+  <g transform="translate(15, 10) scale(0.6)">
+    <path d="M 50 12 L 85 32 L 67 42 L 50 32 Z" fill="url(#camserv_cyan_d)" />
+    <path d="M 88 38 L 88 78 L 70 68 L 70 48 Z" fill="url(#camserv_cyan_d)" opacity="0.85" />
+    <path d="M 85 82 L 50 100 L 50 80 L 67 70 Z" fill="url(#camserv_emerald_d)" />
+    <path d="M 45 98 L 12 78 L 30 68 L 45 78 Z" fill="url(#camserv_emerald_d)" opacity="0.85" />
+    <path d="M 12 72 L 12 32 L 30 42 L 30 62 Z" fill="url(#camserv_indigo_d)" />
+    <path d="M 15 28 L 50 10 L 50 28 L 32 38 Z" fill="url(#camserv_indigo_d)" opacity="0.85" />
+    <circle cx="50" cy="50" r="7.5" fill="#F8FAFC" />
+    <circle cx="50" cy="50" r="14" stroke="#06B6D4" stroke-width="2" stroke-dasharray="2 3" opacity="0.75" />
+  </g>
+
+  <!-- Wordmark: "CAM" in Bold Clean Sans, "serv" in Cyan Gradient -->
+  <text x="90" y="47" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Inter', sans-serif" font-size="34" font-weight="800" fill="#F8FAFC" letter-spacing="-0.5">
+    CAM<tspan fill="#06B6D4" font-weight="700">serv</tspan>
+  </text>
+
+  <!-- Security Descriptor Tagline -->
+  <text x="92" y="65" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Inter', sans-serif" font-size="9.5" font-weight="600" fill="#94A3B8" letter-spacing="3.2">
+    SECURITY INTELLIGENCE PLATFORM
+  </text>
+</svg>

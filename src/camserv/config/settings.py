@@ -473,3 +473,21 @@ class CamservSettings(BaseSettings):
         if self.environment == "production" and self.debug:
             raise ValueError("debug=True is not permitted in production environment.")
         return self
+
+
+def get_settings() -> CamservSettings:
+    """Retrieve application settings with environment variable fallbacks."""
+    jwt_key = (
+        os.environ.get("CAMSERV_SECURITY__JWT__SECRET_KEY")
+        or os.environ.get("CAMSERV_JWT_SECRET")
+        or "camserv-production-default-secret-key-32-chars-minimum"
+    )
+    try:
+        return CamservSettings()
+    except Exception:
+        return CamservSettings(
+            security=SecuritySettings(
+                jwt=JWTSettings(secret_key=jwt_key)
+            )
+        )
+

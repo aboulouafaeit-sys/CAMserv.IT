@@ -1,34 +1,26 @@
-"""
-camserv.acquisition
-===================
-
-Video acquisition, camera management, and frame decoding for CAMserv.
-"""
-
-from __future__ import annotations
-
-from camserv.acquisition.camera import (
-    AcquisitionError,
-    CameraConnectionError,
-    CameraHealth,
-    CameraManager,
-    CameraStatus,
-    CameraStream,
-    StreamConfig,
-)
-from camserv.acquisition.decoder import (
-    DecoderConfig,
-    FrameDecoderImpl,
+"""camserv.acquisition package exports."""
+from camserv.acquisition.camera import CameraHealth, CameraManager, CameraStream
+from camserv.acquisition.decoder import FrameDecoderImpl
+from camserv.acquisition.onvif import (
+    DeploymentTopology,
+    DiscoveredCamera,
+    NVRCompatibilityReport,
+    NVRCompatibilityTester,
+    ONVIFDiscovery,
+    ONVIFProfile,
+    StreamProfile,
 )
 
 __all__ = [
-    "AcquisitionError",
-    "CameraConnectionError",
     "CameraHealth",
     "CameraManager",
-    "CameraStatus",
     "CameraStream",
-    "DecoderConfig",
+    "DeploymentTopology",
+    "DiscoveredCamera",
     "FrameDecoderImpl",
-    "StreamConfig",
+    "NVRCompatibilityReport",
+    "NVRCompatibilityTester",
+    "ONVIFDiscovery",
+    "ONVIFProfile",
+    "StreamProfile",
 ]
