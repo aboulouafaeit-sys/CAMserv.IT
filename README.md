@@ -1,9 +1,7 @@
 <p align="center">
-  <img src="assets/branding/camserv-logo-master.png" alt="CAMserv Official Illustrated Emblem" width="280">
-</p>
-
-<p align="center">
-  <img src="assets/branding/camserv-wordmark.png" alt="CAMserv Security Intelligence Platform" width="480">
+  <a href="https://github.com/aboulouafaeit-sys/CAMserv.IT">
+    <img src="assets/branding/camserv-logo-transparent.png" alt="CAMserv Official Brand Identity" width="340">
+  </a>
 </p>
 
 <p align="center">
