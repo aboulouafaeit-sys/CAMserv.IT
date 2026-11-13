@@ -19,8 +19,8 @@ import numpy as np
 import pytest
 
 from camserv.api.app import create_app
-from camserv.events.detector import EventDetector, EventRule, EventType
-from camserv.inference.detector import BaseDetector, Detection
+from camserv.events.detector import EventDetector, EventRule, EventState, EventType
+from camserv.inference.detector import BaseDetector
 from camserv.inference.privacy import BlurMethod, PrivacyConfig, PrivacyFilter, PrivacyZone
 from camserv.inference.scene import (
     ObservationStatus,
@@ -31,6 +31,7 @@ from camserv.inference.scene import (
 from camserv.pipeline.engine import EngineConfig, PipelineEngine
 from camserv.pipeline.interfaces import (
     BoundingBox,
+    Detection,
     Event,
     EventSeverity,
     Frame,
@@ -251,14 +252,14 @@ def test_human_verification_workflow_end_to_end(tmp_path: Path) -> None:
 
     # High severity event enters PENDING_VERIFICATION state
     assert event.requires_verification is True
-    event_detector.transition_event_state(event.event_id, "pending_verification")
-    assert event_detector.get_event_state(event.event_id) == "pending_verification"
+    event_detector.transition_event_state(event.event_id, EventState.PENDING_VERIFICATION)
+    assert event_detector.get_event_state(event.event_id) == EventState.PENDING_VERIFICATION
 
     # 2. Human operator confirms/accepts the alert
     operator_user = "operator_sarah"
-    verification_success = event_detector.transition_event_state(event.event_id, "verified")
+    verification_success = event_detector.transition_event_state(event.event_id, EventState.VERIFIED)
     assert verification_success is True
-    assert event_detector.get_event_state(event.event_id) == "verified"
+    assert event_detector.get_event_state(event.event_id) == EventState.VERIFIED
 
     # 3. Log verification action into tamper-evident audit log
     audit_entry = audit_logger.log(
