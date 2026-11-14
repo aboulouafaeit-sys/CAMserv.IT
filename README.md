@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  <a href="#test-results"><img src="https://img.shields.io/badge/Tests-136%20Passing-10B981?style=for-the-badge&logo=pytest&logoColor=white" alt="Tests"></a>
+  <a href="#test-results"><img src="https://img.shields.io/badge/Tests-180%20Passing-10B981?style=for-the-badge&logo=pytest&logoColor=white" alt="Tests"></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-06B6D4?style=for-the-badge&logo=python&logoColor=white" alt="Python"></a>
   <a href="docs/ADVANCED_ARCHITECTURE_ULTRA_LOCAL.md"><img src="https://img.shields.io/badge/Architecture-Ultra--Local%20Zero--API-8B5CF6?style=for-the-badge&logo=cpu&logoColor=white" alt="Ultra-Local"></a>
   <a href="docs/HARDWARE_COMPATIBILITY.md"><img src="https://img.shields.io/badge/CUDA-13.5%20%2F%20RTX%203060%2B-76B900?style=for-the-badge&logo=nvidia&logoColor=white" alt="CUDA"></a>
@@ -177,36 +177,14 @@ Access the interactive web console at `http://127.0.0.1:8000/`.
 
 ## 5. Verification & Test Suite
 
-The platform includes 136 comprehensive automated test cases across 18 test modules:
+The platform includes 180 comprehensive automated test cases across 33 test modules:
 
 ```bash
 python -m pytest tests/ -v
 ```
 
 ```text
-tests/scenarios/test_integration.py .....                                [  3%]
-tests/test_adaptive_manager.py ...                                       [  5%]
-tests/test_adaptive_vault.py ....                                        [  8%]
-tests/test_adversarial.py .............                                  [ 18%]
-tests/test_api.py .........                                              [ 25%]
-tests/test_camera_isp.py ....                                            [ 27%]
-tests/test_config.py ......                                              [ 32%]
-tests/test_events.py ...........                                         [ 40%]
-tests/test_forensics.py ....                                             [ 43%]
-tests/test_hud_segmentation.py ......                                    [ 47%]
-tests/test_inference.py ..........                                       [ 55%]
-tests/test_main_cli.py ....                                              [ 58%]
-tests/test_onvif.py ..                                                   [ 59%]
-tests/test_pipeline.py ........                                          [ 65%]
-tests/test_platform_hardware.py ..                                       [ 66%]
-tests/test_security.py .............                                     [ 76%]
-tests/test_sqlite_store.py ...                                           [ 78%]
-tests/test_storage.py ........                                           [ 84%]
-tests/test_temporal_events.py ..                                         [ 86%]
-tests/test_threat_engine.py ....                                         [ 88%]
-tests/test_tracking.py ............                                      [ 97%]
-tests/test_web_console.py ...                                            [100%]
-======================= 136 passed in 8.29s =======================
+======================= 180 passed in 10.62s =======================
 ```
 
 ---

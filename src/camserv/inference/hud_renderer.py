@@ -259,3 +259,48 @@ class CinematicHUDRenderer:
         # Card border and text
         cv2.rectangle(img, (card_x1, card_y1 - txt_h - 6), (card_x2, card_y2), style.color_bgr, 1, cv2.LINE_AA)
         cv2.putText(img, label, (card_x1 + 8, card_y1), font, font_scale, (255, 255, 255), thickness, cv2.LINE_AA)
+
+    def render_stream_telemetry_hud(
+        self,
+        frame: np.ndarray,
+        camera_id: str,
+        fps: float,
+        latency_p50: float,
+        latency_p95: float,
+        provider: str,
+        active_tracks: int,
+        health_status: str = "HEALTHY",
+    ) -> np.ndarray:
+        """Render floating glassmorphic telemetry dashboard overlay on video stream."""
+        if frame is None or frame.size == 0:
+            return frame
+
+        canvas = frame.copy()
+        h, w = canvas.shape[:2]
+
+        # Telemetry panel dimensions
+        panel_w = 340
+        panel_h = 75
+        x1, y1 = 16, 16
+        x2, y2 = x1 + panel_w, y1 + panel_h
+
+        # Translucent glassmorphic backing
+        roi = canvas[y1:y2, x1:x2]
+        if roi.shape[0] > 0 and roi.shape[1] > 0:
+            dark_bg = np.zeros_like(roi)
+            cv2.addWeighted(roi, 0.25, dark_bg, 0.75, 0, roi)
+            canvas[y1:y2, x1:x2] = roi
+
+        # Border with neon cyan accent
+        cv2.rectangle(canvas, (x1, y1), (x2, y2), self.COLOR_CYAN, 1, cv2.LINE_AA)
+
+        # Telemetry text lines
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        scale = 0.42
+        cv2.putText(canvas, f"CAM: {camera_id} | {w}x{h} @ {fps:.1f} FPS", (x1 + 10, y1 + 20), font, scale, (255, 255, 255), 1, cv2.LINE_AA)
+        cv2.putText(canvas, f"LATENCY: P50={latency_p50:.1f}ms  P95={latency_p95:.1f}ms", (x1 + 10, y1 + 40), font, scale, (200, 240, 255), 1, cv2.LINE_AA)
+        status_color = (0, 255, 120) if health_status == "HEALTHY" else (0, 165, 255)
+        cv2.putText(canvas, f"INFERENCE: {provider} | TRACKS: {active_tracks} | {health_status}", (x1 + 10, y1 + 60), font, scale, status_color, 1, cv2.LINE_AA)
+
+        return canvas
+

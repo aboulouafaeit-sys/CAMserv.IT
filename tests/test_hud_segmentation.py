@@ -117,3 +117,22 @@ def test_render_hud_execution(dummy_frame: np.ndarray, sample_track: Track):
     assert rendered.shape == dummy_frame.shape
     # Ensure drawing operations modified the black canvas
     assert np.any(rendered > 0)
+
+
+def test_render_stream_telemetry_hud(dummy_frame: np.ndarray):
+    renderer = CinematicHUDRenderer()
+    telemetry_canvas = renderer.render_stream_telemetry_hud(
+        frame=dummy_frame,
+        camera_id="cam-01",
+        fps=29.8,
+        latency_p50=18.4,
+        latency_p95=28.1,
+        provider="TensorrtExecutionProvider",
+        active_tracks=4,
+        health_status="HEALTHY",
+    )
+    assert telemetry_canvas is not None
+    assert telemetry_canvas.shape == dummy_frame.shape
+    # Telemetry badge drawn on top-left
+    assert np.any(telemetry_canvas[16:90, 16:350] > 0)
+
