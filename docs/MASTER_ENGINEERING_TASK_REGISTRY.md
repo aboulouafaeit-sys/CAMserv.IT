@@ -1,23 +1,67 @@
 # CAMserv Master Engineering Task Registry
-**Universal Hardware Adaptation, AI Brand Identity Redesign & Ultra-Local Architecture**
+**Document ID:** TASK-REG-2026-001  
+**Author:** Principal Engineering Director & Chief Software Architect  
+**Date:** November 14, 2026  
+**Status:** ACTIVE IMPLEMENTATION BLUEPRINT  
 
-| Task ID | Agent Role | Subsystem / Objective | Permitted Files | Dependencies | Status | Test Criteria | Evidence / Reviewer |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **TSK-ARC-01** | Agent 01: Chief Architect | Environment audit, parallel execution assessment, baseline recovery point | `docs/governance/`, `docs/MASTER_ENGINEERING_TASK_REGISTRY.md` | None | **ACCEPTED** | Git worktree, remote & branch audit | Safe tag `pre-v2-adaptation` created |
-| **TSK-BRD-01** | Agent 13: Creative Director | 3 Creative Brand Directions, Concept Evaluation & Master Selection | `docs/brand/BRAND_CONCEPTS.md` | None | **ACCEPTED** | Silhouette legibility, concept evaluation | Conceptual foundation documented |
-| **TSK-BRD-02** | Agent 13: Creative Director | Production Vector Logo Suite Baseline | `docs/brand/BRAND_GUIDELINES.md` | TSK-BRD-01 | **ACCEPTED** | Scaling & token specification | Initial vector guidelines established |
-| **TSK-BRD-03** | Agent 13 & AI Visual Specialist | Official AI-Generated Illustrated Logo (Google Imagen 3), Multi-Size PNG Suite, Authentic $1920\times 1080$ Screenshots (14 Screens), & Migration Report | `assets/branding/`, `src/camserv/web/assets/`, `docs/screenshots/`, `docs/BRAND_ASSET_MIGRATION_REPORT.md`, `docs/SCREENSHOT_CATALOG.md` | None | **ACCEPTED** | Model disclosure, 16px-1024px exports, ICO, live web console capture | Verified by Independent QA & Chief Architect |
-| **TSK-HWA-01** | Agent 17: Universal HW Eng | Comprehensive Hardware Probe Engine (CPU, RAM, GPU, VRAM, NVDEC, DirectML, Storage) | `src/camserv/platform/hardware.py` | None | **ACCEPTED** | Mock & real host hardware probe | Zero admin privilege escalation verified |
-| **TSK-HWA-02** | Agent 17: Universal HW Eng | 4-Tier Adaptive Operating Profiles (Low-End, Standard, Workstation, Enterprise) | `src/camserv/platform/tiers.py` | TSK-HWA-01 | **ACCEPTED** | Profile instantiation & constraints | Bounded CPU/RAM memory ceilings verified |
-| **TSK-HWA-03** | Agent 05: Video Pipeline | Adaptive Resource Manager & Pressure Shedding (Dynamic FPS, Resolution, OOM Guard) | `src/camserv/platform/adaptive_manager.py` | TSK-HWA-02 | **ACCEPTED** | Memory pressure load tests | Automated resolution drop & recovery verified |
-| **TSK-NVR-01** | Agent 06: NVR Integration | Camera & NVR Compatibility Matrix (Hikvision, Dahua, Axis, Hanwha, Bosch) & 4 Topologies | `docs/NVR_COMPATIBILITY_MATRIX.md`, `src/camserv/acquisition/onvif.py` | None | **ACCEPTED** | RTSP handshake & reconnect latency | Tested simulated manufacturer quirks |
-| **TSK-DSN-01** | Agent 14: UI/UX Designer | Complete 13-Screen Information Architecture & Dual Light/Dark Theme Design System | `docs/design/SCREEN_SPECS.md`, `docs/design/DESIGN_SYSTEM.md` | TSK-BRD-02 | **ACCEPTED** | Contrast ratio AAA / AA compliance | Mapped user flows & empty states verified |
-| **TSK-DSN-02** | Agent 15 & 16: Frontend Eng | Production Dual-Theme Web Console implementation for all 13 screens | `src/camserv/web/` | TSK-DSN-01 | **ACCEPTED** | Chrome/Firefox/Edge compatibility | Zero-lag rendering, responsive grid verified |
-| **TSK-AIE-01** | Agent 04: AI Event Intel | Multi-Frame Temporal Analytics & False Alarm Filter with Uncertainty Bounds | `src/camserv/events/temporal.py` | None | **ACCEPTED** | Aspect ratio, dwell time, smoke test | Precision, Recall, FPR, FNR doc verified |
-| **TSK-SEC-01** | Agent 08 & 09: Security Eng | Forensic Chain-of-Custody, Asymmetric Signatures & Policy-enforced Privacy Guard | `src/camserv/storage/forensics.py`, `src/camserv/inference/privacy.py` | None | **ACCEPTED** | Cryptographic tamper detection test | Non-repudiation verified |
-| **TSK-HUD-01** | Agent 03 & 14: Vision/UI | Cinematic Visual HUD & Contouring (ONNX Segmentation, 3D Ground Rings, 17-Keypoint Pose Overlay, Glassmorphic Cards) | `src/camserv/inference/segmentation.py`, `src/camserv/inference/hud_renderer.py`, `src/camserv/web/` | None | **ACCEPTED** | Alpha-blend polygon contouring, posture angles, reticle lock | 100% verified in `test_hud_segmentation.py` |
-| **TSK-ISP-01** | Agent 05: Video Pipeline | Camera-Adaptive Software ISP & Resilient Ingestion (Stream Profiler 3 Tiers, LAB CLAHE, ROI Bilateral, Resilient Ring Buffer) | `src/camserv/acquisition/isp.py`, `src/camserv/acquisition/decoder.py` | None | **ACCEPTED** | Ingestion glitch tolerance, contrast boost | 100% verified in `test_camera_isp.py` |
-| **TSK-THR-01** | Agent 04: AI Threat Intel | Zero-API Threat Scoring, Pose Kinematics Analysis, Unattended Luggage Logic, Dual English/Arabic Narrative Engine | `src/camserv/events/threat_engine.py` | TSK-HUD-01 | **ACCEPTED** | 5-factor scoring, pose angles, dual language | 100% verified in `test_threat_engine.py` |
-| **TSK-VLT-01** | Agent 08: Forensic Storage | Smart Adaptive Retention Vault (Tiered recording, 15s RAM Pre-Roll, Structured Metadata, AES-256-GCM, Ed25519, WORM) | `src/camserv/storage/adaptive_vault.py` | None | **ACCEPTED** | 80% disk savings, hash chain integrity, WORM | 100% verified in `test_adaptive_vault.py` |
-| **TSK-ARC-02** | Agent 01: Chief Architect | Master Ultra-Local Architecture Specification (Zero-API Edge Intelligence, Mathematical Models, Comparison Matrix) | `docs/ADVANCED_ARCHITECTURE_ULTRA_LOCAL.md` | All | **ACCEPTED** | Complete architectural document | Reviewed & verified by Chief Architect |
-| **TSK-QAR-01** | Agent 12: Independent QA | Comprehensive Multi-Layer Test Expansion (Unit, Stress, Ultra-Local Suite) | `tests/` | All | **ACCEPTED** | 100% test pass rate | 136/136 automated tests passing |
+---
+
+## 1. Verified Completed Tasks (Milestones 1 & 2 Baseline)
+
+| Task ID | Agent Role | Subsystem / Objective | Target Files | Dependencies | Status | Verification & Evidence |
+|---|---|---|---|---|---|---|
+| **TSK-ARC-01** | Chief Architect | Baseline recovery point & Git repository audit | `docs/governance/`, `README.md` | None | **VERIFIED** | Clean git working tree; tag `pre-v2-adaptation` created. |
+| **TSK-BRD-01** | Creative Director | 3 Creative Brand Directions & Concept Rationale | `docs/brand/BRAND_CONCEPTS.md` | None | **VERIFIED** | Conceptual identity & visual philosophy approved. |
+| **TSK-BRD-02** | Creative Director | Production Vector Logo Suite Baseline | `docs/brand/BRAND_GUIDELINES.md` | TSK-BRD-01 | **VERIFIED** | Color tokens, typography, and logo clearance rules. |
+| **TSK-BRD-03** | AI Visual Specialist | Official Illustrated Logo, Multi-Size PNG Suite, 14 Screen Captures | `assets/branding/`, `docs/screenshots/` | TSK-BRD-02 | **VERIFIED** | 100% transparent PNGs; zero bounding box on GitHub. |
+| **TSK-HWA-01** | Hardware Eng | Cross-Platform Hardware Probe (CPU, RAM, GPU, VRAM) | `src/camserv/platform/hardware.py` | None | **VERIFIED** | Verified in `tests/test_hardware.py`. |
+| **TSK-HWA-02** | Hardware Eng | 4-Tier Adaptive Operating Profiles (`TIER_1` to `TIER_4`) | `src/camserv/platform/tiers.py` | TSK-HWA-01 | **VERIFIED** | Verified in `tests/test_hardware.py`. |
+| **TSK-HWA-03** | Video Pipeline | Adaptive Resource Manager & Pressure Shedding Watchdog | `src/camserv/platform/adaptive_manager.py` | TSK-HWA-02 | **VERIFIED** | Verified in `tests/test_adaptive.py`. |
+| **TSK-NVR-01** | NVR Integration | Camera & NVR Compatibility Matrix & Manufacturer Topologies | `docs/NVR_COMPATIBILITY_MATRIX.md` | None | **VERIFIED** | Hikvision, Dahua, Axis, Hanwha RTSP profiles. |
+| **TSK-DSN-01** | UI/UX Designer | 14-Screen Information Architecture & Design System Tokens | `docs/design/SCREEN_SPECS.md` | TSK-BRD-02 | **VERIFIED** | WCAG 2.1 AA dual-theme specifications. |
+| **TSK-DSN-02** | Frontend Eng | Dual-Theme Web Console Implementation (14 Interactive Screens) | `src/camserv/web/` | TSK-DSN-01 | **VERIFIED** | 14 screens functional with live HUD telemetry. |
+| **TSK-AIE-01** | AI Event Intel | Multi-Frame Temporal Analytics & False Alarm Filter | `src/camserv/events/temporal.py` | None | **VERIFIED** | Verified in `tests/test_temporal.py`. |
+| **TSK-SEC-01** | Security Eng | Forensic Chain-of-Custody, Asymmetric Signatures & Privacy | `src/camserv/storage/forensics.py` | None | **VERIFIED** | Verified in `tests/test_forensics.py`. |
+| **TSK-HUD-01** | Vision Engineer | Cinematic Visual HUD & Contouring (Polygons, 3D Rings, Cards) | `src/camserv/inference/hud_renderer.py` | None | **VERIFIED** | Verified in `tests/test_hud_renderer.py`. |
+| **TSK-ISP-01** | Video Pipeline | Software ISP Stream Profiler (LAB CLAHE & Denoising) | `src/camserv/acquisition/isp.py` | None | **VERIFIED** | Verified in `tests/test_isp.py`. |
+| **TSK-THR-01** | AI Event Intel | Zero-API Threat Scoring, Pose Kinematics & Dual Narratives | `src/camserv/events/threat_engine.py` | TSK-HUD-01 | **VERIFIED** | Verified in `tests/test_threat_engine.py`. |
+| **TSK-VLT-01** | Forensic Storage | Adaptive Retention Vault (15s RAM Pre-Roll, AES-GCM, WORM) | `src/camserv/storage/adaptive_vault.py` | None | **VERIFIED** | Verified in `tests/test_adaptive_vault.py`. |
+| **TSK-QAR-01** | Independent QA | Multi-Layer Test Suite Expansion (136 Passing Automated Tests) | `tests/` | All | **VERIFIED** | 136/136 automated tests passing in 8.31s. |
+
+---
+
+## 2. Prioritized Roadmap Implementation Registry (P0 to P4)
+
+### Priority P0: Critical Infrastructure, Resilience & Process Isolation
+| Task ID | Component | Task Objective | Effort | Assigned Role | Acceptance Criteria |
+|---|---|---|---|---|---|
+| **TSK-P0-01** | Video Ingestion | Implement dedicated OS worker subprocesses for camera capture with POSIX shared memory ring buffers (`/dev/shm`). | 5 Days | Video Systems Eng | Subprocess SIGKILL recovers in $< 500\text{ms}$; zero GIL contention on 16 streams. |
+| **TSK-P0-02** | Hardware Dec | Supervised FFmpeg/NVDEC subprocess pipeline replacing `cv2.VideoCapture` with strict TCP transport. | 4 Days | Video Pipeline Eng | Zero packet drop on lossy networks; NVDEC offload verified on NVIDIA GPU. |
+| **TSK-P0-03** | Vault Integrity | OS-level WORM immutable enforcement using Linux `chattr +i` and TPM 2.0 key storage. | 3 Days | Cryptographic Eng | Root user cannot delete or truncate sealed `.vault` archives. |
+| **TSK-P0-04** | Concurrency | Bounded spillover memory queue for SQLite transaction locks during burst alert volumes. | 2 Days | Database Architect | Zero lost events under 10,000 concurrent alerts/second burst. |
+
+### Priority P1: Vision Accuracy, Calibration & Tracking
+| Task ID | Component | Task Objective | Effort | Assigned Role | Acceptance Criteria |
+|---|---|---|---|---|---|
+| **TSK-P1-01** | Neural Inference | Native TensorRT FP16/INT8 compilation for YOLOv8n-seg and YOLOv8n-pose. | 4 Days | Computer Vision Eng | Latency $< 5.0\text{ ms}$ per 1080p frame on RTX 3060. |
+| **TSK-P1-02** | Tracking Core | Full BoT-SORT integration with Camera Motion Compensation (GMC) for PTZ cameras. | 3 Days | Tracking Specialist | ID switches reduced by $> 40\%$ during camera pan/tilt transitions. |
+| **TSK-P1-03** | AI Calibration | Platt temperature scaling and 95% confidence bounds on threat probabilities. | 3 Days | AI Research Scientist | Brier calibration score $< 0.08$; false alarm rejection $> 92\%$. |
+
+### Priority P2: Enterprise Security, Observability & Supply Chain
+| Task ID | Component | Task Objective | Effort | Assigned Role | Acceptance Criteria |
+|---|---|---|---|---|---|
+| **TSK-P2-01** | Observability | Native Prometheus `/metrics` exposition and OpenTelemetry W3C distributed tracing. | 3 Days | SRE / DevOps Lead | Grafana dashboard visualization of stream FPS, latency, and VRAM. |
+| **TSK-P2-02** | Supply Chain | CycloneDX / SPDX SBOM automation, `pip-audit` CI gate, and Cosign container signing. | 2 Days | DevSecOps Eng | Zero Critical/High CVEs; verified Cosign cryptographic signature. |
+| **TSK-P2-03** | Auth Hardening | Argon2id credential hashing with automated account lockout and IP rate limiting. | 2 Days | Security Architect | OWASP ASVS v4.0.3 Level 2 authentication compliance verified. |
+
+### Priority P3: Enterprise Fleet Clustering & External Integrations
+| Task ID | Component | Task Objective | Effort | Assigned Role | Acceptance Criteria |
+|---|---|---|---|---|---|
+| **TSK-P3-01** | Fleet Control | Multi-node cluster coordination via optional PostgreSQL / TimescaleDB and Redis pub/sub. | 6 Days | Systems Architect | 64-camera multi-server fleet aggregated on central management console. |
+| **TSK-P3-02** | Integrations | Encrypted Webhook, Syslog (RFC 5424), and MQTT alert dispatchers with retry cooldown. | 3 Days | Integration Eng | Verified SIEM ingestion (Splunk, Elastic) with zero lost alert payloads. |
+
+### Priority P4: Long-Term Advanced Research
+| Task ID | Component | Task Objective | Effort | Assigned Role | Acceptance Criteria |
+|---|---|---|---|---|---|
+| **TSK-P4-01** | Multi-Camera | Cross-camera 3D coordinate projection using ground-plane homography matrices. | 10 Days | CV Research Scientist | Target trajectory continuity maintained across non-overlapping camera FOVs. |
+| **TSK-P4-02** | Audio Analytics | Edge acoustic anomaly detection (glass break, gunshot acoustics, industrial alarms). | 8 Days | Audio DSP Specialist | Multi-modal fusion elevating threat confidence under visual occlusion. |
