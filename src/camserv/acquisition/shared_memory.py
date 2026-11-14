@@ -111,9 +111,9 @@ class SharedMemoryRingBuffer:
             data_size,
             b"\x00" * 24,
         )
-        self._shm.buf[offset : offset + _HEADER_SIZE] = packed
+        self._shm.buf[offset : offset + _HEADER_SIZE] = bytearray(packed)
         # Set status atomically after header write
-        self._shm.buf[offset + 36 : offset + 40] = struct.pack("<I", status)
+        self._shm.buf[offset + 36 : offset + 40] = bytearray(struct.pack("<I", status))
 
     def _read_header(self, slot_idx: int) -> dict[str, Any] | None:
         if self._shm is None:
@@ -161,7 +161,7 @@ class SharedMemoryRingBuffer:
         # 2. Write raw frame bytes directly into shared memory buffer slice
         payload_offset = offset + _HEADER_SIZE
         raw_bytes = frame.tobytes()
-        self._shm.buf[payload_offset : payload_offset + len(raw_bytes)] = raw_bytes
+        self._shm.buf[payload_offset : payload_offset + len(raw_bytes)] = bytearray(raw_bytes)
 
         # 3. Mark slot as ready with final sequence and timestamp
         self._write_header(

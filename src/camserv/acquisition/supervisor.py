@@ -48,11 +48,20 @@ def _worker_loop_entry(
     stop_event: Any,
     heartbeat_val: Any,
     frames_written_val: Any,
+    num_slots: int = 5,
+    max_width: int = 1920,
+    max_height: int = 1080,
 ) -> None:
     """Entry point for the isolated child OS worker process."""
     # Re-initialize logging and resources in child process
     frame_interval = 1.0 / target_fps if target_fps > 0 else 0.033
-    ring_buf = SharedMemoryRingBuffer(name=shm_name, create=False)
+    ring_buf = SharedMemoryRingBuffer(
+        name=shm_name,
+        num_slots=num_slots,
+        max_width=max_width,
+        max_height=max_height,
+        create=False,
+    )
 
     seq = 0
     synthetic_mode = (source_url.lower() == "synthetic")
@@ -173,6 +182,9 @@ class CameraWorkerSupervisor:
                 self._stop_event,
                 self._heartbeat_val,
                 self._frames_written_val,
+                self.num_slots,
+                self.max_width,
+                self.max_height,
             ),
             daemon=True,
             name=f"camserv-worker-{self.camera_id}",

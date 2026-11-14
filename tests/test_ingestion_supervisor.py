@@ -72,9 +72,14 @@ def test_camera_worker_supervisor_lifecycle() -> None:
         sup.start()
         assert sup.status == WorkerStatus.STREAMING
 
-        # Allow child process to write frames
-        time.sleep(0.3)
-        res = sup.read_frame()
+        # Allow child process to write frames (poll with timeout for Windows spawn startup)
+        deadline = time.time() + 3.0
+        res = None
+        while time.time() < deadline:
+            res = sup.read_frame()
+            if res is not None:
+                break
+            time.sleep(0.05)
         assert res is not None
         img, ts, seq = res
         assert seq > 0
