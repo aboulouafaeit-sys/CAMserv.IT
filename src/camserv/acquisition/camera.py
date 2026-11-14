@@ -114,6 +114,8 @@ class StreamConfig:
     frame_height: int | None = None
     loop_video_file: bool = True
     metadata: dict[str, Any] = field(default_factory=dict)
+    use_process_isolation: bool = False
+    num_shm_slots: int = 5
 
 
 @dataclass(slots=True)
@@ -162,6 +164,7 @@ class CameraStream:
         self._running = False
         self._stop_event = asyncio.Event()
         self._frame_interval = 1.0 / config.target_fps if config.target_fps > 0 else 0.033
+        self._supervisor: Any = None
 
         self._log = logger.bind(camera_id=self._camera_id, source=config.source_url)
 
@@ -193,6 +196,21 @@ class CameraStream:
         self._running = True
         self._stop_event.clear()
         self._start_time = time.monotonic()
+
+        if self.config.use_process_isolation:
+            from camserv.acquisition.supervisor import CameraWorkerSupervisor
+            self._supervisor = CameraWorkerSupervisor(
+                camera_id=self._camera_id,
+                source_url=self.config.source_url,
+                target_fps=self.config.target_fps,
+                num_slots=self.config.num_shm_slots,
+                max_width=self.config.frame_width or 1920,
+                max_height=self.config.frame_height or 1080,
+            )
+            self._supervisor.start()
+            self._status = CameraStatus.STREAMING
+            return
+
         await self._connect()
 
     async def stop(self) -> None:
@@ -203,6 +221,11 @@ class CameraStream:
         self._log.info("stopping_camera_stream")
         self._running = False
         self._stop_event.set()
+
+        if self._supervisor is not None:
+            self._supervisor.stop()
+            self._supervisor = None
+
         await self._release_capture()
         self._status = CameraStatus.STOPPED
 
@@ -218,6 +241,43 @@ class CameraStream:
     async def __anext__(self) -> Frame:
         """Fetch the next frame from the camera stream."""
         if not self._running or self._stop_event.is_set():
+            raise StopAsyncIteration
+
+        if self.config.use_process_isolation and self._supervisor is not None:
+            loop_start = time.monotonic()
+            while self._running and not self._stop_event.is_set():
+                if not self._supervisor.is_alive:
+                    self._supervisor.check_health_and_recover()
+
+                res = self._supervisor.read_frame()
+                if res is not None:
+                    raw_img, frame_ts, frame_seq = res
+                    self._frame_seq = frame_seq
+                    now_dt = datetime.fromtimestamp(frame_ts, timezone.utc)
+                    self._last_frame_time = now_dt
+
+                    now_m = time.monotonic()
+                    self._fps_window.append(now_m)
+                    if len(self._fps_window) > self._fps_window_size:
+                        self._fps_window.pop(0)
+
+                    elapsed = time.monotonic() - loop_start
+                    sleep_needed = self._frame_interval - elapsed
+                    if sleep_needed > 0:
+                        await asyncio.sleep(sleep_needed)
+
+                    return Frame(
+                        image=raw_img,
+                        camera_id=self._camera_id,
+                        timestamp=now_dt,
+                        frame_id=frame_seq,
+                        metadata={
+                            "source_url": self.config.source_url,
+                            "process_isolated": True,
+                            "shm_name": self._supervisor.shm_name,
+                        },
+                    )
+                await asyncio.sleep(0.005)
             raise StopAsyncIteration
 
         loop_start = time.monotonic()

@@ -82,10 +82,11 @@ def _worker_loop_entry(
             if synthetic_mode or cap is None or not getattr(cap, "isOpened", lambda: True)():
                 # Generate synthetic test frame in child process
                 seq += 1
-                img = np.zeros((480, 640, 3), dtype=np.uint8)
+                img = np.zeros((max_height, max_width, 3), dtype=np.uint8)
                 # Draw animated visual marker
-                x_pos = int((seq * 15) % 580)
-                img[200:280, x_pos : x_pos + 60] = [0, 255, 255]
+                x_pos = int((seq * 15) % max(1, max_width - 60))
+                y_pos = int(max_height // 2)
+                img[max(0, y_pos - 40) : min(max_height, y_pos + 40), x_pos : x_pos + 60] = [0, 255, 255]
                 ring_buf.write_frame(img, timestamp=time.time(), sequence=seq)
                 frames_written_val.value = seq
             else:
