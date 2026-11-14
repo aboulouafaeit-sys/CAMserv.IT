@@ -95,11 +95,13 @@ def create_app(settings: CamservSettings | None = None) -> FastAPI:
     app.state.auth_manager = auth
 
     # AuditLogger
-    audit_path = (
-        settings.security.audit_log_path
-        if settings is not None and hasattr(settings, "security")
-        else Path("logs/audit.jsonl")
-    )
+    env_audit_path = os.environ.get("CAMSERV_SECURITY__AUDIT_LOG_PATH")
+    if settings is not None and hasattr(settings, "security") and settings.security.audit_log_path:
+        audit_path = settings.security.audit_log_path
+    elif env_audit_path:
+        audit_path = Path(env_audit_path)
+    else:
+        audit_path = Path("logs/audit.jsonl")
     audit = AuditLogger(log_path=audit_path)
     app.state.audit_logger = audit
 

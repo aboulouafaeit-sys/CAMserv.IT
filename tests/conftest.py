@@ -362,6 +362,22 @@ def tmp_audit_log_path(tmp_path: Path) -> Path:
     return tmp_path / "audit_test.jsonl"
 
 
+@pytest.fixture(autouse=True, scope="session")
+def isolate_session_audit_log(tmp_path_factory: pytest.TempPathFactory) -> Generator[Path, None, None]:
+    """Isolate all test audit logging to an ephemeral temporary directory (Condition C1)."""
+    temp_dir = tmp_path_factory.mktemp("camserv_test_audit")
+    temp_log = temp_dir / "audit.jsonl"
+    old_env = os.environ.get("CAMSERV_SECURITY__AUDIT_LOG_PATH")
+    os.environ["CAMSERV_SECURITY__AUDIT_LOG_PATH"] = str(temp_log)
+    try:
+        yield temp_log
+    finally:
+        if old_env is not None:
+            os.environ["CAMSERV_SECURITY__AUDIT_LOG_PATH"] = old_env
+        else:
+            os.environ.pop("CAMSERV_SECURITY__AUDIT_LOG_PATH", None)
+
+
 # ---------------------------------------------------------------------------
 # Mock External Dependencies (Redis, Milvus, Camera)
 # ---------------------------------------------------------------------------

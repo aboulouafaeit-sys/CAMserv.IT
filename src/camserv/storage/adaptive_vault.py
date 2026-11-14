@@ -32,6 +32,8 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 import numpy as np
 import structlog
 
+from camserv.security.keys import KeyManager
+
 logger = structlog.get_logger(__name__)
 
 
@@ -73,6 +75,7 @@ class AdaptiveRetentionVault:
         pre_roll_seconds: float = 15.0,
         normal_fps_decimation: int = 5,  # Store 1 frame out of 5 during normal state (~5 FPS)
         worm_retention_days: int = 90,
+        key_manager: KeyManager | None = None,
     ) -> None:
         self.vault_root = Path(vault_root)
         self.vault_root.mkdir(parents=True, exist_ok=True)
@@ -85,10 +88,11 @@ class AdaptiveRetentionVault:
         # Structured metadata storage
         self._metadata_ledger: list[SceneMetadataRecord] = []
 
-        # Cryptographic keys
-        self._aes_key = AESGCM.generate_key(bit_length=256)
+        # Cryptographic key persistence (Condition C3)
+        self.key_manager = key_manager or KeyManager(key_dir=self.vault_root / "keys")
+        self._aes_key = self.key_manager.get_or_create_encryption_key("camserv-vault-aes", version=1)
         self._aesgcm = AESGCM(self._aes_key)
-        self._signing_key = ed25519.Ed25519PrivateKey.generate()
+        self._signing_key = self.key_manager.get_or_create_signing_key("camserv-vault-sign", version=1)
         self._verify_key = self._signing_key.public_key()
 
         # Hash chain anchor
