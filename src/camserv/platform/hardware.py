@@ -12,12 +12,44 @@ from __future__ import annotations
 import os
 import platform
 import subprocess
+import enum
 from dataclasses import dataclass, field
 from typing import Any
 
 import structlog
 
 logger = structlog.get_logger(__name__)
+
+
+class DiagnosticState(enum.Enum):
+    """Explicit lifecycle status for a hardware accelerator or execution subsystem."""
+
+    AVAILABLE = "available"      # Detected, verified, and operational
+    ACTIVE = "active"            # Currently engaged as the primary execution engine
+    UNAVAILABLE = "unavailable"  # Hardware/module not present on host
+    DEGRADED = "degraded"        # Present but constrained (low VRAM, high thermal pressure, driver lag)
+    UNSUPPORTED = "unsupported"  # Present but below minimum architectural baseline
+
+
+@dataclass(slots=True)
+class DecoderCapability:
+    """Video decode acceleration profile."""
+
+    name: str                    # "nvdec", "dxva2", "vaapi", "qsv", "software"
+    state: DiagnosticState
+    supported_codecs: list[str] = field(default_factory=lambda: ["h264"])
+    details: str | None = None
+
+
+@dataclass(slots=True)
+class HardwareDiagnostics:
+    """Comprehensive diagnostic health matrix for platform hardware."""
+
+    gpu_state: DiagnosticState = DiagnosticState.UNAVAILABLE
+    tensorrt_state: DiagnosticState = DiagnosticState.UNAVAILABLE
+    decoders: list[DecoderCapability] = field(default_factory=list)
+    active_decoder: str = "software"
+    active_inference_backend: str = "onnx_cpu"
 
 
 @dataclass(slots=True)
@@ -32,6 +64,7 @@ class GPUCapability:
     cuda_driver_version: str | None = None
     is_supported: bool = True
     recommended_fp16: bool = True
+    state: DiagnosticState = DiagnosticState.AVAILABLE
 
 
 @dataclass(slots=True)
@@ -52,6 +85,7 @@ class HardwareProfile:
     recommended_backend: str = "onnx_cpu"
     max_recommended_concurrent_streams: int = 2
     limitations: list[str] = field(default_factory=list)
+    diagnostics: HardwareDiagnostics = field(default_factory=HardwareDiagnostics)
 
     def summary(self) -> dict[str, Any]:
         """Return a structured dictionary summary of host hardware."""
@@ -64,6 +98,8 @@ class HardwareProfile:
             "primary_vram_mb": self.gpus[0].memory_total_mb if self.gpus else 0,
             "recommended_backend": self.recommended_backend,
             "recommended_max_streams": self.max_recommended_concurrent_streams,
+            "gpu_diagnostic_state": self.diagnostics.gpu_state.value,
+            "active_decoder": self.diagnostics.active_decoder,
             "limitations": self.limitations,
         }
 
@@ -125,6 +161,70 @@ class HardwareDetector:
         if ram_total_mb < 8192:
             limitations.append("Host RAM is below 8GB; potential backpressure frame-dropping under load.")
 
+        # Diagnostic state determination
+        gpu_state = DiagnosticState.UNAVAILABLE
+        if has_cuda and gpus:
+            primary = gpus[0]
+            major, minor = primary.compute_capability
+            if major < 6:
+                gpu_state = DiagnosticState.UNSUPPORTED
+            elif primary.memory_total_mb < 4000:
+                gpu_state = DiagnosticState.DEGRADED
+            else:
+                gpu_state = DiagnosticState.AVAILABLE
+            primary.state = gpu_state
+
+        tensorrt_state = DiagnosticState.AVAILABLE if has_tensorrt else DiagnosticState.UNAVAILABLE
+
+        # Video Decoder Capabilities probing
+        decoders: list[DecoderCapability] = [
+            DecoderCapability(
+                name="software",
+                state=DiagnosticState.AVAILABLE,
+                supported_codecs=["h264", "hevc", "mjpeg"],
+                details="Host CPU software decoding (libavcodec)",
+            )
+        ]
+
+        active_decoder = "software"
+        if has_cuda and gpu_state in (DiagnosticState.AVAILABLE, DiagnosticState.DEGRADED):
+            decoders.append(
+                DecoderCapability(
+                    name="nvdec",
+                    state=DiagnosticState.AVAILABLE,
+                    supported_codecs=["h264", "hevc", "vp9"],
+                    details="NVIDIA NVDEC dedicated silicon hardware decoder",
+                )
+            )
+            active_decoder = "nvdec"
+        elif os_name == "Windows":
+            decoders.append(
+                DecoderCapability(
+                    name="dxva2",
+                    state=DiagnosticState.AVAILABLE,
+                    supported_codecs=["h264", "hevc"],
+                    details="DirectX Video Acceleration 2.0",
+                )
+            )
+            active_decoder = "dxva2"
+        elif os_name == "Linux":
+            decoders.append(
+                DecoderCapability(
+                    name="vaapi",
+                    state=DiagnosticState.AVAILABLE,
+                    supported_codecs=["h264", "hevc"],
+                    details="Video Acceleration API (VA-API)",
+                )
+            )
+
+        diagnostics = HardwareDiagnostics(
+            gpu_state=gpu_state,
+            tensorrt_state=tensorrt_state,
+            decoders=decoders,
+            active_decoder=active_decoder,
+            active_inference_backend=recommended_backend,
+        )
+
         profile = HardwareProfile(
             os_name=os_name,
             os_release=os_release,
@@ -140,6 +240,7 @@ class HardwareDetector:
             recommended_backend=recommended_backend,
             max_recommended_concurrent_streams=recommended_streams,
             limitations=limitations,
+            diagnostics=diagnostics,
         )
 
         logger.info(

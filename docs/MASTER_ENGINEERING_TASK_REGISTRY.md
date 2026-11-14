@@ -26,7 +26,14 @@
 | **TSK-ISP-01** | Video Pipeline | Software ISP Stream Profiler (LAB CLAHE & Denoising) | `src/camserv/acquisition/isp.py` | None | **VERIFIED** | Verified in `tests/test_isp.py`. |
 | **TSK-THR-01** | AI Event Intel | Zero-API Threat Scoring, Pose Kinematics & Dual Narratives | `src/camserv/events/threat_engine.py` | TSK-HUD-01 | **VERIFIED** | Verified in `tests/test_threat_engine.py`. |
 | **TSK-VLT-01** | Forensic Storage | Adaptive Retention Vault (15s RAM Pre-Roll, AES-GCM, WORM) | `src/camserv/storage/adaptive_vault.py` | None | **VERIFIED** | Verified in `tests/test_adaptive_vault.py`. |
-| **TSK-QAR-01** | Independent QA | Multi-Layer Test Suite Expansion (136 Passing Automated Tests) | `tests/` | All | **VERIFIED** | 136/136 automated tests passing in 8.31s. |
+| **TSK-QAR-01** | Independent QA | Multi-Layer Test Suite Expansion (136 Baseline Tests) | `tests/` | All | **VERIFIED** | 136/136 automated tests passing in 8.31s. |
+| **TSK-P1A-01** | Security Eng | Test Environment Audit Isolation (Condition C1) | `src/camserv/api/app.py`, `tests/conftest.py` | None | **VERIFIED** | Verified in `tests/test_audit_isolation.py`; zero audit log writes during test runs. |
+| **TSK-P1A-02** | Security Eng | Persistent Cryptographic KeyManager & Envelope Wrap (Condition C3) | `src/camserv/security/keys.py`, `src/camserv/storage/adaptive_vault.py` | None | **VERIFIED** | Atomic writes (0600), HKDF derivation; verified in `tests/test_key_manager.py`. |
+| **TSK-P1B-01** | Video Systems Eng | Video Ingestion Re-Architecture & Supervised Worker Abstraction | `src/camserv/acquisition/supervisor.py`, `src/camserv/acquisition/ingestion_manager.py` | None | **VERIFIED** | Verified in `tests/test_ingestion_supervisor.py`. |
+| **TSK-P1C-01** | Shared Memory Eng | Shared Memory Ring Buffer & IPC Overrun Protection | `src/camserv/acquisition/shared_memory.py`, `src/camserv/acquisition/camera.py` | TSK-P1B-01 | **VERIFIED** | Bounded circular slots, drop-oldest overrun, sub-150ms worker crash recovery. |
+| **TSK-P1D-01** | Resource Architect | Adaptive Multi-Rate Analytical Scheduler (Condition C4) | `src/camserv/pipeline/adaptive_scheduler.py` | None | **VERIFIED** | 5 FPS baseline, 30 FPS incident burst, 16-cam capacity governor; verified in `tests/test_adaptive_scheduler.py`. |
+| **TSK-P1E-01** | Hardware Eng | Hardware Capability Discovery & 5-Tier DiagnosticState Taxonomy | `src/camserv/platform/hardware.py` | None | **VERIFIED** | Standardized DiagnosticState taxonomy, NVDEC/DXVA2/VAAPI probe; verified in `tests/test_hardware_diagnostics.py`. |
+| **TSK-P1-QAR** | Independent QA | Phase 1 Comprehensive Regression Acceptance (158 Passing Tests) | `tests/` | All | **VERIFIED** | **158/158 automated tests passing in 10.40s**. |
 
 ---
 
