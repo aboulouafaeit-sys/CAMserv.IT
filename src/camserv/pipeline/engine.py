@@ -54,6 +54,7 @@ except ImportError:
 
 
 from camserv.pipeline.backpressure import BackpressureQueue, DropPolicy
+from camserv.inference.privacy_pipeline import PrivacyConfigurationError
 from camserv.pipeline.interfaces import (
     Detection,
     Event,
@@ -133,6 +134,9 @@ class EngineConfig:
     max_memory_mb: float = 2048.0
     # Enable privacy filter step if component is provided
     enable_privacy_filtering: bool = True
+    # Production profile enforcing mandatory privacy and fail-closed protections
+    is_production_profile: bool = False
+    require_fail_closed_privacy: bool = False
     # Cooldown period for storage batching or idle sleep (seconds)
     idle_sleep_seconds: float = 0.005
     # Warning threshold for stage latency in milliseconds
@@ -199,6 +203,10 @@ class PipelineEngine:
         metrics_registry: MetricsRegistry | None = None,
     ) -> None:
         self.config = config or EngineConfig()
+        if self.config.is_production_profile and not self.config.enable_privacy_filtering:
+            raise PrivacyConfigurationError(
+                "Production profile violation: Privacy protection cannot be disabled in production."
+            )
         self.sources: dict[str, FrameSource] = sources or {}
         self.decoder = decoder
         self.detector = detector
@@ -565,10 +573,34 @@ class PipelineEngine:
                         self._total_events += len(events)
                         self._fps_events.tick(len(events))
 
-                # 2. Privacy filter
+                # 2. Privacy filter with Fail-Closed protection
                 processed_frame = frame
-                if self.config.enable_privacy_filtering and self.privacy_filter is not None:
-                    processed_frame = await self.privacy_filter.apply(frame, detections)
+                if self.config.enable_privacy_filtering:
+                    if self.privacy_filter is not None:
+                        try:
+                            processed_frame = await self.privacy_filter.apply(frame, detections)
+                        except Exception as priv_err:
+                            self._log.critical("privacy_stage_fail_closed", frame_id=frame.frame_id, error=str(priv_err))
+                            if isinstance(frame, Frame) and hasattr(frame.image, "shape"):
+                                blackout = np.zeros_like(frame.image)
+                                processed_frame = Frame(
+                                    image=blackout,
+                                    camera_id=frame.camera_id,
+                                    timestamp=frame.timestamp,
+                                    frame_id=frame.frame_id,
+                                    metadata={**frame.metadata, "fail_closed": True},
+                                )
+                    elif self.config.require_fail_closed_privacy or self.config.is_production_profile:
+                        self._log.critical("privacy_filter_missing_fail_closed", frame_id=frame.frame_id)
+                        if isinstance(frame, Frame) and hasattr(frame.image, "shape"):
+                            blackout = np.zeros_like(frame.image)
+                            processed_frame = Frame(
+                                image=blackout,
+                                camera_id=frame.camera_id,
+                                timestamp=frame.timestamp,
+                                frame_id=frame.frame_id,
+                                metadata={**frame.metadata, "fail_closed": True, "reason": "missing_filter"},
+                            )
 
                 # Prioritize enqueuing when events are present (priority 0 = high priority)
                 priority = 0 if events else 10

@@ -102,6 +102,53 @@ class SQLiteStore:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_events_severity ON events (severity);")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_events_status ON events (verification_status);")
 
+            # Privacy Evidence Manifests table
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS privacy_manifests (
+                    manifest_id TEXT PRIMARY KEY,
+                    camera_id TEXT NOT NULL,
+                    frame_id INTEGER NOT NULL,
+                    timestamp_utc TEXT NOT NULL,
+                    original_sha256 TEXT NOT NULL,
+                    derivative_sha256 TEXT NOT NULL,
+                    masking_method TEXT NOT NULL,
+                    masked_regions_count INTEGER NOT NULL,
+                    privacy_state TEXT NOT NULL,
+                    fail_closed_active INTEGER NOT NULL,
+                    is_original_preserved INTEGER NOT NULL DEFAULT 1,
+                    metadata TEXT DEFAULT '{}',
+                    created_at TEXT NOT NULL
+                );
+                """
+            )
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_priv_manifest_camera_time ON privacy_manifests (camera_id, timestamp_utc);")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_priv_manifest_orig_hash ON privacy_manifests (original_sha256);")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_priv_manifest_deriv_hash ON privacy_manifests (derivative_sha256);")
+
+            # Enhancement Evidence Manifests table
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS enhancement_manifests (
+                    manifest_id TEXT PRIMARY KEY,
+                    camera_id TEXT NOT NULL,
+                    frame_id INTEGER NOT NULL,
+                    timestamp_utc TEXT NOT NULL,
+                    original_sha256 TEXT NOT NULL,
+                    enhanced_sha256 TEXT NOT NULL,
+                    applied_methods TEXT NOT NULL,
+                    parameters TEXT NOT NULL,
+                    contrast_before REAL NOT NULL,
+                    contrast_after REAL NOT NULL,
+                    contrast_gain REAL NOT NULL,
+                    is_original_preserved INTEGER NOT NULL DEFAULT 1,
+                    created_at TEXT NOT NULL
+                );
+                """
+            )
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_enh_manifest_camera_time ON enhancement_manifests (camera_id, timestamp_utc);")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_enh_manifest_orig_hash ON enhancement_manifests (original_sha256);")
+
             conn.commit()
         logger.info("sqlite.initialized", path=str(self.db_path))
 
@@ -290,3 +337,204 @@ class SQLiteStore:
         with self._get_connection() as conn:
             row = conn.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
             return dict(row) if row else None
+
+    # ---------------------------------------------------------------------------
+    # Forensic Evidence Manifest Persistence (SEC-03)
+    # ---------------------------------------------------------------------------
+
+    def store_privacy_manifest(self, manifest: Any) -> None:
+        """Persist a privacy evidence manifest linking original and derivative video frames."""
+        now = datetime.now(timezone.utc).isoformat()
+        if hasattr(manifest, "to_dict"):
+            data = manifest.to_dict()
+        elif isinstance(manifest, dict):
+            data = manifest
+        else:
+            data = asdict(manifest)
+
+        meta_json = json.dumps(data.get("metadata", {}))
+        with self._get_connection() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO privacy_manifests (
+                    manifest_id, camera_id, frame_id, timestamp_utc, original_sha256,
+                    derivative_sha256, masking_method, masked_regions_count, privacy_state,
+                    fail_closed_active, is_original_preserved, metadata, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    data["manifest_id"],
+                    data["camera_id"],
+                    data["frame_id"],
+                    data["timestamp_utc"],
+                    data["original_sha256"],
+                    data["derivative_sha256"],
+                    data["masking_method"],
+                    data["masked_regions_count"],
+                    data["privacy_state"] if isinstance(data["privacy_state"], str) else data["privacy_state"].value,
+                    1 if data.get("fail_closed_active") else 0,
+                    1 if data.get("is_original_preserved", True) else 0,
+                    meta_json,
+                    now,
+                ),
+            )
+            conn.commit()
+
+    def get_privacy_manifest(self, manifest_id: str) -> dict[str, Any] | None:
+        """Retrieve a privacy manifest by its unique manifest ID."""
+        with self._get_connection() as conn:
+            row = conn.execute("SELECT * FROM privacy_manifests WHERE manifest_id = ?", (manifest_id,)).fetchone()
+            if not row:
+                return None
+            res = dict(row)
+            res["fail_closed_active"] = bool(res["fail_closed_active"])
+            res["is_original_preserved"] = bool(res["is_original_preserved"])
+            res["metadata"] = json.loads(res["metadata"]) if res.get("metadata") else {}
+            return res
+
+    def get_privacy_manifest_by_original_hash(self, original_sha256: str) -> dict[str, Any] | None:
+        """Find the privacy manifest associated with a pristine original evidence frame hash."""
+        with self._get_connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM privacy_manifests WHERE original_sha256 = ? ORDER BY timestamp_utc DESC LIMIT 1",
+                (original_sha256,),
+            ).fetchone()
+            if not row:
+                return None
+            res = dict(row)
+            res["fail_closed_active"] = bool(res["fail_closed_active"])
+            res["is_original_preserved"] = bool(res["is_original_preserved"])
+            res["metadata"] = json.loads(res["metadata"]) if res.get("metadata") else {}
+            return res
+
+    def list_privacy_manifests(
+        self,
+        camera_id: str | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        """Query privacy manifests filtered by camera and optional time range."""
+        clauses = []
+        params: list[Any] = []
+        if camera_id:
+            clauses.append("camera_id = ?")
+            params.append(camera_id)
+        if start_time:
+            clauses.append("timestamp_utc >= ?")
+            params.append(start_time)
+        if end_time:
+            clauses.append("timestamp_utc <= ?")
+            params.append(end_time)
+
+        query = "SELECT * FROM privacy_manifests"
+        if clauses:
+            query += " WHERE " + " AND ".join(clauses)
+        query += " ORDER BY timestamp_utc DESC LIMIT ?"
+        params.append(limit)
+
+        with self._get_connection() as conn:
+            rows = conn.execute(query, params).fetchall()
+            results = []
+            for r in rows:
+                m = dict(r)
+                m["fail_closed_active"] = bool(m["fail_closed_active"])
+                m["is_original_preserved"] = bool(m["is_original_preserved"])
+                m["metadata"] = json.loads(m["metadata"]) if m.get("metadata") else {}
+                results.append(m)
+            return results
+
+    def store_enhancement_manifest(self, manifest: Any) -> None:
+        """Persist a forensic image enhancement manifest."""
+        now = datetime.now(timezone.utc).isoformat()
+        if hasattr(manifest, "to_dict"):
+            data = manifest.to_dict()
+        elif isinstance(manifest, dict):
+            data = manifest
+        else:
+            data = asdict(manifest)
+
+        methods_json = json.dumps(data.get("applied_methods", []))
+        params_json = json.dumps(data.get("parameters", {}))
+        with self._get_connection() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO enhancement_manifests (
+                    manifest_id, camera_id, frame_id, timestamp_utc, original_sha256,
+                    enhanced_sha256, applied_methods, parameters, contrast_before,
+                    contrast_after, contrast_gain, is_original_preserved, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    data["manifest_id"],
+                    data["camera_id"],
+                    data["frame_id"],
+                    data["timestamp_utc"],
+                    data["original_sha256"],
+                    data["enhanced_sha256"],
+                    methods_json,
+                    params_json,
+                    float(data["contrast_before"]),
+                    float(data["contrast_after"]),
+                    float(data["contrast_gain"]),
+                    1 if data.get("is_original_preserved", True) else 0,
+                    now,
+                ),
+            )
+            conn.commit()
+
+    def get_enhancement_manifest(self, manifest_id: str) -> dict[str, Any] | None:
+        """Retrieve an enhancement manifest by its unique manifest ID."""
+        with self._get_connection() as conn:
+            row = conn.execute("SELECT * FROM enhancement_manifests WHERE manifest_id = ?", (manifest_id,)).fetchone()
+            if not row:
+                return None
+            res = dict(row)
+            res["applied_methods"] = json.loads(res["applied_methods"]) if res.get("applied_methods") else []
+            res["parameters"] = json.loads(res["parameters"]) if res.get("parameters") else {}
+            res["is_original_preserved"] = bool(res["is_original_preserved"])
+            return res
+
+    def list_enhancement_manifests(
+        self,
+        camera_id: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        """List enhancement manifests filtered by camera ID."""
+        query = "SELECT * FROM enhancement_manifests"
+        params: list[Any] = []
+        if camera_id:
+            query += " WHERE camera_id = ?"
+            params.append(camera_id)
+        query += " ORDER BY timestamp_utc DESC LIMIT ?"
+        params.append(limit)
+
+        with self._get_connection() as conn:
+            rows = conn.execute(query, params).fetchall()
+            results = []
+            for r in rows:
+                m = dict(r)
+                m["applied_methods"] = json.loads(m["applied_methods"]) if m.get("applied_methods") else []
+                m["parameters"] = json.loads(m["parameters"]) if m.get("parameters") else {}
+                m["is_original_preserved"] = bool(m["is_original_preserved"])
+                results.append(m)
+            return results
+
+    def verify_manifest_integrity_record(self, manifest_id: str, record_type: str = "privacy") -> bool:
+        """Verify that a stored manifest record has well-formed cryptographic hashes and valid metadata."""
+        if record_type == "privacy":
+            rec = self.get_privacy_manifest(manifest_id)
+            if not rec:
+                return False
+            h_orig = rec.get("original_sha256", "")
+            h_deriv = rec.get("derivative_sha256", "")
+            return len(h_orig) == 64 and len(h_deriv) == 64 and all(c in "0123456789abcdefABCDEF" for c in h_orig + h_deriv)
+        elif record_type == "enhancement":
+            rec = self.get_enhancement_manifest(manifest_id)
+            if not rec:
+                return False
+            h_orig = rec.get("original_sha256", "")
+            h_enh = rec.get("enhanced_sha256", "")
+            return len(h_orig) == 64 and len(h_enh) == 64 and all(c in "0123456789abcdefABCDEF" for c in h_orig + h_enh)
+        return False
+

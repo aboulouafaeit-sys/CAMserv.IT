@@ -70,6 +70,16 @@ class BehaviorScenario(str, enum.Enum):
     RETAIL_INTERACTION = "RETAIL_INTERACTION"
 
 
+class SpatialAnchorStrategy(str, enum.Enum):
+    """Spatial anchor point strategy for zone inclusion tests."""
+
+    FEET_GROUND_CONTACT = "FEET_GROUND_CONTACT"    # Bottom-center ((x1+x2)/2, y2)
+    CENTROID = "CENTROID"                          # Center ((x1+x2)/2, (y1+y2)/2)
+    BOTTOM_CENTER = "BOTTOM_CENTER"                # Bottom-center anchor
+    ADAPTIVE = "ADAPTIVE"                          # Feet for person; centroid for vehicles/luggage
+
+
+
 class ReviewStatus(str, enum.Enum):
     """Human-in-the-Loop review lifecycle state machine."""
 
@@ -137,6 +147,42 @@ class BehavioralEngine:
         self._retail_sequences: dict[tuple[str, int], list[str]] = {}  # (camera_id, track_id) -> list[zone]
         self._log = logger.bind(component="behavioral_engine")
 
+    @staticmethod
+    def get_spatial_anchor_point(
+        track: EnhancedTrack,
+        strategy: SpatialAnchorStrategy = SpatialAnchorStrategy.ADAPTIVE,
+    ) -> tuple[float, float, dict[str, Any]]:
+        """Compute the spatial anchor point for zone containment tests with posture diagnostics."""
+        bbox = track.bbox
+        if bbox.x2 < bbox.x1 or bbox.y2 < bbox.y1:
+            raise ValueError(f"Invalid bounding box coordinates: {bbox}")
+
+        cx = (bbox.x1 + bbox.x2) / 2.0
+        cy = (bbox.y1 + bbox.y2) / 2.0
+        w = max(1.0, bbox.x2 - bbox.x1)
+        h = max(1.0, bbox.y2 - bbox.y1)
+        aspect_ratio = w / h
+
+        is_crouching = aspect_ratio > 1.2 and track.class_name.lower() in ("person", "human")
+
+        if strategy in (SpatialAnchorStrategy.FEET_GROUND_CONTACT, SpatialAnchorStrategy.BOTTOM_CENTER):
+            px, py = cx, bbox.y2
+        elif strategy == SpatialAnchorStrategy.CENTROID:
+            px, py = cx, cy
+        else:  # ADAPTIVE
+            if track.class_name.lower() in ("person", "human", "pedestrian"):
+                px, py = cx, bbox.y2
+            else:
+                px, py = cx, cy
+
+        meta = {
+            "anchor_strategy": strategy.value,
+            "anchor_point": (px, py),
+            "aspect_ratio": round(aspect_ratio, 2),
+            "is_crouching": is_crouching,
+        }
+        return px, py, meta
+
     # -----------------------------------------------------------------------
     # Scenario 1: Restricted Area Entry
     # -----------------------------------------------------------------------
@@ -145,10 +191,11 @@ class BehavioralEngine:
         self,
         track: EnhancedTrack,
         restricted_polygon: list[tuple[float, float]],
+        anchor_strategy: SpatialAnchorStrategy = SpatialAnchorStrategy.ADAPTIVE,
     ) -> BehavioralIncident | None:
         """Evaluate if an object enters a restricted virtual polygon."""
-        cx, cy = track.bbox.center
-        if self._point_in_polygon((cx, cy), restricted_polygon):
+        px, py, anchor_meta = self.get_spatial_anchor_point(track, strategy=anchor_strategy)
+        if self._point_in_polygon((px, py), restricted_polygon):
             threat = 0.85 if track.class_name == "person" else 0.70
             return self._create_incident(
                 scenario=BehaviorScenario.RESTRICTED_AREA_ENTRY,
@@ -158,7 +205,10 @@ class BehavioralEngine:
                 confidence=track.confidence,
                 description=f"Object {track.qualified_id} ({track.class_name}) entered restricted zone polygon.",
                 requires_human_review=True,
-                metadata={"centroid": [cx, cy]},
+                metadata={
+                    "centroid": [track.bbox.center[0], track.bbox.center[1]],
+                    **anchor_meta,
+                },
             )
         return None
 
@@ -171,13 +221,14 @@ class BehavioralEngine:
         track: EnhancedTrack,
         perimeter_polygon: list[tuple[float, float]],
         current_time: float | None = None,
+        anchor_strategy: SpatialAnchorStrategy = SpatialAnchorStrategy.ADAPTIVE,
     ) -> BehavioralIncident | None:
         """Evaluate if an object remains inside a sensitive perimeter zone exceeding dwell threshold."""
         t_now = current_time or time.monotonic()
-        cx, cy = track.bbox.center
+        px, py, anchor_meta = self.get_spatial_anchor_point(track, strategy=anchor_strategy)
         key = (track.camera_id, track.track_id)
 
-        if self._point_in_polygon((cx, cy), perimeter_polygon):
+        if self._point_in_polygon((px, py), perimeter_polygon):
             if key not in self._dwell_trackers:
                 self._dwell_trackers[key] = t_now
                 return None

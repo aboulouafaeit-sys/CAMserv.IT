@@ -18,7 +18,7 @@
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-06B6D4?style=for-the-badge&logo=python&logoColor=white" alt="Python"></a>
   <a href="docs/ADVANCED_ARCHITECTURE_ULTRA_LOCAL.md"><img src="https://img.shields.io/badge/Architecture-Ultra--Local%20Zero--API-8B5CF6?style=for-the-badge&logo=cpu&logoColor=white" alt="Ultra-Local"></a>
   <a href="docs/HARDWARE_COMPATIBILITY.md"><img src="https://img.shields.io/badge/CUDA-13.5%20%2F%20RTX%203060%2B-76B900?style=for-the-badge&logo=nvidia&logoColor=white" alt="CUDA"></a>
-  <a href="docs/PRIVACY.md"><img src="https://img.shields.io/badge/GDPR%20%26%20EU%20AI%20Act-Conformity-6366F1?style=for-the-badge&logo=shield&logoColor=white" alt="Compliance"></a>
+  <a href="docs/PRIVACY.md"><img src="https://img.shields.io/badge/Privacy%20Safeguards-GDPR%20%26%20AI%20Act%20Aligned-6366F1?style=for-the-badge&logo=shield&logoColor=white" alt="Technical Privacy Safeguards"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-F59E0B?style=for-the-badge" alt="License"></a>
 </p>
 
@@ -200,7 +200,7 @@ python -m pytest tests/ -v
 * [BRAND_GUIDELINES.md](docs/BRAND_GUIDELINES.md) — Brand tokens, typography, clear space, and asset inventory.
 * [ARCHITECTURE.md](docs/ARCHITECTURE.md) — Subsystem interfaces, performance budgets, and queue mechanics.
 * [SECURITY.md](docs/SECURITY.md) — STRIDE threat modeling, key management, and cryptographic protocols.
-* [PRIVACY.md](docs/PRIVACY.md) — GDPR compliance, EU AI Act conformity assessment, and DPIA templates.
+* [PRIVACY.md](docs/PRIVACY.md) — Technical privacy safeguards, EU AI Act risk alignment, and organizational DPIA guidelines.
 * [NVR_COMPATIBILITY_MATRIX.md](docs/NVR_COMPATIBILITY_MATRIX.md) — ONVIF/RTSP enterprise NVR topology validation.
 * [API.md](docs/API.md) — Complete REST and WebSocket API specification.
 * [DEPLOYMENT.md](docs/DEPLOYMENT.md) — Production Docker Compose, Nginx TLS 1.3, and clustering guide.

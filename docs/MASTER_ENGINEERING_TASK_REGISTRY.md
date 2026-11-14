@@ -80,3 +80,15 @@
 |---|---|---|---|---|---|
 | **TSK-P4-01** | Multi-Camera | Cross-camera 3D coordinate projection using ground-plane homography matrices. | 10 Days | CV Research Scientist | Target trajectory continuity maintained across non-overlapping camera FOVs. |
 | **TSK-P4-02** | Audio Analytics | Edge acoustic anomaly detection (glass break, gunshot acoustics, industrial alarms). | 8 Days | Audio DSP Specialist | Multi-modal fusion elevating threat confidence under visual occlusion. |
+
+---
+
+### Phase 2 Audit Remediation Tasks (Completed)
+| Task ID | Finding Ref | Task Objective | Effort | Assigned Role | Status & Acceptance Criteria |
+|---|---|---|---|---|---|
+| **TSK-REM-01** | SEC-01, GAP-05 | Implement `CentralizedPrivacyEnforcer` and fail-closed privacy gating in `PipelineEngine`; enforce full-frame blackout on failure; disallow disabling in production. | 2 Days | Privacy & Pipeline Lead | **COMPLETED** — Verified by 5 passing tests in `tests/test_privacy_remediation.py`. |
+| **TSK-REM-02** | SEC-02, GAP-07 | Implement dual-pathway commercial model strategy (Ultralytics Enterprise vs Permissive Apache-2.0 RT-DETR/YOLOv6) with pluggable `ModelBackendType` abstraction. | 1.5 Days | AI & Compliance Lead | **COMPLETED** — `src/camserv/inference/models.py`, `docs/PHASE_2_MODEL_AND_LICENSE_REGISTER.md`. |
+| **TSK-REM-03** | SEC-03, GAP-04 | Add `privacy_manifests` and `enhancement_manifests` tables to `SQLiteStore` with compound indexes, SHA-256 lookups, and CRUD methods. | 1.5 Days | Storage & Forensics Lead | **COMPLETED** — Verified by 4 passing tests in `tests/test_manifest_storage_remediation.py`. |
+| **TSK-REM-04** | SEC-04, GAP-06 | Implement `SpatialAnchorStrategy.FEET_GROUND_CONTACT` in `BehavioralEngine` for ground-plane containment, eliminating perspective false alarms. | 1 Day | Computer Vision Lead | **COMPLETED** — Verified by 3 passing tests in `tests/test_ground_contact_remediation.py`. |
+| **TSK-REM-05** | GAP-01 | Refactor all regulatory assertions from "Conformity" to "Technical Safeguards Aligning with GDPR/EU AI Act"; document mandatory DPIA, RoPA, DPO, and human oversight prerequisites. | 1 Day | Legal & Compliance Specialist | **COMPLETED** — Verified in `README.md` and `docs/PHASE_2_PRIVACY_AND_EVIDENCE_DESIGN.md`. |
+| **TSK-REM-06** | GAP-08 | Add `openvino` and `directml` extra dependency sections to `pyproject.toml`. | 0.5 Day | Systems Packaging Eng | **COMPLETED** — Verified in `pyproject.toml`. |

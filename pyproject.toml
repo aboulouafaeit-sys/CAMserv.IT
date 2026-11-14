@@ -45,6 +45,12 @@ inference = [
     "onnxruntime-gpu>=1.16",
     "ultralytics>=8.0",
 ]
+openvino = [
+    "openvino>=2024.0",
+]
+directml = [
+    "onnxruntime-directml>=1.16",
+]
 tracking = [
     "numpy>=1.26",
     "scipy>=1.11",

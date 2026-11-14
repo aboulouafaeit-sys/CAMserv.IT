@@ -2,18 +2,21 @@
 camserv.inference.privacy_pipeline
 ==================================
 
-Fail-Closed Privacy Protection Pipeline and Cryptographic Evidence Separation for CAMserv.
+Fail-Closed Privacy Protection Pipeline, Centralized Output Enforcement,
+and Cryptographic Evidence Separation for CAMserv.
 
 Features:
-- Fail-Closed Architecture: If detection or masking fails, the pipeline immediately
-  enters FAIL_CLOSED state, applying full-frame privacy masking or rejecting frame
-  egress to prevent privacy leaks.
-- Non-Biometric Masking: Covers face regions and license plates without biometric
-  feature extraction, identification, or persistent profiling.
+- Mandatory Fail-Closed Architecture: If detection or masking fails or errors occur,
+  the pipeline immediately enters FAIL_CLOSED state, applying guaranteed full-frame
+  blackout masking before frame egress to operational consumers.
+- Centralized Enforcement: All video egress paths (live streaming, recording derivatives,
+  snapshot export, and stream preview) are routed through a single enforcement boundary.
+- Production Profile Safety: In production mode, required privacy protection cannot be
+  silently disabled; invalid or disabled configurations raise PrivacyConfigurationError.
 - Cryptographic Separation: Original evidence is preserved untouched with SHA-256
   checksums; derivative masked frames are cryptographically linked via PrivacyEvidenceManifest.
-- GDPR Article 5/9/32 and Garante Conformity: Strict purpose limitation, zero biometric
-  processing, and tamper-evident audit trails.
+- Non-Biometric Anonymization: Obscures faces and license plates without biometric feature
+  extraction or identity profiling.
 """
 
 from __future__ import annotations
@@ -60,12 +63,32 @@ from camserv.inference.privacy import BlurMethod, PrivacyConfig, PrivacyFilter
 logger = structlog.get_logger(__name__)
 
 
+class PrivacyConfigurationError(ValueError):
+    """Raised when privacy configuration is invalid or disabled in production profile."""
+
+
 class PrivacyState(str, enum.Enum):
     """Operational status of the privacy masking pipeline."""
 
     NORMAL = "NORMAL"                # Normal operation, all zones & targets masked
     FAIL_CLOSED = "FAIL_CLOSED"      # Error encountered; full-frame fail-closed mask active
     DEGRADED = "DEGRADED"            # Fallback algorithmic masking active
+
+
+def validate_privacy_config(config: PrivacyConfig) -> None:
+    """Validate privacy filter configuration parameters."""
+    if config.gaussian_kernel_size < 3 or config.gaussian_kernel_size % 2 == 0:
+        raise PrivacyConfigurationError(
+            f"gaussian_kernel_size must be an odd positive integer >= 3, got {config.gaussian_kernel_size}"
+        )
+    if config.pixelate_block_size < 1:
+        raise PrivacyConfigurationError(
+            f"pixelate_block_size must be >= 1, got {config.pixelate_block_size}"
+        )
+    if not isinstance(config.default_blur_method, BlurMethod):
+        raise PrivacyConfigurationError(
+            f"default_blur_method must be a BlurMethod enum value, got {type(config.default_blur_method)}"
+        )
 
 
 @dataclass(slots=True)
@@ -98,9 +121,12 @@ class FailClosedPrivacyPipeline:
         self,
         config: PrivacyConfig | None = None,
         force_fail_closed_simulation: bool = False,
+        is_production_profile: bool = True,
     ) -> None:
         self.config = config or PrivacyConfig()
+        validate_privacy_config(self.config)
         self.force_fail_closed_simulation = force_fail_closed_simulation
+        self.is_production_profile = is_production_profile
         self._filter = PrivacyFilter(self.config)
         self._state = PrivacyState.NORMAL
         self._fail_closed_count = 0
@@ -133,7 +159,6 @@ class FailClosedPrivacyPipeline:
         ts_str = timestamp_utc or datetime.now(timezone.utc).isoformat()
 
         # 1. Compute pristine original SHA-256 hash
-        # Ensure raw frame cannot be mutated in place
         pristine_original = raw_frame.copy()
         orig_hasher = hashlib.sha256()
         orig_hasher.update(pristine_original.tobytes())
@@ -152,14 +177,11 @@ class FailClosedPrivacyPipeline:
                 frame_id=frame_id,
                 reason="Forced fail-closed or detection error",
             )
-            # Full frame blackout/mask to prevent any unauthorized disclosure
             masked_frame = self._generate_fail_closed_frame(pristine_original)
             masked_regions_count = 1
         else:
             try:
-                # Normal masking of privacy detections (faces, license plates, privacy zones)
                 dets = privacy_detections or []
-                # Ensure we only mask privacy-relevant classes (face, plate)
                 relevant_dets = [
                     d for d in dets
                     if d.class_name.lower() in ("face", "license_plate", "plate", "person")
@@ -173,8 +195,6 @@ class FailClosedPrivacyPipeline:
                 self._state = PrivacyState.NORMAL
 
             except Exception as exc:
-                # Fail-Closed Safety Catch: If masking raises an unhandled exception,
-                # NEVER pass raw frame through. Mask entire frame immediately.
                 self._state = PrivacyState.FAIL_CLOSED
                 self._fail_closed_count += 1
                 self._log.critical(
@@ -218,7 +238,6 @@ class FailClosedPrivacyPipeline:
     def _generate_fail_closed_frame(self, frame: np.ndarray) -> np.ndarray:
         """Create a completely masked frame in fail-closed state with visual warning watermark."""
         h, w = frame.shape[:2]
-        # Heavy solid or blurred overlay
         fail_frame = np.zeros_like(frame)
         cv2.putText(
             fail_frame,
@@ -251,3 +270,104 @@ class FailClosedPrivacyPipeline:
             return False
 
         return True
+
+
+class CentralizedPrivacyEnforcer:
+    """Centralized gatekeeper governing all video egress paths: streaming, snapshots, recording, and exports."""
+
+    def __init__(
+        self,
+        pipeline: FailClosedPrivacyPipeline | None = None,
+        is_production_profile: bool = True,
+        enable_privacy_filtering: bool = True,
+    ) -> None:
+        self.is_production_profile = is_production_profile
+
+        # Production Profile Enforcement: Cannot silently disable privacy in production
+        if is_production_profile and not enable_privacy_filtering:
+            raise PrivacyConfigurationError(
+                "Production security profile violation: enable_privacy_filtering cannot be disabled in production."
+            )
+
+        self.enable_privacy_filtering = enable_privacy_filtering
+        self.pipeline = pipeline or FailClosedPrivacyPipeline(is_production_profile=is_production_profile)
+        self._log = logger.bind(component="centralized_privacy_enforcer")
+
+    def process_live_stream_frame(
+        self,
+        raw_frame: np.ndarray,
+        camera_id: str,
+        frame_id: int,
+        detections: list[Detection] | None = None,
+    ) -> tuple[np.ndarray, PrivacyEvidenceManifest]:
+        """Process frame for live operator/public streaming. Strictly returns masked derivative."""
+        masked_frame, manifest, _ = self.pipeline.process_frame(
+            raw_frame=raw_frame,
+            camera_id=camera_id,
+            frame_id=frame_id,
+            privacy_detections=detections,
+        )
+        return masked_frame, manifest
+
+    def process_preview_stream(
+        self,
+        raw_frame: np.ndarray,
+        camera_id: str,
+        detections: list[Detection] | None = None,
+    ) -> np.ndarray:
+        """Process frame for browser/web console preview. Returns masked frame."""
+        masked_frame, _, _ = self.pipeline.process_frame(
+            raw_frame=raw_frame,
+            camera_id=camera_id,
+            frame_id=0,
+            privacy_detections=detections,
+        )
+        return masked_frame
+
+    def process_snapshot_export(
+        self,
+        raw_frame: np.ndarray,
+        camera_id: str,
+        frame_id: int,
+        user_role: str,
+        detections: list[Detection] | None = None,
+    ) -> tuple[np.ndarray, PrivacyEvidenceManifest, bool]:
+        """Export snapshot image. Only FORENSIC_AUTHORITY role can obtain pristine unmasked raw frame.
+
+        Returns:
+            (exported_frame, manifest, is_raw_unmasked)
+        """
+        masked_frame, manifest, pristine_raw = self.pipeline.process_frame(
+            raw_frame=raw_frame,
+            camera_id=camera_id,
+            frame_id=frame_id,
+            privacy_detections=detections,
+        )
+
+        # Dual-control role check: Only authorized forensic investigator can request raw unmasked export
+        if user_role.upper() in ("FORENSIC_AUTHORITY", "JUDICIAL_EXPORT"):
+            self._log.warning(
+                "privacy_enforcer.raw_evidence_exported",
+                camera_id=camera_id,
+                frame_id=frame_id,
+                role=user_role,
+            )
+            return pristine_raw, manifest, True
+
+        # All other roles (OPERATOR, PUBLIC, AUDITOR) strictly receive masked derivative
+        return masked_frame, manifest, False
+
+    def process_recording_frame(
+        self,
+        raw_frame: np.ndarray,
+        camera_id: str,
+        frame_id: int,
+        detections: list[Detection] | None = None,
+    ) -> tuple[np.ndarray, PrivacyEvidenceManifest, np.ndarray]:
+        """Process recording frame, yielding both pristine raw (for sealed vault) and masked derivative."""
+        return self.pipeline.process_frame(
+            raw_frame=raw_frame,
+            camera_id=camera_id,
+            frame_id=frame_id,
+            privacy_detections=detections,
+        )

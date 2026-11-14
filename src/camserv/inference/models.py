@@ -61,6 +61,24 @@ class ModelTask(enum.Enum):
     PLATE_DETECTION = "plate_detection"
 
 
+class ModelBackendType(str, enum.Enum):
+    """Model supply chain licensing and backend architecture classification."""
+
+    ULTRALYTICS_AGPL = "ultralytics_agpl"            # AGPL-3.0 copyleft (requires commercial enterprise license for proprietary closed distribution)
+    PERMISSIVE_ONNX_APACHE = "permissive_onnx_apache" # Apache-2.0 / BSD / MIT permissive (freely redistributable commercially)
+    CUSTOM_PROPRIETARY = "custom_proprietary"        # Internally trained proprietary weights
+
+
+class ModelArchitecture(str, enum.Enum):
+    """Supported neural architecture paradigms."""
+
+    YOLOV8_SEG = "yolov8_seg"
+    YOLO11_POSE = "yolo11_pose"
+    RT_DETR = "rt_detr"
+    YOLOV6 = "yolov6"
+    CUSTOM = "custom"
+
+
 class InferenceProvider(enum.Enum):
     """Hardware acceleration and software inference providers."""
 
@@ -95,6 +113,8 @@ class ModelMetadata:
     license: str                        # e.g. "Apache-2.0", "MIT", "AGPL-3.0"
     provenance: str                     # Source repository, paper, or build origin
     supports_fp16: bool = False
+    backend_type: ModelBackendType = ModelBackendType.ULTRALYTICS_AGPL
+    commercial_clearance: str = "COMMERCIAL_DECISION_REQUIRED"
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def calculate_file_hash(self) -> str:
