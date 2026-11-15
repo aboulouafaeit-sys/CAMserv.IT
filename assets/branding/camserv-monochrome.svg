@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Outer Shield -->
+  <path d="M 256,36 L 416,104 C 416,280 340,396 256,464 C 172,396 96,280 96,104 Z"
+        fill="none" stroke="#FFFFFF" stroke-width="12" stroke-linejoin="round"/>
+
+  <!-- Wings -->
+  <path d="M 256,120 L 140,164 C 146,244 190,320 256,360 Z" fill="none" stroke="#FFFFFF" stroke-width="8"/>
+  <path d="M 256,120 L 372,164 C 366,244 322,320 256,360 Z" fill="none" stroke="#FFFFFF" stroke-width="8"/>
+
+  <!-- Aperture Iris -->
+  <circle cx="256" cy="226" r="62" fill="none" stroke="#FFFFFF" stroke-width="8"/>
+  <circle cx="256" cy="226" r="22" fill="#FFFFFF"/>
+
+  <!-- Crosshairs -->
+  <line x1="256" y1="148" x2="256" y2="162" stroke="#FFFFFF" stroke-width="6" stroke-linecap="round"/>
+  <line x1="256" y1="290" x2="256" y2="304" stroke="#FFFFFF" stroke-width="6" stroke-linecap="round"/>
+  <line x1="178" y1="226" x2="192" y2="226" stroke="#FFFFFF" stroke-width="6" stroke-linecap="round"/>
+  <line x1="320" y1="226" x2="334" y2="226" stroke="#FFFFFF" stroke-width="6" stroke-linecap="round"/>
+
+  <!-- Circuit Trace -->
+  <path d="M 256,360 L 256,416" stroke="#FFFFFF" stroke-width="8" stroke-linecap="round"/>
+  <circle cx="256" cy="416" r="10" fill="#FFFFFF"/>
+</svg>

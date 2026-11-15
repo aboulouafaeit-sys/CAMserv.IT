@@ -41,12 +41,17 @@ pip install -e ".[dev,testing]"
 
 ### Running the Test Suite
 ```bash
-# Run the complete test suite (115 automated tests)
+# Run the complete test suite (245 automated tests)
 python -m pytest tests/ -v
+
+# Run with short traceback
+python -m pytest tests/ --tb=short -q
 
 # Run with coverage report
 python -m pytest tests/ --cov=camserv
 ```
+
+> For extended architectural standards, PR checklists, and security invariant rules, see the [Comprehensive Contributor Guide](docs/presentation/CONTRIBUTOR_GUIDE.md).
 
 ### Running the CLI
 ```bash
