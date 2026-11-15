@@ -203,3 +203,199 @@ class AuditLogResponse(BaseModel):
     items: list[AuditLogEntryModel]
     total: int
     chain_verified: bool
+
+
+# ---------------------------------------------------------------------------
+# NVR & Camera Group Models
+# ---------------------------------------------------------------------------
+
+class CameraGroupCreate(BaseModel):
+    """Create a logical camera group."""
+
+    group_id: str = Field(..., min_length=1, max_length=64, pattern=r"^[a-zA-Z0-9_-]+$")
+    name: str = Field(..., min_length=1, max_length=128)
+    description: str = ""
+    camera_ids: list[str] = Field(default_factory=list)
+    site_id: str = "default"
+    tags: list[str] = Field(default_factory=list)
+
+
+class CameraGroupResponse(BaseModel):
+    """Camera group description."""
+
+    group_id: str
+    name: str
+    description: str
+    camera_ids: list[str]
+    site_id: str
+    tags: list[str]
+    created_at: float
+
+
+class RecordingResponse(BaseModel):
+    """Recording session details."""
+
+    recording_id: str
+    camera_id: str
+    start_time_utc: str
+    end_time_utc: str | None = None
+    recording_type: str
+    status: str
+    storage_tier: str
+    total_size_bytes: int
+    created_at: str
+
+
+class RecordingSegmentResponse(BaseModel):
+    """Segmented video chunk metadata."""
+
+    segment_id: str
+    recording_id: str
+    camera_id: str
+    segment_index: int
+    start_time_utc: str
+    end_time_utc: str
+    duration_seconds: float
+    file_path: str
+    file_size_bytes: int
+    sha256_hash: str
+    has_motion: bool
+    has_event: bool
+    event_ids: list[str]
+
+
+class TimelineMarkerModel(BaseModel):
+    """Timeline event marker."""
+
+    marker_id: str
+    camera_id: str
+    timestamp_utc: str
+    marker_type: str
+    severity: str
+    description: str
+    event_id: str | None = None
+
+
+class TimelineSpanModel(BaseModel):
+    """Timeline recording span."""
+
+    camera_id: str
+    start_time_utc: str
+    end_time_utc: str
+    duration_seconds: float
+    segment_ids: list[str]
+    has_motion: bool
+    has_event: bool
+    markers: list[TimelineMarkerModel] = Field(default_factory=list)
+
+
+class RecordingTimelineResponse(BaseModel):
+    """Timeline query response for single or multi-camera views."""
+
+    camera_id: str
+    start_time_utc: str
+    end_time_utc: str
+    spans: list[TimelineSpanModel]
+
+
+class ClippedExportRequest(BaseModel):
+    """Request to export a clipped time-range video package."""
+
+    camera_id: str
+    start_time_utc: str
+    end_time_utc: str
+    export_format: str = "mp4"
+
+
+class ClippedExportResponse(BaseModel):
+    """Outcome of a clipped video export."""
+
+    export_id: str
+    camera_id: str
+    start_time_utc: str
+    end_time_utc: str
+    output_file: str
+    file_size_bytes: int
+    sha256_hash: str
+    segments_included: list[str]
+    exported_at: str
+
+
+# ---------------------------------------------------------------------------
+# PTZ Models
+# ---------------------------------------------------------------------------
+
+class PTZMoveRequest(BaseModel):
+    """Velocity vector for PTZ motion [-1.0, 1.0]."""
+
+    pan: float = Field(0.0, ge=-1.0, le=1.0)
+    tilt: float = Field(0.0, ge=-1.0, le=1.0)
+    zoom: float = Field(0.0, ge=-1.0, le=1.0)
+    timeout_s: float = Field(0.0, ge=0.0, le=60.0)
+
+
+class PTZPresetCreate(BaseModel):
+    """Save current physical coordinates as preset."""
+
+    name: str = Field(..., min_length=1, max_length=64)
+
+
+class PTZPresetResponse(BaseModel):
+    """PTZ preset details."""
+
+    preset_id: str
+    camera_id: str
+    name: str
+    pan: float
+    tilt: float
+    zoom: float
+    token: str | None = None
+
+
+class PTZCapabilitiesResponse(BaseModel):
+    """Channel PTZ capability profile."""
+
+    camera_id: str
+    is_ptz_capable: bool
+    supports_continuous_move: bool
+    supports_relative_move: bool
+    supports_absolute_move: bool
+    supports_presets: bool
+    max_presets: int
+    notes: str
+
+
+# ---------------------------------------------------------------------------
+# Analytics Zone Models
+# ---------------------------------------------------------------------------
+
+class TripwireCreate(BaseModel):
+    """Virtual tripwire line configuration."""
+
+    tripwire_id: str = Field(..., min_length=1, max_length=64)
+    name: str
+    start_point: tuple[float, float]
+    end_point: tuple[float, float]
+    direction: Literal["bidirectional", "forward", "reverse"] = "bidirectional"
+
+
+class PolygonZoneCreate(BaseModel):
+    """Virtual polygon zone configuration."""
+
+    zone_id: str = Field(..., min_length=1, max_length=64)
+    name: str
+    vertices: list[tuple[float, float]]
+    loitering_threshold_sec: float = 10.0
+
+
+class ZoneEventResponse(BaseModel):
+    """Spatial zone analytics event candidate."""
+
+    event_type: str
+    camera_id: str
+    zone_or_tripwire_id: str
+    track_id: int
+    timestamp_utc: float
+    confidence: float
+    dwell_duration_sec: float = 0.0
+    is_prediction: bool = True

@@ -18,23 +18,45 @@ from fastapi import (
     WebSocketDisconnect,
     status,
 )
+from fastapi.responses import StreamingResponse
 
 from camserv.api.models import (
     AuditLogEntryModel,
     AuditLogResponse,
     CameraCreate,
+    CameraGroupCreate,
+    CameraGroupResponse,
     CameraResponse,
     CameraUpdate,
+    ClippedExportRequest,
+    ClippedExportResponse,
     DetectionResponse,
     EventResponse,
     EventVerificationRequest,
     HealthCheckResponse,
     PaginatedEventsResponse,
+    PolygonZoneCreate,
+    PTZCapabilitiesResponse,
+    PTZMoveRequest,
+    PTZPresetCreate,
+    PTZPresetResponse,
+    RecordingResponse,
+    RecordingSegmentResponse,
+    RecordingTimelineResponse,
     RefreshTokenRequest,
+    TimelineMarkerModel,
+    TimelineSpanModel,
     TokenRequest,
     TokenResponse,
     TrackResponse,
+    TripwireCreate,
+    ZoneEventResponse,
 )
+from camserv.nvr.ptz import PTZController, PTZUnsupportedError, PTZVector
+from camserv.nvr.groups import CameraGroupManager
+from camserv.nvr.playback import PlaybackTimelineEngine
+from camserv.nvr.streaming import StreamingGateway
+from camserv.analytics.zones import PolygonZone, Tripwire, ZoneAnalyticsEngine
 from camserv.security.audit import AuditAction, AuditLogger
 from camserv.security.auth import (
     AuthManager,
@@ -580,6 +602,459 @@ async def query_audit(
 
     items = [AuditLogEntryModel(**e.to_dict()) for e in entries]
     return AuditLogResponse(items=items, total=len(items), chain_verified=is_valid)
+
+
+# ---------------------------------------------------------------------------
+# Camera Groups Routes
+# ---------------------------------------------------------------------------
+
+@router.get(
+    "/groups",
+    response_model=list[CameraGroupResponse],
+    tags=["Camera Groups"],
+    summary="List all logical camera groups",
+)
+async def list_groups(
+    request: Request,
+    site_id: str | None = None,
+    current_user: UserIdentity = Depends(require_permission("cameras:read")),
+) -> list[CameraGroupResponse]:
+    mgr: CameraGroupManager = getattr(request.app.state, "group_manager", None)
+    if not mgr:
+        return []
+    groups = mgr.list_groups(site_id=site_id)
+    return [CameraGroupResponse(**g.to_dict()) for g in groups]
+
+
+@router.post(
+    "/groups",
+    response_model=CameraGroupResponse,
+    status_code=status.HTTP_201_CREATED,
+    tags=["Camera Groups"],
+    summary="Create a new logical camera group",
+)
+async def create_group(
+    request: Request,
+    body: CameraGroupCreate,
+    current_user: UserIdentity = Depends(require_permission("cameras:write")),
+) -> CameraGroupResponse:
+    mgr: CameraGroupManager = getattr(request.app.state, "group_manager", None)
+    if not mgr:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Group manager unavailable")
+
+    try:
+        grp = mgr.create_group(
+            group_id=body.group_id,
+            name=body.name,
+            description=body.description,
+            camera_ids=body.camera_ids,
+            site_id=body.site_id,
+            tags=body.tags,
+        )
+        return CameraGroupResponse(**grp.to_dict())
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+
+
+@router.delete(
+    "/groups/{group_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    tags=["Camera Groups"],
+    summary="Delete a camera group",
+)
+async def delete_group(
+    request: Request,
+    group_id: str,
+    current_user: UserIdentity = Depends(require_permission("cameras:write")),
+) -> None:
+    mgr: CameraGroupManager = getattr(request.app.state, "group_manager", None)
+    if not mgr or not mgr.delete_group(group_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Group '{group_id}' not found")
+
+
+# ---------------------------------------------------------------------------
+# NVR Recordings & Playback Routes
+# ---------------------------------------------------------------------------
+
+@router.get(
+    "/recordings",
+    response_model=list[RecordingResponse],
+    tags=["NVR Recordings"],
+    summary="List recording sessions",
+)
+async def list_recordings(
+    request: Request,
+    camera_id: str | None = None,
+    recording_type: str | None = None,
+    limit: int = Query(50, ge=1, le=200),
+    current_user: UserIdentity = Depends(require_permission("recordings:read")),
+) -> list[RecordingResponse]:
+    store = getattr(request.app.state, "sqlite_store", None)
+    if not store:
+        return []
+    recs = store.list_recordings(camera_id=camera_id, recording_type=recording_type, limit=limit)
+    return [RecordingResponse(**r) for r in recs]
+
+
+@router.get(
+    "/recordings/{recording_id}",
+    response_model=RecordingResponse,
+    tags=["NVR Recordings"],
+    summary="Get single recording session details",
+)
+async def get_recording(
+    request: Request,
+    recording_id: str,
+    current_user: UserIdentity = Depends(require_permission("recordings:read")),
+) -> RecordingResponse:
+    store = getattr(request.app.state, "sqlite_store", None)
+    if not store:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Storage engine unavailable")
+    rec = store.get_recording(recording_id)
+    if not rec:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Recording '{recording_id}' not found")
+    return RecordingResponse(**rec)
+
+
+@router.get(
+    "/recordings/{recording_id}/segments",
+    response_model=list[RecordingSegmentResponse],
+    tags=["NVR Recordings"],
+    summary="List all video segments belonging to a recording",
+)
+async def list_recording_segments(
+    request: Request,
+    recording_id: str,
+    current_user: UserIdentity = Depends(require_permission("recordings:read")),
+) -> list[RecordingSegmentResponse]:
+    store = getattr(request.app.state, "sqlite_store", None)
+    if not store:
+        return []
+    segments = store.list_recording_segments(recording_id)
+    return [RecordingSegmentResponse(**s) for s in segments]
+
+
+@router.get(
+    "/recordings/timeline",
+    response_model=RecordingTimelineResponse,
+    tags=["NVR Recordings"],
+    summary="Query recording timeline spans and event overlays",
+)
+async def get_recording_timeline(
+    request: Request,
+    camera_id: str = Query(...),
+    start_time_utc: str = Query(...),
+    end_time_utc: str = Query(...),
+    current_user: UserIdentity = Depends(require_permission("recordings:read")),
+) -> RecordingTimelineResponse:
+    playback: PlaybackTimelineEngine = getattr(request.app.state, "playback_engine", None)
+    if not playback:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Playback engine unavailable")
+
+    spans = playback.get_camera_timeline(camera_id, start_time_utc, end_time_utc)
+    span_models = [
+        TimelineSpanModel(
+            camera_id=s.camera_id,
+            start_time_utc=s.start_time_utc,
+            end_time_utc=s.end_time_utc,
+            duration_seconds=s.duration_seconds,
+            segment_ids=s.segment_ids,
+            has_motion=s.has_motion,
+            has_event=s.has_event,
+            markers=[TimelineMarkerModel(**m.to_dict()) for m in s.markers],
+        )
+        for s in spans
+    ]
+    return RecordingTimelineResponse(
+        camera_id=camera_id,
+        start_time_utc=start_time_utc,
+        end_time_utc=end_time_utc,
+        spans=span_models,
+    )
+
+
+@router.post(
+    "/recordings/export",
+    response_model=ClippedExportResponse,
+    tags=["NVR Recordings"],
+    summary="Export a clipped video range matching requested time window",
+)
+async def export_recording_clip(
+    request: Request,
+    body: ClippedExportRequest,
+    current_user: UserIdentity = Depends(require_permission("recordings:write")),
+) -> ClippedExportResponse:
+    playback: PlaybackTimelineEngine = getattr(request.app.state, "playback_engine", None)
+    if not playback:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Playback engine unavailable")
+
+    out_file = Path("data/exports") / f"clip_{body.camera_id}_{int(time.time())}.mp4"
+    try:
+        manifest = playback.export_clipped_range(
+            camera_id=body.camera_id,
+            start_time_utc=body.start_time_utc,
+            end_time_utc=body.end_time_utc,
+            output_path=out_file,
+        )
+        return ClippedExportResponse(**manifest)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+
+
+# ---------------------------------------------------------------------------
+# Multi-Protocol Live Streaming Routes
+# ---------------------------------------------------------------------------
+
+@router.get(
+    "/stream/{camera_id}/mjpeg",
+    tags=["Streaming"],
+    summary="Live MJPEG video stream (privacy-enforced)",
+)
+async def stream_mjpeg(
+    request: Request,
+    camera_id: str,
+) -> StreamingResponse:
+    gateway: StreamingGateway = getattr(request.app.state, "streaming_gateway", None)
+    if not gateway:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Streaming gateway unavailable")
+
+    return StreamingResponse(
+        gateway.generate_mjpeg_stream(camera_id, target_fps=15.0),
+        media_type="multipart/x-mixed-replace; boundary=frame",
+    )
+
+
+@router.get(
+    "/stream/{camera_id}/hls/live.m3u8",
+    tags=["Streaming"],
+    summary="Low-Latency HLS live playlist",
+)
+async def stream_hls_playlist(
+    request: Request,
+    camera_id: str,
+) -> Response:
+    gateway: StreamingGateway = getattr(request.app.state, "streaming_gateway", None)
+    if not gateway:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Streaming gateway unavailable")
+
+    playlist_text = gateway.generate_hls_playlist(camera_id)
+    return Response(content=playlist_text, media_type="application/vnd.apple.mpegurl")
+
+
+@router.post(
+    "/stream/{camera_id}/webrtc/offer",
+    tags=["Streaming"],
+    summary="WebRTC SDP signaling handshake",
+)
+async def stream_webrtc_offer(
+    request: Request,
+    camera_id: str,
+    body: dict[str, Any],
+) -> dict[str, Any]:
+    gateway: StreamingGateway = getattr(request.app.state, "streaming_gateway", None)
+    if not gateway:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Streaming gateway unavailable")
+
+    offer_sdp = body.get("sdp", "")
+    session = gateway.create_webrtc_session(camera_id)
+    answer_sdp = gateway.handle_webrtc_offer(session.session_id, offer_sdp)
+
+    return {
+        "session_id": session.session_id,
+        "camera_id": camera_id,
+        "type": "answer",
+        "sdp": answer_sdp,
+    }
+
+
+# ---------------------------------------------------------------------------
+# ONVIF Profile S PTZ Routes
+# ---------------------------------------------------------------------------
+
+@router.get(
+    "/cameras/{camera_id}/ptz/capabilities",
+    response_model=PTZCapabilitiesResponse,
+    tags=["PTZ"],
+    summary="Query camera PTZ capabilities",
+)
+async def get_ptz_capabilities(
+    request: Request,
+    camera_id: str,
+    current_user: UserIdentity = Depends(require_permission("cameras:read")),
+) -> PTZCapabilitiesResponse:
+    ptz: PTZController = getattr(request.app.state, "ptz_controller", None)
+    if not ptz:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="PTZ controller unavailable")
+    caps = ptz.get_capabilities(camera_id)
+    return PTZCapabilitiesResponse(**caps.to_dict())
+
+
+@router.post(
+    "/cameras/{camera_id}/ptz/move",
+    tags=["PTZ"],
+    summary="Dispatch continuous velocity vector PTZ movement",
+)
+async def ptz_move(
+    request: Request,
+    camera_id: str,
+    body: PTZMoveRequest,
+    current_user: UserIdentity = Depends(require_permission("cameras:write")),
+) -> dict[str, str]:
+    ptz: PTZController = getattr(request.app.state, "ptz_controller", None)
+    if not ptz:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="PTZ controller unavailable")
+
+    try:
+        ptz.continuous_move(
+            camera_id=camera_id,
+            vector=PTZVector(pan=body.pan, tilt=body.tilt, zoom=body.zoom),
+            timeout_s=body.timeout_s,
+        )
+        return {"status": "moving", "camera_id": camera_id}
+    except PTZUnsupportedError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
+@router.post(
+    "/cameras/{camera_id}/ptz/stop",
+    tags=["PTZ"],
+    summary="Halt camera PTZ motion immediately",
+)
+async def ptz_stop(
+    request: Request,
+    camera_id: str,
+    current_user: UserIdentity = Depends(require_permission("cameras:write")),
+) -> dict[str, str]:
+    ptz: PTZController = getattr(request.app.state, "ptz_controller", None)
+    if not ptz:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="PTZ controller unavailable")
+
+    ptz.stop(camera_id)
+    return {"status": "stopped", "camera_id": camera_id}
+
+
+@router.get(
+    "/cameras/{camera_id}/ptz/presets",
+    response_model=list[PTZPresetResponse],
+    tags=["PTZ"],
+    summary="List saved PTZ presets",
+)
+async def list_ptz_presets(
+    request: Request,
+    camera_id: str,
+    current_user: UserIdentity = Depends(require_permission("cameras:read")),
+) -> list[PTZPresetResponse]:
+    ptz: PTZController = getattr(request.app.state, "ptz_controller", None)
+    if not ptz:
+        return []
+    presets = ptz.list_presets(camera_id)
+    return [PTZPresetResponse(**p.to_dict()) for p in presets]
+
+
+@router.post(
+    "/cameras/{camera_id}/ptz/presets",
+    response_model=PTZPresetResponse,
+    status_code=status.HTTP_201_CREATED,
+    tags=["PTZ"],
+    summary="Save current camera orientation as a preset",
+)
+async def create_ptz_preset(
+    request: Request,
+    camera_id: str,
+    body: PTZPresetCreate,
+    current_user: UserIdentity = Depends(require_permission("cameras:write")),
+) -> PTZPresetResponse:
+    ptz: PTZController = getattr(request.app.state, "ptz_controller", None)
+    if not ptz:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="PTZ controller unavailable")
+
+    try:
+        preset = ptz.save_preset(camera_id, name=body.name)
+        return PTZPresetResponse(**preset.to_dict())
+    except PTZUnsupportedError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
+@router.post(
+    "/cameras/{camera_id}/ptz/presets/{preset_name_or_id}/goto",
+    tags=["PTZ"],
+    summary="Drive camera to a saved preset orientation",
+)
+async def goto_ptz_preset(
+    request: Request,
+    camera_id: str,
+    preset_name_or_id: str,
+    current_user: UserIdentity = Depends(require_permission("cameras:write")),
+) -> dict[str, str]:
+    ptz: PTZController = getattr(request.app.state, "ptz_controller", None)
+    if not ptz:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="PTZ controller unavailable")
+
+    try:
+        if ptz.goto_preset(camera_id, preset_name_or_id):
+            return {"status": "recalled", "preset": preset_name_or_id}
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Preset '{preset_name_or_id}' not found")
+    except PTZUnsupportedError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
+# ---------------------------------------------------------------------------
+# Virtual Security Zones & Tripwires Routes
+# ---------------------------------------------------------------------------
+
+@router.post(
+    "/analytics/{camera_id}/tripwires",
+    status_code=status.HTTP_201_CREATED,
+    tags=["Analytics Zones"],
+    summary="Register a virtual tripwire line",
+)
+async def add_tripwire(
+    request: Request,
+    camera_id: str,
+    body: TripwireCreate,
+    current_user: UserIdentity = Depends(require_permission("cameras:write")),
+) -> dict[str, str]:
+    zone_engine: ZoneAnalyticsEngine = getattr(request.app.state, "zone_engine", None)
+    if not zone_engine:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Analytics engine unavailable")
+
+    tw = Tripwire(
+        tripwire_id=body.tripwire_id,
+        camera_id=camera_id,
+        name=body.name,
+        start_point=body.start_point,
+        end_point=body.end_point,
+        direction=body.direction,
+    )
+    zone_engine.add_tripwire(tw)
+    return {"status": "created", "tripwire_id": body.tripwire_id}
+
+
+@router.post(
+    "/analytics/{camera_id}/zones",
+    status_code=status.HTTP_201_CREATED,
+    tags=["Analytics Zones"],
+    summary="Register a virtual polygon zone",
+)
+async def add_polygon_zone(
+    request: Request,
+    camera_id: str,
+    body: PolygonZoneCreate,
+    current_user: UserIdentity = Depends(require_permission("cameras:write")),
+) -> dict[str, str]:
+    zone_engine: ZoneAnalyticsEngine = getattr(request.app.state, "zone_engine", None)
+    if not zone_engine:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Analytics engine unavailable")
+
+    pz = PolygonZone(
+        zone_id=body.zone_id,
+        camera_id=camera_id,
+        name=body.name,
+        vertices=body.vertices,
+        loitering_threshold_sec=body.loitering_threshold_sec,
+    )
+    zone_engine.add_zone(pz)
+    return {"status": "created", "zone_id": body.zone_id}
 
 
 # ---------------------------------------------------------------------------

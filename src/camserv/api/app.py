@@ -14,12 +14,19 @@ from fastapi.responses import JSONResponse
 
 from camserv.api.routes import router as api_v1_router
 from camserv.config.settings import CamservSettings
+from camserv.nvr.credentials import CameraCredentialVault
+from camserv.nvr.groups import CameraGroupManager
+from camserv.nvr.playback import PlaybackTimelineEngine
+from camserv.nvr.ptz import PTZController
+from camserv.nvr.streaming import StreamingGateway
+from camserv.analytics.zones import ZoneAnalyticsEngine
 from camserv.security.audit import AuditLogger
 from camserv.security.auth import AuthManager, Role, hash_password
 from camserv.security.encryption import EncryptionManager
 from camserv.storage.evidence import EvidenceStore
 from camserv.storage.milvus_store import MilvusStore
 from camserv.storage.redis_cache import RedisCache
+from camserv.storage.sqlite_store import SQLiteStore
 
 logger = structlog.get_logger(__name__)
 
@@ -130,6 +137,16 @@ def create_app(settings: CamservSettings | None = None) -> FastAPI:
     evidence_dir = Path("data/evidence")
     evidence_store = EvidenceStore(base_dir=evidence_dir, encryption_manager=crypto)
     app.state.evidence_store = evidence_store
+
+    # Durable Relational Storage & NVR Engine State
+    sqlite_store = SQLiteStore(db_path="data/camserv.db")
+    app.state.sqlite_store = sqlite_store
+    app.state.credential_vault = CameraCredentialVault(vault_path="data/camera_credentials.enc", master_key=master_key)
+    app.state.group_manager = CameraGroupManager()
+    app.state.ptz_controller = PTZController(store=sqlite_store)
+    app.state.streaming_gateway = StreamingGateway()
+    app.state.playback_engine = PlaybackTimelineEngine(store=sqlite_store, storage_dir="data/recordings")
+    app.state.zone_engine = ZoneAnalyticsEngine()
 
     # In-memory repositories for camera CRUD and events if standalone
     app.state.cameras = {}
