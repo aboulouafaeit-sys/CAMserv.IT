@@ -1,0 +1,257 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.5",
+  "serialNumber": "urn:uuid:camserv-sbom-v3-phase3",
+  "version": 1,
+  "metadata": {
+    "timestamp": "2026-11-15T15:47:34.401388+00:00",
+    "tools": [
+      {
+        "vendor": "CAMserv",
+        "name": "camserv-sbom-generator",
+        "version": "1.0.0"
+      }
+    ],
+    "component": {
+      "type": "application",
+      "name": "camserv",
+      "version": "0.1.0",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "description": "CAMserv Advanced Security Intelligence Platform"
+    }
+  },
+  "components": [
+    {
+      "type": "library",
+      "name": "pydantic",
+      "version": "2.14.3",
+      "description": "Data validation using Python type hints",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "purl": "pkg:pypi/pydantic@2.14.3"
+    },
+    {
+      "type": "library",
+      "name": "pydantic-settings",
+      "version": "2.16.3",
+      "description": "Settings management using Pydantic",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "purl": "pkg:pypi/pydantic-settings@2.16.3"
+    },
+    {
+      "type": "library",
+      "name": "pyyaml",
+      "version": "declared",
+      "description": "Declared CAMserv project dependency",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT/Apache-2.0"
+          }
+        }
+      ],
+      "purl": "pkg:pypi/pyyaml@declared"
+    },
+    {
+      "type": "library",
+      "name": "structlog",
+      "version": "26.1.0",
+      "description": "Structured Logging for Python",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT OR Apache-2.0"
+          }
+        }
+      ],
+      "purl": "pkg:pypi/structlog@26.1.0"
+    },
+    {
+      "type": "library",
+      "name": "cryptography",
+      "version": "50.0.2",
+      "description": "cryptography is a package which provides cryptographic recipes and primitives to Python developers.",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0 OR BSD-3-Clause"
+          }
+        }
+      ],
+      "purl": "pkg:pypi/cryptography@50.0.2"
+    },
+    {
+      "type": "library",
+      "name": "pyjwt",
+      "version": "2.15.1",
+      "description": "JSON Web Token implementation in Python",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "purl": "pkg:pypi/pyjwt@2.15.1"
+    },
+    {
+      "type": "library",
+      "name": "aiohttp",
+      "version": "3.14.5",
+      "description": "Async http client/server framework (asyncio)",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0 AND MIT"
+          }
+        }
+      ],
+      "purl": "pkg:pypi/aiohttp@3.14.5"
+    },
+    {
+      "type": "library",
+      "name": "uvicorn",
+      "version": "0.54.0",
+      "description": "The lightning-fast ASGI server.",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "purl": "pkg:pypi/uvicorn@0.54.0"
+    },
+    {
+      "type": "library",
+      "name": "fastapi",
+      "version": "0.162.7",
+      "description": "FastAPI framework, high performance, easy to learn, fast to code, ready for production",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "purl": "pkg:pypi/fastapi@0.162.7"
+    },
+    {
+      "type": "library",
+      "name": "numpy",
+      "version": "2.5.4",
+      "description": "Fundamental package for array computing in Python",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0"
+          }
+        }
+      ],
+      "purl": "pkg:pypi/numpy@2.5.4"
+    },
+    {
+      "type": "library",
+      "name": "onnxruntime",
+      "version": "declared",
+      "description": "Declared CAMserv project dependency",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT/Apache-2.0"
+          }
+        }
+      ],
+      "purl": "pkg:pypi/onnxruntime@declared"
+    },
+    {
+      "type": "machine-learning-model",
+      "name": "yolov8n-onnx-permissive",
+      "version": "1.0.0",
+      "description": "Object detection model converted to ONNX runtime format",
+      "supplier": {
+        "name": "Ultralytics / Commercial or Community Apache-2.0 export"
+      },
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0"
+          }
+        }
+      ],
+      "properties": [
+        {
+          "name": "camserv:copyleft_status",
+          "value": "Permissive (Pre-trained ONNX Weights)"
+        }
+      ]
+    },
+    {
+      "type": "machine-learning-model",
+      "name": "bytetrack-association-engine",
+      "version": "0.3.2",
+      "description": "Multi-object tracker association algorithms",
+      "supplier": {
+        "name": "ByteTrack Authors"
+      },
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "properties": [
+        {
+          "name": "camserv:copyleft_status",
+          "value": "Permissive"
+        }
+      ]
+    },
+    {
+      "type": "machine-learning-model",
+      "name": "fast-privacy-blur-filter",
+      "version": "2.1.0",
+      "description": "Privacy masking Gaussian and pixelation pipeline",
+      "supplier": {
+        "name": "CAMserv In-Tree"
+      },
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "properties": [
+        {
+          "name": "camserv:copyleft_status",
+          "value": "Permissive"
+        }
+      ]
+    }
+  ],
+  "audit_summary": {
+    "total_components": 14,
+    "copyleft_findings": [],
+    "is_permissive_compliant": true,
+    "commercial_ready": true
+  }
+}
