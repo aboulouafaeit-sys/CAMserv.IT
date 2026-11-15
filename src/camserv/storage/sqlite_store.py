@@ -149,6 +149,104 @@ class SQLiteStore:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_enh_manifest_camera_time ON enhancement_manifests (camera_id, timestamp_utc);")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_enh_manifest_orig_hash ON enhancement_manifests (original_sha256);")
 
+            # -------------------------------------------------------------------
+            # NVR Subsystem Tables
+            # -------------------------------------------------------------------
+            # Recordings table
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS recordings (
+                    recording_id TEXT PRIMARY KEY,
+                    camera_id TEXT NOT NULL,
+                    start_time_utc TEXT NOT NULL,
+                    end_time_utc TEXT,
+                    recording_type TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    storage_tier TEXT NOT NULL,
+                    total_size_bytes INTEGER DEFAULT 0,
+                    metadata TEXT DEFAULT '{}',
+                    created_at TEXT NOT NULL
+                );
+                """
+            )
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_recordings_camera_time ON recordings (camera_id, start_time_utc);")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_recordings_status ON recordings (status);")
+
+            # Recording Segments table
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS recording_segments (
+                    segment_id TEXT PRIMARY KEY,
+                    recording_id TEXT NOT NULL,
+                    camera_id TEXT NOT NULL,
+                    segment_index INTEGER NOT NULL,
+                    start_time_utc TEXT NOT NULL,
+                    end_time_utc TEXT NOT NULL,
+                    duration_seconds REAL NOT NULL,
+                    file_path TEXT NOT NULL,
+                    file_size_bytes INTEGER NOT NULL,
+                    sha256_hash TEXT NOT NULL,
+                    has_motion INTEGER DEFAULT 0,
+                    has_event INTEGER DEFAULT 0,
+                    event_ids TEXT DEFAULT '[]',
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY(recording_id) REFERENCES recordings(recording_id) ON DELETE CASCADE
+                );
+                """
+            )
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_segments_recording ON recording_segments (recording_id);")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_segments_camera_time ON recording_segments (camera_id, start_time_utc);")
+
+            # Recording Schedules table
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS recording_schedules (
+                    schedule_id TEXT PRIMARY KEY,
+                    camera_id TEXT NOT NULL,
+                    day_of_week INTEGER NOT NULL,
+                    start_time TEXT NOT NULL,
+                    end_time TEXT NOT NULL,
+                    mode TEXT NOT NULL,
+                    is_active INTEGER NOT NULL DEFAULT 1,
+                    created_at TEXT NOT NULL
+                );
+                """
+            )
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_schedules_camera ON recording_schedules (camera_id);")
+
+            # PTZ Presets table
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS ptz_presets (
+                    preset_id TEXT PRIMARY KEY,
+                    camera_id TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    pan REAL NOT NULL,
+                    tilt REAL NOT NULL,
+                    zoom REAL NOT NULL,
+                    token TEXT DEFAULT NULL,
+                    created_at TEXT NOT NULL
+                );
+                """
+            )
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_ptz_camera ON ptz_presets (camera_id);")
+
+            # Camera Groups table
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS camera_groups (
+                    group_id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    description TEXT DEFAULT '',
+                    camera_ids TEXT DEFAULT '[]',
+                    site_id TEXT DEFAULT 'default',
+                    tags TEXT DEFAULT '[]',
+                    created_at TEXT NOT NULL
+                );
+                """
+            )
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_groups_site ON camera_groups (site_id);")
+
             conn.commit()
         logger.info("sqlite.initialized", path=str(self.db_path))
 
@@ -537,4 +635,328 @@ class SQLiteStore:
             h_enh = rec.get("enhanced_sha256", "")
             return len(h_orig) == 64 and len(h_enh) == 64 and all(c in "0123456789abcdefABCDEF" for c in h_orig + h_enh)
         return False
+
+    # ---------------------------------------------------------------------------
+    # NVR Recordings & Segments Persistence
+    # ---------------------------------------------------------------------------
+
+    def upsert_recording(self, recording: dict[str, Any]) -> None:
+        """Insert or update a recording session record."""
+        now = datetime.now(timezone.utc).isoformat()
+        meta_json = json.dumps(recording.get("metadata", {}))
+        with self._get_connection() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO recordings (
+                    recording_id, camera_id, start_time_utc, end_time_utc, recording_type,
+                    status, storage_tier, total_size_bytes, metadata, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    recording["recording_id"],
+                    recording["camera_id"],
+                    recording["start_time_utc"],
+                    recording.get("end_time_utc"),
+                    recording.get("recording_type", "continuous"),
+                    recording.get("status", "recording"),
+                    recording.get("storage_tier", "operational"),
+                    recording.get("total_size_bytes", 0),
+                    meta_json,
+                    recording.get("created_at", now),
+                ),
+            )
+            conn.commit()
+
+    def finalize_recording(self, recording_id: str, end_time_utc: str, total_size_bytes: int) -> bool:
+        """Mark a recording session as finalized upon clean completion."""
+        with self._get_connection() as conn:
+            cur = conn.execute(
+                """
+                UPDATE recordings
+                SET status = 'finalized', end_time_utc = ?, total_size_bytes = ?
+                WHERE recording_id = ?
+                """,
+                (end_time_utc, total_size_bytes, recording_id),
+            )
+            conn.commit()
+            return cur.rowcount > 0
+
+    def get_recording(self, recording_id: str) -> dict[str, Any] | None:
+        """Retrieve a recording session by ID."""
+        with self._get_connection() as conn:
+            row = conn.execute("SELECT * FROM recordings WHERE recording_id = ?", (recording_id,)).fetchone()
+            if not row:
+                return None
+            res = dict(row)
+            res["metadata"] = json.loads(res["metadata"]) if res.get("metadata") else {}
+            return res
+
+    def list_recordings(
+        self,
+        camera_id: str | None = None,
+        recording_type: str | None = None,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        """List recordings with optional filters."""
+        clauses = []
+        params: list[Any] = []
+        if camera_id:
+            clauses.append("camera_id = ?")
+            params.append(camera_id)
+        if recording_type:
+            clauses.append("recording_type = ?")
+            params.append(recording_type)
+
+        query = "SELECT * FROM recordings"
+        if clauses:
+            query += " WHERE " + " AND ".join(clauses)
+        query += " ORDER BY start_time_utc DESC LIMIT ?"
+        params.append(limit)
+
+        with self._get_connection() as conn:
+            rows = conn.execute(query, params).fetchall()
+            results = []
+            for r in rows:
+                rec = dict(r)
+                rec["metadata"] = json.loads(rec["metadata"]) if rec.get("metadata") else {}
+                results.append(rec)
+            return results
+
+    def delete_recording(self, recording_id: str) -> bool:
+        """Delete a recording and its associated segments cascade."""
+        with self._get_connection() as conn:
+            cur = conn.execute("DELETE FROM recordings WHERE recording_id = ?", (recording_id,))
+            conn.commit()
+            return cur.rowcount > 0
+
+    def store_recording_segment(self, segment: dict[str, Any]) -> None:
+        """Store metadata for a video chunk segment."""
+        now = datetime.now(timezone.utc).isoformat()
+        events_json = json.dumps(segment.get("event_ids", []))
+        with self._get_connection() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO recording_segments (
+                    segment_id, recording_id, camera_id, segment_index, start_time_utc,
+                    end_time_utc, duration_seconds, file_path, file_size_bytes, sha256_hash,
+                    has_motion, has_event, event_ids, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    segment["segment_id"],
+                    segment["recording_id"],
+                    segment["camera_id"],
+                    segment["segment_index"],
+                    segment["start_time_utc"],
+                    segment["end_time_utc"],
+                    float(segment["duration_seconds"]),
+                    segment["file_path"],
+                    int(segment["file_size_bytes"]),
+                    segment["sha256_hash"],
+                    1 if segment.get("has_motion") else 0,
+                    1 if segment.get("has_event") else 0,
+                    events_json,
+                    now,
+                ),
+            )
+            conn.commit()
+
+    def list_recording_segments(self, recording_id: str) -> list[dict[str, Any]]:
+        """List all video segments belonging to a recording."""
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM recording_segments WHERE recording_id = ? ORDER BY segment_index ASC",
+                (recording_id,),
+            ).fetchall()
+            results = []
+            for r in rows:
+                seg = dict(r)
+                seg["has_motion"] = bool(seg["has_motion"])
+                seg["has_event"] = bool(seg["has_event"])
+                seg["event_ids"] = json.loads(seg["event_ids"]) if seg.get("event_ids") else []
+                results.append(seg)
+            return results
+
+    def query_segments_by_time_range(
+        self,
+        camera_id: str,
+        start_time_utc: str,
+        end_time_utc: str,
+        limit: int = 500,
+    ) -> list[dict[str, Any]]:
+        """Query video segments spanning an arbitrary time window for playback/timeline."""
+        query = """
+            SELECT * FROM recording_segments
+            WHERE camera_id = ?
+              AND end_time_utc >= ?
+              AND start_time_utc <= ?
+            ORDER BY start_time_utc ASC
+            LIMIT ?
+        """
+        with self._get_connection() as conn:
+            rows = conn.execute(query, (camera_id, start_time_utc, end_time_utc, limit)).fetchall()
+            results = []
+            for r in rows:
+                seg = dict(r)
+                seg["has_motion"] = bool(seg["has_motion"])
+                seg["has_event"] = bool(seg["has_event"])
+                seg["event_ids"] = json.loads(seg["event_ids"]) if seg.get("event_ids") else []
+                results.append(seg)
+            return results
+
+    # ---------------------------------------------------------------------------
+    # Recording Schedules
+    # ---------------------------------------------------------------------------
+
+    def upsert_recording_schedule(self, schedule: dict[str, Any]) -> None:
+        """Insert or update a camera recording schedule slot."""
+        now = datetime.now(timezone.utc).isoformat()
+        with self._get_connection() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO recording_schedules (
+                    schedule_id, camera_id, day_of_week, start_time, end_time, mode, is_active, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    schedule["schedule_id"],
+                    schedule["camera_id"],
+                    int(schedule["day_of_week"]),
+                    schedule["start_time"],
+                    schedule["end_time"],
+                    schedule["mode"],
+                    1 if schedule.get("is_active", True) else 0,
+                    schedule.get("created_at", now),
+                ),
+            )
+            conn.commit()
+
+    def list_recording_schedules(self, camera_id: str) -> list[dict[str, Any]]:
+        """List active schedules for a camera."""
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM recording_schedules WHERE camera_id = ? ORDER BY day_of_week ASC, start_time ASC",
+                (camera_id,),
+            ).fetchall()
+            results = []
+            for r in rows:
+                s = dict(r)
+                s["is_active"] = bool(s["is_active"])
+                results.append(s)
+            return results
+
+    def delete_recording_schedule(self, schedule_id: str) -> bool:
+        """Delete a schedule entry."""
+        with self._get_connection() as conn:
+            cur = conn.execute("DELETE FROM recording_schedules WHERE schedule_id = ?", (schedule_id,))
+            conn.commit()
+            return cur.rowcount > 0
+
+    # ---------------------------------------------------------------------------
+    # PTZ Presets
+    # ---------------------------------------------------------------------------
+
+    def upsert_ptz_preset(self, preset: dict[str, Any]) -> None:
+        """Store or update a camera PTZ preset vector."""
+        now = datetime.now(timezone.utc).isoformat()
+        with self._get_connection() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO ptz_presets (
+                    preset_id, camera_id, name, pan, tilt, zoom, token, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    preset["preset_id"],
+                    preset["camera_id"],
+                    preset["name"],
+                    float(preset["pan"]),
+                    float(preset["tilt"]),
+                    float(preset["zoom"]),
+                    preset.get("token"),
+                    now,
+                ),
+            )
+            conn.commit()
+
+    def list_ptz_presets(self, camera_id: str) -> list[dict[str, Any]]:
+        """List saved presets for a camera channel."""
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM ptz_presets WHERE camera_id = ? ORDER BY name ASC",
+                (camera_id,),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def delete_ptz_preset(self, preset_id: str) -> bool:
+        """Delete a PTZ preset."""
+        with self._get_connection() as conn:
+            cur = conn.execute("DELETE FROM ptz_presets WHERE preset_id = ?", (preset_id,))
+            conn.commit()
+            return cur.rowcount > 0
+
+    # ---------------------------------------------------------------------------
+    # Camera Groups Persistence
+    # ---------------------------------------------------------------------------
+
+    def upsert_camera_group(self, group: dict[str, Any]) -> None:
+        """Store or update a camera group in the relational database."""
+        now = datetime.now(timezone.utc).isoformat()
+        cams_json = json.dumps(group.get("camera_ids", []))
+        tags_json = json.dumps(group.get("tags", []))
+        with self._get_connection() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO camera_groups (
+                    group_id, name, description, camera_ids, site_id, tags, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    group["group_id"],
+                    group["name"],
+                    group.get("description", ""),
+                    cams_json,
+                    group.get("site_id", "default"),
+                    tags_json,
+                    group.get("created_at", now),
+                ),
+            )
+            conn.commit()
+
+    def get_camera_group(self, group_id: str) -> dict[str, Any] | None:
+        """Retrieve a camera group by ID."""
+        with self._get_connection() as conn:
+            row = conn.execute("SELECT * FROM camera_groups WHERE group_id = ?", (group_id,)).fetchone()
+            if not row:
+                return None
+            res = dict(row)
+            res["camera_ids"] = json.loads(res["camera_ids"]) if res.get("camera_ids") else []
+            res["tags"] = json.loads(res["tags"]) if res.get("tags") else []
+            return res
+
+    def list_camera_groups(self, site_id: str | None = None) -> list[dict[str, Any]]:
+        """List all camera groups."""
+        query = "SELECT * FROM camera_groups"
+        params: list[Any] = []
+        if site_id:
+            query += " WHERE site_id = ?"
+            params.append(site_id)
+        query += " ORDER BY name ASC"
+
+        with self._get_connection() as conn:
+            rows = conn.execute(query, params).fetchall()
+            results = []
+            for r in rows:
+                g = dict(r)
+                g["camera_ids"] = json.loads(g["camera_ids"]) if g.get("camera_ids") else []
+                g["tags"] = json.loads(g["tags"]) if g.get("tags") else []
+                results.append(g)
+            return results
+
+    def delete_camera_group(self, group_id: str) -> bool:
+        """Delete a camera group."""
+        with self._get_connection() as conn:
+            cur = conn.execute("DELETE FROM camera_groups WHERE group_id = ?", (group_id,))
+            conn.commit()
+            return cur.rowcount > 0
 
