@@ -222,24 +222,42 @@ class DeviceRegistry:
         device.status = DeviceStatus.ONLINE
         return True
 
-    def suspend_device(self, device_id: str, reason: str, operator_id: str) -> bool:
-        """Temporarily suspend a device from fleet operations."""
+    def suspend_device(
+        self,
+        device_id: str,
+        reason: str,
+        operator_id: str,
+        user_role: str = "SUPER_ADMIN",
+        user_assigned_sites: list[str] | None = None,
+    ) -> bool:
+        """Temporarily suspend a device from fleet operations with server-side authorization check."""
         if device_id not in self.devices:
             return False
 
         device = self.devices[device_id]
+        self._verify_site_access(device.site_id, user_role, user_assigned_sites or [])
+
         device.status = DeviceStatus.SUSPENDED
         device.metadata["suspended_by"] = operator_id
         device.metadata["suspend_reason"] = reason
         logger.warning("central.device_suspended", device_id=device_id, reason=reason)
         return True
 
-    def revoke_device(self, device_id: str, reason: str, operator_id: str) -> bool:
-        """Permanently revoke trust and invalidate cryptographic credentials for an appliance."""
+    def revoke_device(
+        self,
+        device_id: str,
+        reason: str,
+        operator_id: str,
+        user_role: str = "SUPER_ADMIN",
+        user_assigned_sites: list[str] | None = None,
+    ) -> bool:
+        """Permanently revoke trust and invalidate credentials with server-side authorization check."""
         if device_id not in self.devices:
             return False
 
         device = self.devices[device_id]
+        self._verify_site_access(device.site_id, user_role, user_assigned_sites or [])
+
         device.status = DeviceStatus.REVOKED
         device.security_state = SecurityState.QUARANTINED
         device.metadata["revoked_by"] = operator_id

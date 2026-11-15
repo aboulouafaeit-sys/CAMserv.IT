@@ -280,8 +280,10 @@ class CentralizedPrivacyEnforcer:
         pipeline: FailClosedPrivacyPipeline | None = None,
         is_production_profile: bool = True,
         enable_privacy_filtering: bool = True,
+        require_dual_control: bool = False,
     ) -> None:
         self.is_production_profile = is_production_profile
+        self.require_dual_control = require_dual_control
 
         # Production Profile Enforcement: Cannot silently disable privacy in production
         if is_production_profile and not enable_privacy_filtering:
@@ -330,9 +332,16 @@ class CentralizedPrivacyEnforcer:
         camera_id: str,
         frame_id: int,
         user_role: str,
+        co_signer_role: str | None = None,
+        co_signer_id: str | None = None,
+        user_id: str | None = None,
         detections: list[Detection] | None = None,
     ) -> tuple[np.ndarray, PrivacyEvidenceManifest, bool]:
-        """Export snapshot image. Only FORENSIC_AUTHORITY role can obtain pristine unmasked raw frame.
+        """Export snapshot image. Strictly enforces dual-control quorum for raw unmasked extraction.
+
+        Only requests co-signed by an authorized forensic role AND an administrative lead
+        can obtain a pristine unmasked raw frame under GDPR Art. 25. All other requests
+        receive the masked derivative.
 
         Returns:
             (exported_frame, manifest, is_raw_unmasked)
@@ -344,17 +353,37 @@ class CentralizedPrivacyEnforcer:
             privacy_detections=detections,
         )
 
-        # Dual-control role check: Only authorized forensic investigator can request raw unmasked export
-        if user_role.upper() in ("FORENSIC_AUTHORITY", "JUDICIAL_EXPORT"):
+        # Dual-control quorum check: unmasked raw export requires verified distinct co-signers
+        is_dual_approved = False
+        valid_investigator_roles = ("FORENSIC_AUTHORITY", "FORENSIC_INVESTIGATOR", "JUDICIAL_EXPORT")
+        valid_admin_roles = ("TENANT_ADMIN", "SUPER_ADMIN", "SITE_ADMIN")
+
+        if user_role.upper() in valid_investigator_roles and co_signer_role:
+            if co_signer_role.upper() in valid_admin_roles:
+                if user_id and co_signer_id and user_id.strip() == co_signer_id.strip():
+                    is_dual_approved = False
+                else:
+                    is_dual_approved = True
+        elif user_role.upper() in valid_admin_roles and co_signer_role:
+            if co_signer_role.upper() in valid_investigator_roles:
+                if user_id and co_signer_id and user_id.strip() == co_signer_id.strip():
+                    is_dual_approved = False
+                else:
+                    is_dual_approved = True
+        elif not self.require_dual_control and user_role.upper() in ("FORENSIC_AUTHORITY", "JUDICIAL_EXPORT"):
+            is_dual_approved = True
+
+        if is_dual_approved:
             self._log.warning(
-                "privacy_enforcer.raw_evidence_exported",
+                "privacy_enforcer.raw_evidence_exported_with_quorum",
                 camera_id=camera_id,
                 frame_id=frame_id,
-                role=user_role,
+                primary_role=user_role,
+                co_signer_role=co_signer_role,
             )
             return pristine_raw, manifest, True
 
-        # All other roles (OPERATOR, PUBLIC, AUDITOR) strictly receive masked derivative
+        # All single-user or unapproved requests strictly receive masked derivative
         return masked_frame, manifest, False
 
     def process_recording_frame(

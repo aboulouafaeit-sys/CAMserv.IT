@@ -74,6 +74,14 @@ class MultiTenantEnforcer:
         if context.is_system_admin or context.role.upper() == "SUPER_ADMIN":
             return
 
+        # Check active status of caller's tenant
+        tenant = self.tenants.get(context.tenant_id)
+        if tenant and not tenant.is_active:
+            logger.critical("tenancy.inactive_tenant_blocked", tenant_id=context.tenant_id, user_id=context.user_id)
+            raise TenantAccessDeniedError(
+                f"SECURITY VIOLATION: Tenant '{context.tenant_id}' is inactive or suspended. Access denied."
+            )
+
         if context.tenant_id != resource_tenant_id:
             logger.critical(
                 "tenancy.cross_tenant_access_blocked",

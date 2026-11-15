@@ -191,17 +191,31 @@ class SignedUpdateManager:
                     "CRITICAL SECURITY REJECTION: Update package signature is invalid or not signed by a trusted release authority."
                 )
 
-            # 4. Verify SHA-256 digest of each payload file
+            # 4. Verify SHA-256 digest of each payload file and reject path traversal
+            manifest_paths = set()
             for f_entry in manifest.files:
-                arc_name = f"payload/{f_entry['path']}"
+                f_path = f_entry["path"]
+                if ".." in f_path or f_path.startswith("/") or f_path.startswith("\\"):
+                    logger.critical("updater.path_traversal_manifest_rejected", path=f_path)
+                    raise PackageIntegrityError(f"Security error: Path traversal detected in manifest path '{f_path}'.")
+
+                manifest_paths.add(f"payload/{f_path}")
+                arc_name = f"payload/{f_path}"
                 if arc_name not in zf.namelist():
-                    raise PackageIntegrityError(f"Missing file in archive: {f_entry['path']}")
+                    raise PackageIntegrityError(f"Missing file in archive: {f_path}")
 
                 content = zf.read(arc_name)
                 calc_hash = hashlib.sha256(content).hexdigest()
                 if calc_hash != f_entry["sha256"]:
                     logger.critical("updater.checksum_mismatch", path=f_entry["path"])
                     raise PackageIntegrityError(f"Checksum mismatch for '{f_entry['path']}': Tampered payload detected.")
+
+            # Ensure no unexpected or malicious unmanifested payload entries exist
+            for name in zf.namelist():
+                if name.startswith("payload/") and name != "payload/":
+                    if name not in manifest_paths:
+                        logger.critical("updater.unmanifested_payload_rejected", file=name)
+                        raise PackageIntegrityError(f"Security error: Unmanifested file in payload archive: '{name}'.")
 
         logger.info("updater.package_verified_successfully", package_id=manifest.package_id)
         return manifest
@@ -217,8 +231,8 @@ class SignedUpdateManager:
         Extract verified package. If post-install health check fails,
         atomically rolls back to the previous snapshot.
         """
-        dest = Path(target_dir)
-        b_dir = Path(backup_dir)
+        dest = Path(target_dir).resolve()
+        b_dir = Path(backup_dir).resolve()
         dest.mkdir(parents=True, exist_ok=True)
         b_dir.mkdir(parents=True, exist_ok=True)
 
@@ -231,9 +245,19 @@ class SignedUpdateManager:
         try:
             with zipfile.ZipFile(str(pkg_path), "r") as zf:
                 for name in zf.namelist():
-                    if name.startswith("payload/"):
+                    if name.startswith("payload/") and name != "payload/":
                         rel_path = name[len("payload/"):]
-                        out_path = dest / rel_path
+                        out_path = (dest / rel_path).resolve()
+
+                        # Enforce path containment to prevent Zip Slip directory escapes
+                        try:
+                            out_path.relative_to(dest)
+                        except ValueError:
+                            logger.critical("updater.zip_slip_blocked", path=rel_path)
+                            raise PackageIntegrityError(
+                                f"CRITICAL SECURITY REJECTION: Zip Slip path traversal attempted: '{rel_path}'."
+                            )
+
                         out_path.parent.mkdir(parents=True, exist_ok=True)
                         out_path.write_bytes(zf.read(name))
 

@@ -137,14 +137,28 @@ class RBACPolicyEngine:
         primary_role: Role | str,
         co_signer_role: Role | str,
         permission: Permission,
+        primary_user_id: str | None = None,
+        co_signer_user_id: str | None = None,
     ) -> None:
         """
         Enforce dual-control authorization for privacy-sensitive actions
         (unmasked raw evidence access / export).
-        Mandates that primary actor and co-signer are distinct roles with appropriate clearance.
+        Mandates that primary actor and co-signer are distinct roles and distinct identities.
         """
         if permission not in cls.QUORUM_REQUIRED_PERMISSIONS:
             return
+
+        if primary_user_id and co_signer_user_id:
+            if primary_user_id.strip() == co_signer_user_id.strip():
+                logger.critical(
+                    "rbac.quorum_self_approval_blocked",
+                    user_id=primary_user_id,
+                    permission=permission.value,
+                )
+                raise QuorumAuthorizationError(
+                    f"QUORUM AUTHORIZATION REJECTED: Primary actor and co-signer must be distinct identities "
+                    f"(both claimed by user '{primary_user_id}')."
+                )
 
         try:
             r1 = Role(primary_role) if isinstance(primary_role, str) else primary_role

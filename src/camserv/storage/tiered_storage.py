@@ -61,6 +61,14 @@ class StoredChunkRecord:
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
+def _validate_safe_identifier(value: str, name: str) -> None:
+    """Validate that an identifier does not contain path traversal characters."""
+    if not value or not isinstance(value, str):
+        raise ValueError(f"Invalid {name}: must be a non-empty string.")
+    if ".." in value or "/" in value or "\\" in value or "\x00" in value:
+        raise ValueError(f"Path traversal security violation in {name}: '{value}'.")
+
+
 class TieredStorageManager:
     """
     Coordinates multi-tiered storage pools, automated retention purging,
@@ -72,7 +80,7 @@ class TieredStorageManager:
         base_dir: Path | str,
         retention_policy: RetentionPolicy | None = None,
     ) -> None:
-        self.base_dir = Path(base_dir)
+        self.base_dir = Path(base_dir).resolve()
         self.policy = retention_policy or RetentionPolicy()
         self.chunks: dict[str, StoredChunkRecord] = {}
 
@@ -94,11 +102,21 @@ class TieredStorageManager:
         timestamp: float | None = None,
     ) -> StoredChunkRecord:
         """Store a video chunk in the appropriate tier and record its cryptographic hash."""
+        _validate_safe_identifier(camera_id, "camera_id")
+        _validate_safe_identifier(chunk_id, "chunk_id")
+
         now = timestamp if timestamp is not None else time.time()
         sha256 = hashlib.sha256(data).hexdigest()
 
         target_dir = self.vault_dir if is_incident or tier == StorageTier.FORENSIC_VAULT else self.op_dir
-        chunk_path = target_dir / f"{camera_id}_{chunk_id}.chunk"
+        chunk_path = (target_dir / f"{camera_id}_{chunk_id}.chunk").resolve()
+
+        # Enforce destination directory containment
+        try:
+            chunk_path.relative_to(target_dir.resolve())
+        except ValueError:
+            raise ValueError(f"Path traversal security violation: Chunk escapes target directory '{target_dir}'.")
+
         chunk_path.write_bytes(data)
 
         record = StoredChunkRecord(

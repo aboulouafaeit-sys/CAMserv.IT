@@ -122,21 +122,23 @@ class DistributedGateway:
                 f"Clock skew exceeded: Message timestamp ({envelope.timestamp}) differs by > {self.max_clock_skew_sec}s."
             )
 
-        # 2. Nonce replay check
+        # 2. Cryptographic signature check FIRST
+        # Enforces identity verification before updating rate limit counters,
+        # preventing unauthenticated DoS attacks that exhaust legitimate senders' quotas.
+        if not envelope.verify(sender_public_key_hex):
+            raise MessageVerificationError("Cryptographic signature verification failed on message envelope.")
+
+        # 3. Data minimization validation
+        self._validate_data_minimization(envelope)
+
+        # 4. Nonce replay check
         self._prune_nonces(now)
         if envelope.nonce in self._seen_nonces:
             logger.error("comm.replay_attack_detected", nonce=envelope.nonce, msg_id=envelope.message_id)
             raise ReplayAttackError(f"Replay attack detected: Nonce '{envelope.nonce}' has already been processed.")
 
-        # 3. Rate limiting check
+        # 5. Rate limiting check (authenticated senders only)
         self._check_rate_limit(envelope.sender_id, now)
-
-        # 4. Data minimization validation
-        self._validate_data_minimization(envelope)
-
-        # 5. Cryptographic signature check
-        if not envelope.verify(sender_public_key_hex):
-            raise MessageVerificationError("Cryptographic signature verification failed on message envelope.")
 
         # Record nonce in sliding cache
         self._seen_nonces[envelope.nonce] = now + (self.max_clock_skew_sec * 2.0)

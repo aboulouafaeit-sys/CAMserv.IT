@@ -142,6 +142,12 @@ class AdaptiveRetentionVault:
             total_sealed_frames=len(total_frames),
         )
 
+        # Validate identifiers against path traversal
+        if ".." in event_id or "/" in event_id or "\\" in event_id or "\x00" in event_id:
+            raise ValueError(f"Path traversal security violation in event_id: '{event_id}'.")
+        if ".." in camera_id or "/" in camera_id or "\\" in camera_id or "\x00" in camera_id:
+            raise ValueError(f"Path traversal security violation in camera_id: '{camera_id}'.")
+
         # Serialize and seal chunk
         chunk_data = {
             "event_id": event_id,
@@ -155,7 +161,12 @@ class AdaptiveRetentionVault:
         seal, encrypted_bytes = self.seal_forensic_chunk(camera_id, raw_payload)
 
         # Write to WORM storage
-        package_file = self.vault_root / f"incident_{event_id}_{seal.chunk_id}.camserv"
+        package_file = (self.vault_root / f"incident_{event_id}_{seal.chunk_id}.camserv").resolve()
+        try:
+            package_file.relative_to(self.vault_root.resolve())
+        except ValueError:
+            raise ValueError(f"Path traversal detected: package escapes vault root '{self.vault_root}'.")
+
         with open(package_file, "wb") as f:
             header = json.dumps(asdict(seal)).encode("utf-8")
             f.write(len(header).to_bytes(4, byteorder="big"))

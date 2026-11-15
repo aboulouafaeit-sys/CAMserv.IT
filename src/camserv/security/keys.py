@@ -79,7 +79,16 @@ class KeyManager:
 
         # Master secret for envelope wrapping (from env, param, or auto-generated)
         if master_secret is None:
-            master_secret = os.environ.get("CAMSERV_MASTER_KEY", "camserv-default-master-key-32b-min")
+            raw_env = os.environ.get("CAMSERV_MASTER_KEY")
+            if not raw_env:
+                logger.warning(
+                    "key_manager.using_default_master_secret",
+                    warning="CAMSERV_MASTER_KEY not set. Using built-in default development secret. "
+                            "In production appliances, define a cryptographically strong 256-bit CAMSERV_MASTER_KEY.",
+                )
+                master_secret = "camserv-default-master-key-32b-min"
+            else:
+                master_secret = raw_env
         if isinstance(master_secret, str):
             master_secret = master_secret.encode("utf-8")
         self._master_secret = master_secret

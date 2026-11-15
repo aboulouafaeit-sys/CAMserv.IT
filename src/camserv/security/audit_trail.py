@@ -101,13 +101,19 @@ class SecurityAuditLogger:
         self._last_hash = self.GENESIS_HASH
 
     def sanitize_details(self, details: dict[str, Any]) -> dict[str, Any]:
-        """Deeply sanitize sensitive credentials, keys, or binary frame payloads."""
+        """Deeply sanitize sensitive credentials, keys, or binary frame payloads across dicts and iterables."""
         sanitized: dict[str, Any] = {}
         for k, v in details.items():
             if any(sens in k.lower() for sens in self.SENSITIVE_KEYS):
                 sanitized[k] = "[REDACTED_BY_SECURITY_POLICY]"
             elif isinstance(v, dict):
                 sanitized[k] = self.sanitize_details(v)
+            elif isinstance(v, (list, tuple, set)):
+                sanitized[k] = [
+                    self.sanitize_details(item) if isinstance(item, dict)
+                    else ("[REDACTED_BY_SECURITY_POLICY]" if any(sens in k.lower() for sens in self.SENSITIVE_KEYS) else item)
+                    for item in v
+                ]
             elif isinstance(v, bytes):
                 sanitized[k] = f"<binary_bytes_len_{len(v)}>"
             else:
