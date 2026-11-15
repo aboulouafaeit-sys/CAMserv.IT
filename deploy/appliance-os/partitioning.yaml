@@ -1,0 +1,93 @@
+# CAMserv Appliance Storage Partition Layout
+# Engineered for Debian 12 Minimal / Ubuntu 24.04 LTS Appliance Images
+
+profiles:
+  profile_a_edge:
+    total_capacity_min_gb: 256
+    disk_type: "Industrial NVMe M.2"
+    partitions:
+      - label: "EFI"
+        mount: "/boot/efi"
+        size_mb: 512
+        fs: "vfat"
+        flags: ["boot", "esp"]
+      - label: "SYSTEM_A"
+        mount: "/"
+        size_mb: 16384
+        fs: "ext4"
+        options: "ro,noatime,errors=remount-ro"
+      - label: "SYSTEM_B"
+        mount: ""
+        size_mb: 16384
+        fs: "ext4"
+        comment: "Inactive A/B update slot"
+      - label: "DATA_DB"
+        mount: "/data/db"
+        size_mb: 32768
+        fs: "ext4"
+        options: "rw,noatime,nodev,nosuid"
+      - label: "VAULT_EVIDENCE"
+        mount: "/data/vault"
+        size_mb: "fill_remaining"
+        fs: "ext4"
+        options: "rw,noatime,nodev,nosuid"
+
+  profile_b_professional:
+    total_capacity_min_gb: 1000
+    disk_layout: "1TB NVMe OS/Cache + 2x 8TB Surveillance SATA HDDs"
+    nvme_os:
+      - label: "EFI"
+        mount: "/boot/efi"
+        size_mb: 1024
+        fs: "vfat"
+      - label: "SYSTEM_A"
+        mount: "/"
+        size_mb: 32768
+        fs: "ext4"
+        options: "ro,noatime"
+      - label: "SYSTEM_B"
+        mount: ""
+        size_mb: 32768
+        fs: "ext4"
+      - label: "DATA_DB"
+        mount: "/data/db"
+        size_mb: 131072
+        fs: "ext4"
+      - label: "PRE_ROLL_CACHE"
+        mount: "/data/preroll"
+        size_mb: 262144
+        fs: "ext4"
+    hdd_vault_raid1:
+      - label: "VAULT_EVIDENCE"
+        mount: "/data/vault"
+        raid_level: "raid1"
+        fs: "ext4"
+        options: "rw,noatime,nodev,nosuid"
+
+  profile_c_enterprise:
+    total_capacity_min_gb: 34000
+    disk_layout: "Dual NVMe RAID-1 OS + 8x U.2 NVMe RAID-6 Vault Pool"
+    nvme_os_raid1:
+      - label: "EFI"
+        mount: "/boot/efi"
+        size_mb: 2048
+        fs: "vfat"
+      - label: "SYSTEM_A"
+        mount: "/"
+        size_mb: 65536
+        fs: "ext4"
+        options: "ro,noatime"
+      - label: "SYSTEM_B"
+        mount: ""
+        size_mb: 65536
+        fs: "ext4"
+      - label: "DATA_DB"
+        mount: "/data/db"
+        size_mb: 524288
+        fs: "ext4"
+    vault_raid6_array:
+      - label: "VAULT_EVIDENCE"
+        mount: "/data/vault"
+        raid_level: "raid6"
+        fs: "xfs"
+        options: "rw,noatime,nodev,nosuid,allocsize=64m"

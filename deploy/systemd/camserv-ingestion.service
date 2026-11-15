@@ -1,0 +1,27 @@
+[Unit]
+Description=CAMserv Camera Ingestion & Shared Memory Supervisor
+Documentation=https://github.com/aboulouafaeit-sys/CAMserv.IT
+PartOf=camserv.target
+After=network.target local-fs.target camserv-storage.service
+
+[Service]
+Type=notify
+User=camserv
+Group=camserv
+WorkingDirectory=/opt/camserv
+ExecStart=/opt/camserv/venv/bin/python -m camserv.acquisition.supervisor
+Restart=on-failure
+RestartSec=3s
+StartLimitIntervalSec=60s
+StartLimitBurst=5
+WatchdogSec=15s
+
+# POSIX Shared Memory Access
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true
+ReadWritePaths=/dev/shm /data/db /var/log/camserv
+
+[Install]
+WantedBy=camserv.target

@@ -1,0 +1,26 @@
+[Unit]
+Description=CAMserv Central Management Gateway Agent
+Documentation=https://github.com/aboulouafaeit-sys/CAMserv.IT
+PartOf=camserv.target
+After=network-online.target camserv-core.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=camserv
+Group=camserv
+WorkingDirectory=/opt/camserv
+ExecStart=/opt/camserv/venv/bin/python -m camserv.central.agent
+Restart=on-failure
+RestartSec=10s
+StartLimitIntervalSec=120s
+StartLimitBurst=5
+
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true
+ReadWritePaths=/data/central /var/log/camserv
+
+[Install]
+WantedBy=camserv.target
