@@ -64,14 +64,42 @@ class StreamingGateway:
     Enforces that frames pass through the FailClosedPrivacyPipeline before distribution.
     """
 
-    def __init__(self, privacy_pipeline: FailClosedPrivacyPipeline | None = None) -> None:
-        self.privacy_pipeline = privacy_pipeline
+    def __init__(
+        self,
+        privacy_pipeline: FailClosedPrivacyPipeline | None = None,
+        pipeline: FailClosedPrivacyPipeline | None = None,
+    ) -> None:
+        self.privacy_pipeline = privacy_pipeline or pipeline
         self.active_sessions: dict[str, StreamClientSession] = {}
         self.webrtc_sessions: dict[str, WebRTCSessionState] = {}
         self._latest_frames: dict[str, tuple[float, np.ndarray]] = {}
         self._hls_segments: dict[str, list[dict[str, Any]]] = {}  # camera_id -> list of segment metadata
 
-    def update_camera_frame(self, camera_id: str, frame: np.ndarray, timestamp_utc: float | None = None) -> None:
+    @staticmethod
+    def _generate_fail_closed_frame(frame: np.ndarray) -> np.ndarray:
+        """Create a completely blacked out frame with warning watermark enforcing fail-closed privacy."""
+        h, w = frame.shape[:2]
+        fail_frame = np.zeros_like(frame)
+        if _HAS_CV2:
+            cv2.putText(
+                fail_frame,
+                "PRIVACY PROTECTION ACTIVE - STREAM PROTECTED (FAIL-CLOSED)",
+                (max(20, w // 10), h // 2),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.6,
+                (0, 165, 255),
+                2,
+                cv2.LINE_AA,
+            )
+        return fail_frame
+
+    def update_camera_frame(
+        self,
+        camera_id: str,
+        frame: np.ndarray,
+        timestamp_utc: float | None = None,
+        allow_unmasked: bool = False,
+    ) -> None:
         """
         Ingest the latest operational frame for a camera channel.
         Applies privacy pipeline filtering to guarantee unmasked frames never leak.
@@ -82,14 +110,26 @@ class StreamingGateway:
         ts = timestamp_utc or time.time()
 
         if self.privacy_pipeline is not None:
-            # Process frame through centralized fail-closed privacy gate
-            privacy_result = self.privacy_pipeline.process_frame(camera_id, frame)
-            # Use safe derivative frame
-            safe_frame = privacy_result.derivative_frame
-        else:
+            try:
+                # Process frame through centralized fail-closed privacy gate
+                masked_frame, _, _ = self.privacy_pipeline.process_frame(
+                    raw_frame=frame,
+                    camera_id=camera_id,
+                )
+                safe_frame = masked_frame
+            except Exception as exc:
+                logger.error("streaming.privacy_pipeline_error_fail_closed", camera_id=camera_id, error=str(exc))
+                safe_frame = self._generate_fail_closed_frame(frame)
+        elif allow_unmasked:
             safe_frame = frame
+        else:
+            # Mandatory fail-closed default: never stream unmasked raw video when privacy pipeline is omitted
+            logger.warning("streaming.privacy_pipeline_unconfigured_fail_closed", camera_id=camera_id)
+            safe_frame = self._generate_fail_closed_frame(frame)
 
         self._latest_frames[camera_id] = (ts, safe_frame)
+
+    publish_frame = update_camera_frame
 
     def get_latest_frame(self, camera_id: str) -> np.ndarray | None:
         """Retrieve the most recent privacy-safe frame for a camera."""

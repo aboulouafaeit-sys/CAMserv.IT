@@ -520,12 +520,19 @@ class NVRRecordingEngine:
                 if rec["recording_id"] in [s.recording_id for s in self.active_sessions.values()]:
                     continue
 
-                # Never purge recordings locked under judicial hold or tagged as forensic incidents
-                rec_meta = rec.get("metadata", {})
-                if rec_meta.get("judicial_hold") or rec_meta.get("is_incident") or rec.get("recording_type") == "event":
+                rec_id = rec["recording_id"]
+
+                # Atomic check: fetch current recording state from store to prevent TOCTOU race condition
+                # with concurrent judicial hold placement or event classification
+                current_rec = self.store.get_recording(rec_id)
+                if not current_rec:
                     continue
 
-                rec_id = rec["recording_id"]
+                rec_meta = current_rec.get("metadata", {})
+                if rec_meta.get("judicial_hold") or rec_meta.get("is_incident") or current_rec.get("recording_type") == "event":
+                    logger.info("nvr.quota.preserve_held_or_incident_recording", recording_id=rec_id)
+                    continue
+
                 segments = self.store.list_recording_segments(rec_id)
 
                 for seg in segments:

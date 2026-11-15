@@ -139,7 +139,7 @@ def build_cyclonedx_sbom(packages: list[dict[str, Any]], models: list[dict[str, 
             "component": {
                 "type": "application",
                 "name": "camserv",
-                "version": "0.1.0",
+                "version": "0.9.0-rc1",
                 "licenses": [{"license": {"id": "MIT"}}],
                 "description": "CAMserv Advanced Security Intelligence Platform",
             },

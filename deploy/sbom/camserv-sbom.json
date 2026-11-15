@@ -4,7 +4,7 @@
   "serialNumber": "urn:uuid:camserv-sbom-v3-phase3",
   "version": 1,
   "metadata": {
-    "timestamp": "2026-11-15T20:26:47.362287+00:00",
+    "timestamp": "2026-11-15T20:55:07.193893+00:00",
     "tools": [
       {
         "vendor": "CAMserv",
@@ -15,7 +15,7 @@
     "component": {
       "type": "application",
       "name": "camserv",
-      "version": "0.1.0",
+      "version": "0.9.0-rc1",
       "licenses": [
         {
           "license": {

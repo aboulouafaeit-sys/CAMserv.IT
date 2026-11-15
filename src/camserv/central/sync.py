@@ -42,6 +42,7 @@ class FleetCameraInfo:
     site_id: str
     name: str
     url: str
+    tenant_id: str = "default"
     enabled: bool = True
     fps: float = 15.0
     width: int = 1920
@@ -68,6 +69,7 @@ class FleetRecordingRecord:
     total_size_bytes: int
     segment_count: int
     segments: list[dict[str, Any]]
+    tenant_id: str = "default"
     has_event: bool = False
     event_ids: list[str] = field(default_factory=list)
     judicial_hold: bool = False
@@ -89,11 +91,13 @@ class EdgeSyncClient:
         appliance_id: str,
         site_id: str,
         store: SQLiteStore,
+        tenant_id: str = "default",
         buffer: OfflineMessageBuffer | None = None,
         private_key: ed25519.Ed25519PrivateKey | None = None,
     ) -> None:
         self.appliance_id = appliance_id
         self.site_id = site_id
+        self.tenant_id = tenant_id
         self.store = store
         self.buffer = buffer or OfflineMessageBuffer(max_capacity=5000)
         self.private_key = private_key or ed25519.Ed25519PrivateKey.generate()
@@ -116,6 +120,7 @@ class EdgeSyncClient:
             "recording_id": recording_id,
             "appliance_id": self.appliance_id,
             "site_id": self.site_id,
+            "tenant_id": meta.get("tenant_id", self.tenant_id),
             "camera_id": rec["camera_id"],
             "start_time_utc": rec["start_time_utc"],
             "end_time_utc": rec.get("end_time_utc") or "",
@@ -160,6 +165,7 @@ class EdgeSyncClient:
                 "camera_id": c.get("id") or c.get("camera_id"),
                 "appliance_id": self.appliance_id,
                 "site_id": self.site_id,
+                "tenant_id": c.get("tenant_id", self.tenant_id),
                 "name": c.get("name", "Unnamed Camera"),
                 "url": c.get("url", ""),
                 "enabled": c.get("enabled", True),
@@ -178,6 +184,7 @@ class EdgeSyncClient:
             payload_data={
                 "appliance_id": self.appliance_id,
                 "site_id": self.site_id,
+                "tenant_id": self.tenant_id,
                 "cameras": cam_catalog,
             },
         )
@@ -254,8 +261,12 @@ class CentralSyncEngine:
         # 1. Handle Camera Discovery
         if envelope.payload_type == "camera_discovery":
             cams = envelope.payload_data.get("cameras", [])
+            envelope_tenant = envelope.payload_data.get("tenant_id", "default")
             for c in cams:
-                cam_info = FleetCameraInfo(**c)
+                cam_dict = dict(c)
+                if "tenant_id" not in cam_dict:
+                    cam_dict["tenant_id"] = envelope_tenant
+                cam_info = FleetCameraInfo(**cam_dict)
                 self.fleet_cameras[cam_info.camera_id] = cam_info
             logger.info(
                 "central.sync.cameras_discovered",
@@ -279,6 +290,7 @@ class CentralSyncEngine:
                 total_size_bytes=p["total_size_bytes"],
                 segment_count=p["segment_count"],
                 segments=p.get("segments", []),
+                tenant_id=p.get("tenant_id", "default"),
                 has_event=bool(p.get("has_event")),
                 event_ids=p.get("event_ids", []),
                 judicial_hold=bool(p.get("judicial_hold")),
@@ -296,6 +308,7 @@ class CentralSyncEngine:
 
     def query_fleet_recordings(
         self,
+        tenant_id: str | None = None,
         site_id: str | None = None,
         camera_id: str | None = None,
         start_time_utc: str | None = None,
@@ -304,9 +317,11 @@ class CentralSyncEngine:
         judicial_hold: bool | None = None,
         limit: int = 100,
     ) -> list[dict[str, Any]]:
-        """Federated query of recording sessions across all enterprise sites."""
+        """Federated query of recording sessions across all enterprise sites with tenant boundary enforcement."""
         results: list[FleetRecordingRecord] = []
         for rec in self.fleet_recordings.values():
+            if tenant_id and rec.tenant_id != tenant_id:
+                continue
             if site_id and rec.site_id != site_id:
                 continue
             if camera_id and rec.camera_id != camera_id:
@@ -329,6 +344,7 @@ class CentralSyncEngine:
         camera_id: str,
         start_time_utc: str,
         end_time_utc: str,
+        tenant_id: str | None = None,
     ) -> dict[str, Any]:
         """Aggregate timeline segments and event markers for a camera across all appliances."""
         matching_segments: list[dict[str, Any]] = []
@@ -336,6 +352,8 @@ class CentralSyncEngine:
         site_id = "unknown"
 
         for rec in self.fleet_recordings.values():
+            if tenant_id and rec.tenant_id != tenant_id:
+                continue
             if rec.camera_id == camera_id:
                 appliance_id = rec.appliance_id
                 site_id = rec.site_id
@@ -354,25 +372,34 @@ class CentralSyncEngine:
             "segments": matching_segments,
         }
 
-    def discover_fleet_cameras(self, site_id: str | None = None) -> list[dict[str, Any]]:
-        """List active camera inventory across edge appliances."""
+    def discover_fleet_cameras(
+        self,
+        tenant_id: str | None = None,
+        site_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """List active camera inventory across edge appliances with tenant boundary filtering."""
         cams = list(self.fleet_cameras.values())
+        if tenant_id:
+            cams = [c for c in cams if c.tenant_id == tenant_id]
         if site_id:
             cams = [c for c in cams if c.site_id == site_id]
         cams.sort(key=lambda c: (c.site_id, c.name))
         return [c.to_dict() for c in cams]
 
-    def get_fleet_stats(self) -> dict[str, Any]:
+    def get_fleet_stats(self, tenant_id: str | None = None) -> dict[str, Any]:
         """Summary statistics of fleet surveillance data."""
-        total_bytes = sum(r.total_size_bytes for r in self.fleet_recordings.values())
-        sites = set(r.site_id for r in self.fleet_recordings.values()) | set(c.site_id for c in self.fleet_cameras.values())
-        appliances = set(r.appliance_id for r in self.fleet_recordings.values()) | set(c.appliance_id for c in self.fleet_cameras.values())
+        recs = [r for r in self.fleet_recordings.values() if not tenant_id or r.tenant_id == tenant_id]
+        cams = [c for c in self.fleet_cameras.values() if not tenant_id or c.tenant_id == tenant_id]
+
+        total_bytes = sum(r.total_size_bytes for r in recs)
+        sites = set(r.site_id for r in recs) | set(c.site_id for c in cams)
+        appliances = set(r.appliance_id for r in recs) | set(c.appliance_id for c in cams)
 
         return {
             "sites_count": len(sites),
             "appliances_count": len(appliances),
-            "cameras_count": len(self.fleet_cameras),
-            "recordings_count": len(self.fleet_recordings),
+            "cameras_count": len(cams),
+            "recordings_count": len(recs),
             "total_storage_gb": round(total_bytes / (1024 * 1024 * 1024), 3),
-            "judicial_holds_count": sum(1 for r in self.fleet_recordings.values() if r.judicial_hold),
+            "judicial_holds_count": sum(1 for r in recs if r.judicial_hold),
         }

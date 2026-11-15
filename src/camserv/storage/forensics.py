@@ -211,6 +211,19 @@ class IndependentVerifier:
                     if actual_hash != expected_hash:
                         tampered.append(f"{fname} (HASH_MISMATCH)")
 
+                # Check for unauthorized unlisted files injected into payload/ or archive root
+                for zip_name in zf.namelist():
+                    if zip_name in ("metadata.json", "signature.sig"):
+                        continue
+                    if zip_name.startswith("payload/"):
+                        payload_rel = zip_name[len("payload/"):]
+                        if not payload_rel:
+                            continue
+                        if payload_rel not in manifest:
+                            tampered.append(f"{payload_rel} (UNLISTED_INJECTED_FILE)")
+                    else:
+                        tampered.append(f"{zip_name} (UNAUTHORIZED_ARCHIVE_ENTRY)")
+
                 hash_match = len(tampered) == 0
 
                 # 2. Verify signature
@@ -243,6 +256,8 @@ class IndependentVerifier:
                 detail_msg = "Verification passed: All file digests match and Ed25519 signature is authentic." if is_valid else (
                     f"Verification failed: Hashes valid={hash_match}, Signature valid={sig_valid}. Tampered: {tampered}"
                 )
+                if is_valid and trusted_public_key_pem is None:
+                    detail_msg += " (Warning: Verified using self-signed public key embedded in package; trusted root key was not provided)."
 
                 return VerificationResult(
                     is_valid=is_valid,
@@ -253,6 +268,7 @@ class IndependentVerifier:
                     signature_valid=sig_valid,
                     files_checked=checked,
                     tampered_files=tampered,
+                    chain_of_custody_intact=is_valid,
                     details=detail_msg,
                 )
 

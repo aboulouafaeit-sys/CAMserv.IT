@@ -16,12 +16,12 @@ This register catalogs all security vulnerabilities, architectural weaknesses, r
 
 | Severity | Total Discovered | Resolved / Remediated | Unresolved / Limitations |
 | :--- | :---: | :---: | :---: |
-| **CRITICAL** | 2 | 2 | 0 |
-| **HIGH** | 3 | 3 | 0 |
-| **MEDIUM** | 3 | 3 | 0 |
-| **LOW** | 2 | 2 | 0 |
+| **CRITICAL** | 3 | 3 | 0 |
+| **HIGH** | 6 | 6 | 0 |
+| **MEDIUM** | 5 | 5 | 0 |
+| **LOW / INFORMATIONAL** | 3 | 3 | 0 |
 | **HARDWARE / OPERATIONAL LIMITATION** | 4 | N/A (Documented) | 4 (Physical/Environment Gaps) |
-| **TOTAL** | **14** | **10 Remediated** | **4 Operational Boundaries** |
+| **TOTAL** | **21** | **17 Remediated** | **4 Operational Boundaries** |
 
 ---
 
@@ -140,3 +140,88 @@ This register catalogs all security vulnerabilities, architectural weaknesses, r
 * **Finding:** When `CAMSERV_MASTER_KEY` environment variable was absent, the system fell back to a hardcoded string `"camserv-default-master-key-32b-min"` without warning.
 * **Remediation:** Added explicit security warning logging when the default development master key is used, prompting deployment engineers to configure high-entropy keys in production.
 * **Status:** **REMEDIATED & LOGGED**.
+
+---
+
+## 3. Phase 11 Verification & Independent Audit Findings
+
+### SEC-P11-01: StreamingGateway Argument Inversion & Fail-Closed Privacy Bypass
+* **Severity:** **CRITICAL** (CWE-284 / CWE-687 / CVSS 9.3)
+* **Affected Component:** `camserv.nvr.streaming.StreamingGateway`
+* **File & Lines:** `src/camserv/nvr/streaming.py:96-130`
+* **Root Cause:** When ingesting operational frames, `StreamingGateway` invoked `self.privacy_pipeline.process_frame(camera_id, frame)`. However, `process_frame` expects `(raw_frame, camera_id)`. Passing arguments inverted caused a type mismatch or crash. Furthermore, calling code attempted `.derivative_frame` on a 3-tuple `(masked_frame, manifest, pristine_original)`. Most critically, when `self.privacy_pipeline` was unconfigured (`None`), unmasked surveillance frames were distributed directly if `allow_unmasked` was improperly set or defaulted.
+* **Impact:** Immediate privacy failure: either uncaught runtime crashes breaking video distribution, or silent leakage of unmasked biometric faces across browser MJPEG/WebRTC streaming endpoints.
+* **Remediation:** Standardized keyword arguments `process_frame(raw_frame=frame, camera_id=camera_id)`, unpacked the 3-tuple cleanly, added `_generate_fail_closed_frame(frame)` watermark blackout, and enforced fail-closed blackout if the pipeline is omitted.
+* **Verification:** Tested in `tests/test_audit_phase11_regressions.py::test_streaming_gateway_fail_closed_pipeline_configured` and `test_streaming_gateway_fail_closed_pipeline_none_returns_blackout`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### SEC-P11-02: Forensic Evidence ZIP Archive Unlisted File Injection Bypass
+* **Severity:** **HIGH** (CWE-345 / CWE-494 / CVSS 7.8)
+* **Affected Component:** `camserv.storage.forensics.IndependentVerifier`
+* **File & Lines:** `src/camserv/storage/forensics.py:190-230`
+* **Root Cause:** `verify_package` iterated solely over keys manifested inside `metadata.json` (`for fname, expected_hash in manifest.items()`). It failed to enumerate the actual contents of the ZIP container (`zf.namelist()`).
+* **Impact:** An attacker in possession of a valid, signed forensic export ZIP could inject arbitrary malicious executables (e.g. root exploits, malware, altered investigative reports) into `payload/` or archive root without invalidating the cryptographic Ed25519 signature.
+* **Remediation:** Added strict archive container validation asserting that every entry in `zf.namelist()` belongs to `metadata.json`, `signature.sig`, or matches an explicitly signed manifest hash inside `payload/`. Extraneous files are flagged as `UNLISTED_INJECTED_FILE` or `UNAUTHORIZED_ARCHIVE_ENTRY`, failing verification.
+* **Verification:** Tested in `tests/test_audit_phase11_regressions.py::test_forensic_verifier_rejects_unlisted_file_injection`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### SEC-P11-03: Dual-Control Quorum Co-Signer Scope Unbound & Replay Vulnerability
+* **Severity:** **HIGH** (CWE-285 / CWE-294 / CVSS 7.5)
+* **Affected Component:** `camserv.api.routes` (`/api/forensics/unmask-stream` and `/api/evidence/export`)
+* **File & Lines:** `src/camserv/api/routes.py:800-845`
+* **Root Cause:** Quorum verification validated that the co-signer header provided a valid JWT bearing a compliant role (e.g. `COMPLIANCE_OFFICER` or `FORENSIC_INVESTIGATOR`), but did not cryptographically bind the token to the specific `camera_id` or temporal window requested. Additionally, single-use approval tokens lacked replay tracking.
+* **Impact:** A co-signer token granted for low-sensitivity Camera A could be maliciously reused to unmask highly sensitive Camera B (cross-camera privilege escalation), or replayed multiple times across different days.
+* **Remediation:** Enforced scoped claim validation (`approved_camera_id`, `approved_start_time`, `approved_end_time`) against the request body, and added single-use token tracking via `consumed_quorum_jtis`.
+* **Verification:** Tested in `tests/test_audit_phase11_regressions.py::test_dual_control_token_validation_scope_and_replay`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### SEC-P11-04: Multi-Tenant Boundary Isolation Gap in Central Fleet Synchronization
+* **Severity:** **HIGH** (CWE-284 / CWE-200 / CVSS 7.4)
+* **Affected Component:** `camserv.central.sync.CentralSyncEngine`
+* **File & Lines:** `src/camserv/central/sync.py:36-78`, `260-385`
+* **Root Cause:** `FleetCameraInfo` and `FleetRecordingRecord` did not encapsulate a `tenant_id` field. Query methods `query_fleet_recordings` and `discover_fleet_cameras` had no parameter to filter records by organizational tenant.
+* **Impact:** In a multi-tenant cloud or central management deployment, Tenant A could query and view recording metadata, timelines, and camera inventories belonging to Tenant B.
+* **Remediation:** Added `tenant_id` to `FleetCameraInfo`, `FleetRecordingRecord`, `EdgeSyncClient`, and `CentralSyncEngine`, enforcing strict tenant boundary filtering on all fleet-wide queries.
+* **Verification:** Tested in `tests/test_audit_phase11_regressions.py::test_central_sync_multi_tenant_boundary_isolation`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### SEC-P11-05: Non-Atomic Quota Purge & TOCTOU Judicial Hold Race Condition
+* **Severity:** **MEDIUM** (CWE-367 / CVSS 6.8)
+* **Affected Component:** `camserv.nvr.recording_engine.NVRRecordingEngine`
+* **File & Lines:** `src/camserv/nvr/recording_engine.py:510-545`
+* **Root Cause:** `enforce_storage_quota` fetched candidate continuous recordings in bulk, sorted them, and then iterated through the list unlinking segment files. If a judicial hold was applied concurrently via API or background task after the query was executed, the stale in-memory record resulted in the held recording segments being unlinked.
+* **Impact:** Irreversible destruction of legally protected forensic surveillance evidence during storage space exhaustion.
+* **Remediation:** Implemented atomic verification immediately before unlinking: `current_rec = self.store.get_recording(rec_id)` re-validates `judicial_hold` and `is_incident` flags directly against persistent storage before any file deletion occurs.
+* **Verification:** Tested in `tests/test_audit_phase11_regressions.py::test_quota_purge_preserves_concurrent_judicial_holds`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### SEC-P11-06: Hardware AI Accelerator False Success on Missing Physical Devices
+* **Severity:** **MEDIUM** (CWE-392 / CVSS 5.3)
+* **Affected Component:** `camserv.analytics.adapters` (`coral.py`, `hailo.py`, `cuda.py`, `openvino.py`)
+* **File & Lines:** `src/camserv/analytics/adapters/*.py`
+* **Root Cause:** Adapter classes for Google Coral, Hailo-8, NVIDIA CUDA, and Intel OpenVINO implemented `is_available()`, but `load_model` unconditionally logged success and returned `True` even when `is_available() == False`. Additionally, `infer()` returned an empty list `[]` instead of signaling hardware absence.
+* **Impact:** System administrators and pipeline orchestrators were falsely led to believe that AI inference was running on high-efficiency dedicated silicon (Edge TPU / NPU / GPU) when the system was unaccelerated or failing to detect the hardware.
+* **Remediation:** Updated all accelerator adapters: `load_model` checks `self.is_available()` and returns `False` if the device/driver is missing; `infer()` raises `RuntimeError` if invoked on an unavailable backend.
+* **Verification:** Tested in `tests/test_audit_phase11_regressions.py::test_hardware_adapters_fail_cleanly_when_device_absent`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### SEC-P11-07: Version Manifest Discrepancy & GDPR Policy Terminology Precision
+* **Severity:** **INFORMATIONAL / TRACEABILITY**
+* **Affected Component:** Release packaging and documentation
+* **File & Lines:** `src/camserv/__init__.py`, `pyproject.toml`, `deploy/sbom/camserv-sbom.json`, `src/camserv/api/routes.py`
+* **Finding:** Discrepancies existed between `__version__ = "0.1.0"` in `__init__.py` and the target Release Candidate `0.9.0-rc1` documented in `RELEASE_ROADMAP.md`. Additionally, docstrings previously described dual-control quorum as a statutory mandate of GDPR Art. 25 rather than an engineering policy implementing Data Protection by Design.
+* **Remediation:** Synchronized version `0.9.0-rc1` across `__init__.py`, `pyproject.toml`, and regenerated CycloneDX SBOM. Refined API docstrings to accurately state that dual-control quorum is an engineering measure realizing GDPR Article 25 requirements.
+* **Verification:** Tested in `tests/test_audit_phase11_regressions.py::test_version_manifest_alignment`.
+* **Status:** **REMEDIATED & VERIFIED**.

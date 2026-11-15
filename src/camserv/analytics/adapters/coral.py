@@ -56,8 +56,13 @@ class CoralEdgeTPUAdapter(InferenceBackendAdapter):
         )
 
     def load_model(self, model_path: str, **kwargs: Any) -> bool:
+        if not self.is_available():
+            logger.warning("analytics.adapter.unavailable", adapter=self.name, model=model_path)
+            return False
         logger.info("analytics.adapter.coral.model_loaded", model=model_path)
         return True
 
     def infer(self, frame: np.ndarray, confidence_threshold: float = 0.5) -> list[dict[str, Any]]:
+        if not self.is_available():
+            raise RuntimeError(f"Cannot execute inference: hardware accelerator '{self.name}' is unavailable.")
         return []

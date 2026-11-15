@@ -78,6 +78,9 @@ logger = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/api/v1")
 
+# Single-use quorum ticket tracking for replay attack prevention
+consumed_quorum_jtis: set[str] = set()
+
 
 # ---------------------------------------------------------------------------
 # State Retrieval Helpers
@@ -801,12 +804,43 @@ async def export_forensic_evidence(
         if not body.co_signer_token:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Dual-control authorization required: co_signer_token must be provided for unmasked raw export.",
+                detail="Dual-control authorization required: co_signer_token must be provided for unmasked raw export under data protection by design policy.",
             )
         try:
             co_signer = auth_mgr.verify_token(body.co_signer_token)
             co_signer_role = co_signer.get("role") if isinstance(co_signer, dict) else getattr(co_signer, "role", "unknown")
             co_signer_user_id = co_signer.get("sub") if isinstance(co_signer, dict) else getattr(co_signer, "user_id", "unknown")
+
+            # Validate scoped approval claims to prevent scope expansion / unauthorized reuse
+            if isinstance(co_signer, dict):
+                appr_cam = co_signer.get("approved_camera_id")
+                if appr_cam and appr_cam != body.camera_id:
+                    raise QuorumAuthorizationError(
+                        f"Scope escalation blocked: co-signer approved camera '{appr_cam}', but export requested camera '{body.camera_id}'."
+                    )
+                appr_start = co_signer.get("approved_start_time")
+                if appr_start and body.start_time_utc < appr_start:
+                    raise QuorumAuthorizationError(
+                        f"Scope escalation blocked: request start '{body.start_time_utc}' precedes co-signer approved window '{appr_start}'."
+                    )
+                appr_end = co_signer.get("approved_end_time")
+                if appr_end and body.end_time_utc > appr_end:
+                    raise QuorumAuthorizationError(
+                        f"Scope escalation blocked: request end '{body.end_time_utc}' exceeds co-signer approved window '{appr_end}'."
+                    )
+
+                # Replay protection on single-use approval tokens
+                jti = co_signer.get("jti")
+                if jti and (co_signer.get("is_approval_ticket") or True):
+                    consumed_jtis = getattr(request.app.state, "consumed_quorum_jtis", consumed_quorum_jtis)
+                    if jti in consumed_jtis or jti in consumed_quorum_jtis:
+                        raise QuorumAuthorizationError(
+                            f"Replay attack blocked: Dual-control approval ticket '{jti}' has already been consumed."
+                        )
+                    consumed_jtis.add(jti)
+                    consumed_quorum_jtis.add(jti)
+                    request.app.state.consumed_quorum_jtis = consumed_jtis
+
             RBACManager.enforce_quorum_authorization(
                 primary_role=current_user.role,
                 co_signer_role=co_signer_role,
