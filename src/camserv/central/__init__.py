@@ -24,9 +24,16 @@ from camserv.central.registry import (
     DeviceRegistry,
     SiteAccessDeniedError,
 )
+from camserv.central.sync import (
+    CentralSyncEngine,
+    EdgeSyncClient,
+    FleetCameraInfo,
+    FleetRecordingRecord,
+)
 
 __all__ = [
     "CentralFleetOverview",
+    "CentralSyncEngine",
     "DataMinimizationViolationError",
     "DeviceAuthenticationError",
     "DeviceEnrollmentError",
@@ -36,6 +43,9 @@ __all__ = [
     "DeviceStatus",
     "DeviceTelemetry",
     "DistributedGateway",
+    "EdgeSyncClient",
+    "FleetCameraInfo",
+    "FleetRecordingRecord",
     "MessageVerificationError",
     "OfflineMessageBuffer",
     "PayloadType",

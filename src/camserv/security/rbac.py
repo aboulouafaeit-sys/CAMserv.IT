@@ -160,9 +160,15 @@ class RBACPolicyEngine:
                     f"(both claimed by user '{primary_user_id}')."
                 )
 
+        def _normalize_role(role_val: Any) -> Role:
+            raw = str(role_val.value if hasattr(role_val, "value") else role_val).lower()
+            if raw == "admin":
+                return Role.SUPER_ADMIN
+            return Role(raw)
+
         try:
-            r1 = Role(primary_role) if isinstance(primary_role, str) else primary_role
-            r2 = Role(co_signer_role) if isinstance(co_signer_role, str) else co_signer_role
+            r1 = _normalize_role(primary_role)
+            r2 = _normalize_role(co_signer_role)
         except ValueError:
             raise QuorumAuthorizationError("Invalid role specification in quorum request.")
 
@@ -188,3 +194,7 @@ class RBACPolicyEngine:
             )
 
         logger.info("rbac.quorum_granted", primary=r1.value, co_signer=r2.value, permission=permission.value)
+
+
+# Alias for compatibility
+RBACManager = RBACPolicyEngine

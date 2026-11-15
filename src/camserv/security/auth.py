@@ -101,6 +101,11 @@ class UserIdentity:
         domain = permission.split(":")[0] + ":*"
         return domain in self.permissions
 
+    @property
+    def user_id(self) -> str:
+        """Alias user_id to subject for identity compatibility."""
+        return self.subject
+
 
 # ---------------------------------------------------------------------------
 # Password Hashing Utilities
@@ -261,15 +266,16 @@ class AuthManager:
     def create_access_token(
         self,
         subject: str,
-        role: Role,
+        role: Role | str,
         additional_claims: dict[str, Any] | None = None,
     ) -> str:
         """Generate a signed JWT access token."""
         now = datetime.now(timezone.utc)
+        role_str = role.value if hasattr(role, "value") else str(role)
         payload: dict[str, Any] = {
             "iss": self.issuer,
             "sub": subject,
-            "role": role.value,
+            "role": role_str,
             "type": "access",
             "iat": now,
             "exp": now + self.access_expire,

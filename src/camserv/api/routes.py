@@ -35,7 +35,11 @@ from camserv.api.models import (
     DetectionResponse,
     EventResponse,
     EventVerificationRequest,
+    ForensicExportRequest,
+    ForensicExportResponse,
     HealthCheckResponse,
+    JudicialHoldRequest,
+    JudicialHoldResponse,
     PaginatedEventsResponse,
     PolygonZoneCreate,
     PTZCapabilitiesResponse,
@@ -60,6 +64,7 @@ from camserv.nvr.playback import PlaybackTimelineEngine
 from camserv.nvr.streaming import StreamingGateway
 from camserv.analytics.zones import PolygonZone, Tripwire, ZoneAnalyticsEngine
 from camserv.security.audit import AuditAction, AuditLogger
+from camserv.security.rbac import Permission, QuorumAuthorizationError, RBACManager
 from camserv.security.auth import (
     AuthManager,
     Role,
@@ -67,6 +72,7 @@ from camserv.security.auth import (
     require_permission,
     require_role,
 )
+from camserv.storage.tiered_storage import ExportAuthorizationError
 
 logger = structlog.get_logger(__name__)
 
@@ -773,6 +779,89 @@ async def export_recording_clip(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
 
+@router.post(
+    "/recordings/export-forensic",
+    response_model=ForensicExportResponse,
+    tags=["NVR Recordings"],
+    summary="Export court-admissible forensic evidence archive with cryptographic Ed25519 signature",
+)
+async def export_forensic_evidence(
+    request: Request,
+    body: ForensicExportRequest,
+    current_user: UserIdentity = Depends(require_permission("recordings:write")),
+) -> ForensicExportResponse:
+    playback: PlaybackTimelineEngine = getattr(request.app.state, "playback_engine", None)
+    if not playback:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Playback engine unavailable")
+    auth_mgr: AuthManager = getattr(request.app.state, "auth_manager", None)
+    audit: AuditLogger = getattr(request.app.state, "audit_logger", None)
+
+    dual_quorum_approved = False
+    if body.include_raw:
+        if not body.co_signer_token:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Dual-control authorization required: co_signer_token must be provided for unmasked raw export.",
+            )
+        try:
+            co_signer = auth_mgr.verify_token(body.co_signer_token)
+            co_signer_role = co_signer.get("role") if isinstance(co_signer, dict) else getattr(co_signer, "role", "unknown")
+            co_signer_user_id = co_signer.get("sub") if isinstance(co_signer, dict) else getattr(co_signer, "user_id", "unknown")
+            RBACManager.enforce_quorum_authorization(
+                primary_role=current_user.role,
+                co_signer_role=co_signer_role,
+                permission=Permission.EVIDENCE_EXPORT_RAW,
+                primary_user_id=current_user.user_id,
+                co_signer_user_id=co_signer_user_id,
+            )
+            dual_quorum_approved = True
+        except QuorumAuthorizationError as exc:
+            if audit:
+                audit.record(
+                    action=AuditAction.ACCESS_DENIED,
+                    actor=current_user.user_id,
+                    resource=f"forensic_export:{body.camera_id}",
+                    result="DENIED",
+                    details={"error": str(exc), "include_raw": True},
+                )
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+        except Exception as exc:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Invalid co-signer token: {exc}")
+
+    out_zip = Path("data/exports") / f"forensic_{body.camera_id}_{int(time.time())}.zip"
+    try:
+        manifest = playback.export_forensic_package(
+            camera_id=body.camera_id,
+            start_time_utc=body.start_time_utc,
+            end_time_utc=body.end_time_utc,
+            output_zip=out_zip,
+            operator_id=current_user.user_id,
+            case_id=body.case_id,
+            include_raw=body.include_raw,
+            dual_quorum_approved=dual_quorum_approved,
+            notes=body.notes,
+        )
+        if audit:
+            audit.record(
+                action=AuditAction.EVIDENCE_SEALED,
+                actor=current_user.user_id,
+                resource=f"forensic_package:{manifest['evidence_id']}",
+                result="SUCCESS",
+                details={
+                    "camera_id": body.camera_id,
+                    "sha256": manifest["sha256_hash"],
+                    "dual_quorum": dual_quorum_approved,
+                },
+            )
+        return ForensicExportResponse(**manifest)
+    except ExportAuthorizationError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
 @router.get(
     "/recordings/{recording_id}",
     response_model=RecordingResponse,
@@ -793,6 +882,58 @@ async def get_recording(
     return RecordingResponse(**rec)
 
 
+@router.post(
+    "/recordings/{recording_id}/judicial-hold",
+    response_model=JudicialHoldResponse,
+    tags=["NVR Recordings"],
+    summary="Lock or release a recording under judicial hold to prevent retention purging and deletion",
+)
+async def set_recording_judicial_hold(
+    request: Request,
+    recording_id: str,
+    body: JudicialHoldRequest,
+    current_user: UserIdentity = Depends(require_permission("recordings:write")),
+) -> JudicialHoldResponse:
+    store: SQLiteStore = getattr(request.app.state, "sqlite_store", None)
+    if not store:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Storage engine unavailable")
+    audit: AuditLogger = getattr(request.app.state, "audit_logger", None)
+
+    rec = store.get_recording(recording_id)
+    if not rec:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Recording '{recording_id}' not found")
+
+    success = store.set_recording_judicial_hold(
+        recording_id=recording_id,
+        hold=body.hold,
+        reason=body.reason,
+        operator_id=current_user.user_id,
+        case_id=body.case_id,
+    )
+    if not success:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to update judicial hold")
+
+    if audit:
+        audit.record(
+            action=AuditAction.EVIDENCE_SEALED if body.hold else AuditAction.RECORDING_STOPPED,
+            actor=current_user.user_id,
+            resource=f"recording:{recording_id}",
+            result="SUCCESS",
+            details={"hold": body.hold, "reason": body.reason, "case_id": body.case_id or ""},
+        )
+
+    updated_rec = store.get_recording(recording_id)
+    meta = updated_rec.get("metadata", {})
+    return JudicialHoldResponse(
+        recording_id=recording_id,
+        judicial_hold=meta.get("judicial_hold", False),
+        reason=meta.get("judicial_hold_reason", ""),
+        operator_id=meta.get("judicial_hold_operator", ""),
+        case_id=meta.get("judicial_hold_case_id", ""),
+        updated_at=meta.get("judicial_hold_updated_at", ""),
+    )
+
+
 @router.get(
     "/recordings/{recording_id}/segments",
     response_model=list[RecordingSegmentResponse],
@@ -809,6 +950,33 @@ async def list_recording_segments(
         return []
     segments = store.list_recording_segments(recording_id)
     return [RecordingSegmentResponse(**s) for s in segments]
+
+
+@router.delete(
+    "/recordings/{recording_id}",
+    tags=["NVR Recordings"],
+    summary="Delete a recording session and its segments cascade, refusing if locked under judicial hold",
+)
+async def delete_recording(
+    request: Request,
+    recording_id: str,
+    current_user: UserIdentity = Depends(require_permission("recordings:write")),
+) -> dict[str, Any]:
+    store: SQLiteStore = getattr(request.app.state, "sqlite_store", None)
+    if not store:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Storage engine unavailable")
+
+    rec = store.get_recording(recording_id)
+    if not rec:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Recording '{recording_id}' not found")
+
+    try:
+        deleted = store.delete_recording(recording_id)
+        if not deleted:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Recording '{recording_id}' could not be deleted")
+        return {"status": "success", "recording_id": recording_id, "deleted": True}
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
 
 # ---------------------------------------------------------------------------

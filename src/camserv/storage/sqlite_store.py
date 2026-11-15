@@ -667,6 +667,9 @@ class SQLiteStore:
             )
             conn.commit()
 
+    # Alias for recording storage naming compatibility
+    store_recording = upsert_recording
+
     def finalize_recording(self, recording_id: str, end_time_utc: str, total_size_bytes: int) -> bool:
         """Mark a recording session as finalized upon clean completion."""
         with self._get_connection() as conn:
@@ -722,8 +725,43 @@ class SQLiteStore:
                 results.append(rec)
             return results
 
+    def set_recording_judicial_hold(
+        self,
+        recording_id: str,
+        hold: bool,
+        reason: str,
+        operator_id: str,
+        case_id: str | None = None,
+    ) -> bool:
+        """Lock or release a recording under judicial hold to prevent deletion and automated purging."""
+        rec = self.get_recording(recording_id)
+        if not rec:
+            return False
+
+        meta = rec.get("metadata", {})
+        meta["judicial_hold"] = hold
+        meta["judicial_hold_reason"] = reason
+        meta["judicial_hold_operator"] = operator_id
+        meta["judicial_hold_case_id"] = case_id or ""
+        meta["judicial_hold_updated_at"] = datetime.now(timezone.utc).isoformat()
+
+        with self._get_connection() as conn:
+            cur = conn.execute(
+                "UPDATE recordings SET metadata = ? WHERE recording_id = ?",
+                (json.dumps(meta), recording_id),
+            )
+            conn.commit()
+            return cur.rowcount > 0
+
     def delete_recording(self, recording_id: str) -> bool:
-        """Delete a recording and its associated segments cascade."""
+        """Delete a recording and its associated segments cascade, refusing if locked under judicial hold."""
+        rec = self.get_recording(recording_id)
+        if rec and rec.get("metadata", {}).get("judicial_hold"):
+            raise ValueError(
+                f"Cannot delete recording '{recording_id}': active judicial hold "
+                f"(reason: {rec['metadata'].get('judicial_hold_reason', 'unspecified')})."
+            )
+
         with self._get_connection() as conn:
             cur = conn.execute("DELETE FROM recordings WHERE recording_id = ?", (recording_id,))
             conn.commit()

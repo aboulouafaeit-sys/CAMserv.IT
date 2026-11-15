@@ -151,9 +151,13 @@ class ZoneAnalyticsEngine:
         """Register a tripwire line."""
         self.tripwires.setdefault(tripwire.camera_id, []).append(tripwire)
 
+    register_tripwire = add_tripwire
+
     def add_zone(self, zone: PolygonZone) -> None:
         """Register a polygon zone."""
         self.zones.setdefault(zone.camera_id, []).append(zone)
+
+    register_zone = add_zone
 
     def evaluate_tracks(
         self,

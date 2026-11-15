@@ -352,7 +352,7 @@ class NVRRecordingEngine:
         """
         Ingest a video frame: updates pre-roll buffer and writes to active recording segment.
         """
-        ts = timestamp_utc or time.time()
+        ts = timestamp_utc if timestamp_utc is not None else time.time()
 
         # 1. Always buffer in RAM for pre-roll lookback
         preroll = self._get_or_create_pre_roll(camera_id)
@@ -394,19 +394,24 @@ class NVRRecordingEngine:
         event_id: str,
         fps: float = 15.0,
         metadata: dict[str, Any] | None = None,
-    ) -> None:
+        **extra_metadata: Any,
+    ) -> ActiveRecordingSession | None:
         """
         Handle incoming security event alarm:
         - If not recording, starts an 'event' recording session.
         - Flushes the 15-second pre-roll RAM buffer and writes those frames FIRST.
         - Sets post-roll expiration to ensure incident is fully captured.
         """
+        merged_meta = dict(metadata or {})
+        if extra_metadata:
+            merged_meta.update(extra_metadata)
+
         logger.info("nvr.event_triggered", camera_id=camera_id, event_id=event_id)
         now_ts = time.time()
 
         session = self.active_sessions.get(camera_id)
         if session is None:
-            rec_id = self.start_recording(camera_id, recording_type="event", metadata=metadata)
+            rec_id = self.start_recording(camera_id, recording_type="event", metadata=merged_meta)
             session = self.active_sessions[camera_id]
 
             # Stitch pre-roll frames from RAM
@@ -424,6 +429,7 @@ class NVRRecordingEngine:
         if event_id not in session.event_ids:
             session.event_ids.append(event_id)
         session.post_roll_until = now_ts + self.post_roll_seconds
+        return session
 
     def recover_incomplete_recordings(self) -> list[str]:
         """
@@ -543,3 +549,23 @@ class NVRRecordingEngine:
                     break
 
         return purged_count
+
+    # Alias for retention quota purge
+    purge_expired_recordings = enforce_storage_quota
+
+    def set_judicial_hold(
+        self,
+        recording_id: str,
+        hold: bool,
+        reason: str,
+        operator_id: str,
+        case_id: str | None = None,
+    ) -> bool:
+        """Lock or release a recording under judicial hold to prevent retention purging or deletion."""
+        return self.store.set_recording_judicial_hold(
+            recording_id=recording_id,
+            hold=hold,
+            reason=reason,
+            operator_id=operator_id,
+            case_id=case_id,
+        )

@@ -266,3 +266,7 @@ class IndependentVerifier:
                 signature_valid=False,
                 details=f"Verification exception: {str(exc)}",
             )
+
+
+# Alias for compatibility
+EvidenceVerifier = IndependentVerifier

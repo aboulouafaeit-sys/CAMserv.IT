@@ -77,17 +77,27 @@ class SecureMessageEnvelope:
         sig = private_key.sign(self.compute_signing_bytes())
         self.signature_hex = sig.hex()
 
-    def verify(self, public_key_hex: str) -> bool:
+    def verify(self, public_key: str | ed25519.Ed25519PublicKey) -> bool:
         """Verify envelope signature with sender's Ed25519 public key."""
         if not self.signature_hex:
             return False
         try:
-            pub_key = ed25519.Ed25519PublicKey.from_public_bytes(bytes.fromhex(public_key_hex))
+            if isinstance(public_key, str):
+                pub_key = ed25519.Ed25519PublicKey.from_public_bytes(bytes.fromhex(public_key))
+            else:
+                pub_key = public_key
             pub_key.verify(bytes.fromhex(self.signature_hex), self.compute_signing_bytes())
             return True
         except Exception as e:
             logger.warning("comm.signature_verification_failed", error=str(e), msg_id=self.message_id)
             return False
+
+    verify_signature = verify
+
+    @property
+    def signature(self) -> str:
+        """Alias for signature_hex."""
+        return self.signature_hex
 
 
 class DistributedGateway:

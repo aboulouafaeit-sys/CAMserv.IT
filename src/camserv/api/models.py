@@ -321,6 +321,55 @@ class ClippedExportResponse(BaseModel):
     exported_at: str
 
 
+class JudicialHoldRequest(BaseModel):
+    """Request to place or lift a judicial hold on a recording."""
+
+    hold: bool
+    reason: str = Field(..., min_length=3, max_length=512)
+    case_id: str | None = None
+
+
+class JudicialHoldResponse(BaseModel):
+    """Result of judicial hold update."""
+
+    recording_id: str
+    judicial_hold: bool
+    reason: str
+    operator_id: str
+    case_id: str
+    updated_at: str
+
+
+class ForensicExportRequest(BaseModel):
+    """Request to export a court-admissible forensic evidence archive."""
+
+    camera_id: str
+    start_time_utc: str
+    end_time_utc: str
+    case_id: str = "CASE-AUTO"
+    include_raw: bool = False
+    co_signer_token: str | None = None
+    notes: str = "CAMserv Courtroom Evidence Archive"
+
+
+class ForensicExportResponse(BaseModel):
+    """Forensic evidence package details."""
+
+    evidence_id: str
+    camera_id: str
+    case_id: str
+    start_time_utc: str
+    end_time_utc: str
+    package_path: str
+    file_size_bytes: int
+    sha256_hash: str
+    public_key_pem: str
+    segments_count: int
+    include_raw: bool
+    dual_quorum_approved: bool
+    exported_at: str
+
+
 # ---------------------------------------------------------------------------
 # PTZ Models
 # ---------------------------------------------------------------------------

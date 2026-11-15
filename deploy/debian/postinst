@@ -1,0 +1,37 @@
+#!/bin/sh
+set -e
+
+# CAMserv post-installation configuration script
+case "$1" in
+    configure)
+        # Create dedicated system user and group if not present
+        if ! getent group camserv >/dev/null; then
+            groupadd --system camserv
+        fi
+        if ! getent passwd camserv >/dev/null; then
+            useradd --system --gid camserv --home-dir /opt/camserv \
+                --no-create-home --shell /usr/sbin/nologin camserv
+        fi
+
+        # Create persistent application directories
+        mkdir -p /etc/camserv
+        mkdir -p /var/log/camserv
+        mkdir -p /var/lib/camserv/recordings
+        mkdir -p /var/lib/camserv/exports
+        mkdir -p /data/db
+        mkdir -p /data/vault
+
+        # Set strict permissions
+        chown -R camserv:camserv /opt/camserv /etc/camserv /var/log/camserv /var/lib/camserv /data/db /data/vault
+        chmod 750 /var/lib/camserv /data/db /data/vault
+        chmod 700 /data/vault
+
+        # Install systemd service files
+        if [ -d /run/systemd/system ]; then
+            systemctl daemon-reload
+            systemctl enable camserv.target || true
+        fi
+    ;;
+esac
+
+exit 0

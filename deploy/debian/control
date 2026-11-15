@@ -1,0 +1,14 @@
+Package: camserv
+Version: 0.9.0-rc1
+Section: video
+Priority: optional
+Architecture: amd64
+Maintainer: CAMserv Engineering Team <eng@camserv.it>
+Depends: python3 (>= 3.10), python3-pip, python3-venv, ffmpeg, libgl1, libglib2.0-0, sqlite3, libcap2-bin, systemd
+Recommends: v4l-utils, onvif-tools, openvino-bin
+Homepage: https://github.com/aboulouafaeit-sys/CAMserv.IT
+Description: CAMserv — Privacy-First Security Intelligence & NVR Appliance Platform
+ CAMserv is an enterprise-grade, privacy-first Video Surveillance, NVR,
+ and Security Intelligence platform designed for mission-critical edge appliances.
+ Features continuous segmentation, RAM pre-roll buffers, tripwires, loitering timers,
+ Ed25519 digital forensics, and federated central synchronization.

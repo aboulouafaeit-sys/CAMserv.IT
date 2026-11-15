@@ -40,6 +40,12 @@ class AuditAction:
     ALERT_DISMISS = "alert_dismiss"
     ACCESS_REQUEST = "access_request"
     DATA_PURGE = "data_purge"
+    ACCESS_DENIED = "access_denied"
+    EVIDENCE_SEALED = "evidence_sealed"
+    EVIDENCE_EXPORTED = "evidence_exported"
+    RECORDING_STARTED = "recording_started"
+    RECORDING_STOPPED = "recording_stopped"
+    JUDICIAL_HOLD = "judicial_hold"
 
 
 @dataclass(slots=True)
@@ -184,6 +190,9 @@ class AuditLogger:
             hash=entry_hash[:16],
         )
         return entry
+
+    # Alias for audit recording
+    record = log
 
     def _rotate_if_needed(self) -> None:
         """Rotate audit log if size exceeds max_bytes."""

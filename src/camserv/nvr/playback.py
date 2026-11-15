@@ -20,7 +20,9 @@ from typing import Any
 
 import structlog
 
+from camserv.storage.forensics import EvidencePackager, ForensicSigner
 from camserv.storage.sqlite_store import SQLiteStore
+from camserv.storage.tiered_storage import ExportAuthorizationError
 
 logger = structlog.get_logger(__name__)
 
@@ -92,7 +94,7 @@ class PlaybackTimelineEngine:
     event navigation, and clipped video range export.
     """
 
-    def __init__(self, store: SQLiteStore, storage_dir: Path | str) -> None:
+    def __init__(self, store: SQLiteStore, storage_dir: Path | str = "data/recordings") -> None:
         self.store = store
         self.storage_dir = Path(storage_dir).resolve()
         self.active_playback_sessions: dict[str, PlaybackSession] = {}
@@ -249,3 +251,97 @@ class PlaybackTimelineEngine:
 
         logger.info("nvr.playback.clip_exported", camera_id=camera_id, size=total_bytes, sha256=manifest["sha256_hash"][:12])
         return manifest
+
+    def export_forensic_package(
+        self,
+        camera_id: str,
+        start_time_utc: str,
+        end_time_utc: str,
+        output_zip: Path | str,
+        operator_id: str,
+        case_id: str = "CASE-AUTO",
+        include_raw: bool = False,
+        dual_quorum_approved: bool = False,
+        signer: ForensicSigner | None = None,
+        notes: str = "CAMserv NVR Forensic Range Export",
+    ) -> dict[str, Any]:
+        """
+        Build a court-admissible forensic evidence archive (.zip) for a timeline range.
+        Includes concatenated video, segment hashes, SHA-256 integrity manifest,
+        Ed25519 digital signature, and dual-control quorum enforcement for raw unmasked exports.
+        """
+        if include_raw and not dual_quorum_approved:
+            logger.critical("nvr.playback.unauthorized_raw_forensic_export", camera_id=camera_id, operator=operator_id)
+            raise ExportAuthorizationError(
+                "UNAUTHORIZED EXPORT: Exporting unmasked raw video evidence requires "
+                "verified dual-control quorum authorization under GDPR Article 25."
+            )
+
+        if start_time_utc > end_time_utc:
+            raise ValueError("start_time_utc cannot be greater than end_time_utc.")
+
+        segments = self.store.query_segments_by_time_range(
+            camera_id=camera_id,
+            start_time_utc=start_time_utc,
+            end_time_utc=end_time_utc,
+        )
+        if not segments:
+            raise FileNotFoundError(f"No video segments found for camera '{camera_id}' between {start_time_utc} and {end_time_utc}.")
+
+        total_bytes = 0
+        file_payloads: dict[str, bytes] = {}
+        seg_bytes_list: list[bytes] = []
+        seg_manifest: list[dict[str, Any]] = []
+
+        for seg in segments:
+            src_path = Path(seg["file_path"])
+            if src_path.exists():
+                content = src_path.read_bytes()
+                seg_bytes_list.append(content)
+                total_bytes += len(content)
+                seg_manifest.append({
+                    "segment_id": seg["segment_id"],
+                    "start_time_utc": seg["start_time_utc"],
+                    "end_time_utc": seg["end_time_utc"],
+                    "sha256": seg["sha256_hash"],
+                    "size_bytes": seg["file_size_bytes"],
+                })
+
+        if total_bytes == 0:
+            raise FileNotFoundError(f"Underlying video segment files for '{camera_id}' are missing on disk.")
+
+        merged_video = b"".join(seg_bytes_list)
+        file_payloads["evidence_clip.mp4"] = merged_video
+        file_payloads["segments_index.json"] = json.dumps(seg_manifest, indent=2).encode("utf-8")
+
+        active_signer = signer or ForensicSigner()
+        packager = EvidencePackager(signer=active_signer)
+
+        evidence_id = f"EVID-{camera_id}-{int(time.time())}"
+        zip_path = packager.create_package(
+            output_zip=output_zip,
+            evidence_id=evidence_id,
+            camera_id=camera_id,
+            event_id=case_id,
+            file_payloads=file_payloads,
+            chain_of_custody_notes=notes,
+        )
+
+        zip_bytes = Path(zip_path).read_bytes()
+        zip_sha256 = hashlib.sha256(zip_bytes).hexdigest()
+
+        return {
+            "evidence_id": evidence_id,
+            "camera_id": camera_id,
+            "case_id": case_id,
+            "start_time_utc": start_time_utc,
+            "end_time_utc": end_time_utc,
+            "package_path": str(zip_path),
+            "file_size_bytes": len(zip_bytes),
+            "sha256_hash": zip_sha256,
+            "public_key_pem": active_signer.export_public_key_pem(),
+            "segments_count": len(segments),
+            "include_raw": include_raw,
+            "dual_quorum_approved": dual_quorum_approved,
+            "exported_at": datetime.now(timezone.utc).isoformat(),
+        }
