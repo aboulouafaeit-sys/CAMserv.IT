@@ -157,3 +157,44 @@ def test_api_analytics_tripwire_and_zone_registration(client: TestClient) -> Non
     res_zone = client.post(f"/api/v1/analytics/{cam_id}/zones", json=zone_body, headers=headers)
     assert res_zone.status_code == 201
     assert res_zone.json()["zone_id"] == "zone_api_01"
+
+
+@pytest.mark.integration
+def test_api_recordings_and_timeline(client: TestClient) -> None:
+    """Test recordings list, timeline query, and validation error handling."""
+    token = get_admin_token(client)
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # 1. List recordings
+    res = client.get("/api/v1/recordings", headers=headers)
+    assert res.status_code == 200
+    assert isinstance(res.json(), list)
+
+    # 2. Timeline query (valid window)
+    res_time = client.get(
+        "/api/v1/recordings/timeline?camera_id=cam_api_01&start_time_utc=2026-11-15T00:00:00Z&end_time_utc=2026-11-15T23:59:59Z",
+        headers=headers,
+    )
+    assert res_time.status_code == 200
+    assert res_time.json()["camera_id"] == "cam_api_01"
+    assert "spans" in res_time.json()
+
+    # 3. Timeline query with invalid reversed window -> 400 Bad Request
+    res_rev = client.get(
+        "/api/v1/recordings/timeline?camera_id=cam_api_01&start_time_utc=2026-11-15T23:59:59Z&end_time_utc=2026-11-15T00:00:00Z",
+        headers=headers,
+    )
+    assert res_rev.status_code == 400
+    assert "cannot be greater than" in res_rev.json()["detail"]
+
+    # 4. Clipped export for non-existent video -> 404 Not Found
+    res_exp = client.post(
+        "/api/v1/recordings/export",
+        json={
+            "camera_id": "cam_nonexistent",
+            "start_time_utc": "2026-11-15T10:00:00Z",
+            "end_time_utc": "2026-11-15T11:00:00Z",
+        },
+        headers=headers,
+    )
+    assert res_exp.status_code == 404

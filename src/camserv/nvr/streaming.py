@@ -76,6 +76,9 @@ class StreamingGateway:
         Ingest the latest operational frame for a camera channel.
         Applies privacy pipeline filtering to guarantee unmasked frames never leak.
         """
+        if frame is None or not isinstance(frame, np.ndarray):
+            return
+
         ts = timestamp_utc or time.time()
 
         if self.privacy_pipeline is not None:

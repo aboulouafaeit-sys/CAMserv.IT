@@ -201,6 +201,9 @@ class PlaybackTimelineEngine:
         Locates matching segments, concatenates or bundles payload,
         and generates a verifiable cryptographic manifest.
         """
+        if start_time_utc > end_time_utc:
+            raise ValueError("start_time_utc cannot be greater than end_time_utc.")
+
         target_path = Path(output_path).resolve()
         target_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -226,6 +229,11 @@ class PlaybackTimelineEngine:
                             out_f.write(chunk)
                             hasher.update(chunk)
                             total_bytes += len(chunk)
+
+        if total_bytes == 0:
+            if target_path.exists():
+                target_path.unlink()
+            raise FileNotFoundError(f"Underlying video segment files for '{camera_id}' are missing on disk.")
 
         manifest = {
             "export_id": f"clip_{camera_id}_{int(time.time())}",

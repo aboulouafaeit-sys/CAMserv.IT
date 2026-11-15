@@ -66,6 +66,9 @@ class CameraTamperingDetector:
         # Spatial variance
         spatial_var = float(np.var(gray))
 
+        if gray.shape[0] < 3 or gray.shape[1] < 3:
+            return 0.0, spatial_var
+
         # Discrete Laplacian kernel approximation for blur estimation
         # [ [0, 1, 0], [1, -4, 1], [0, 1, 0] ]
         top = gray[:-2, 1:-1]

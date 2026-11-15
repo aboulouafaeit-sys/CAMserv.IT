@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timezone
+from pathlib import Path
+import time
 from typing import Any
 
 import structlog
@@ -697,44 +699,6 @@ async def list_recordings(
 
 
 @router.get(
-    "/recordings/{recording_id}",
-    response_model=RecordingResponse,
-    tags=["NVR Recordings"],
-    summary="Get single recording session details",
-)
-async def get_recording(
-    request: Request,
-    recording_id: str,
-    current_user: UserIdentity = Depends(require_permission("recordings:read")),
-) -> RecordingResponse:
-    store = getattr(request.app.state, "sqlite_store", None)
-    if not store:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Storage engine unavailable")
-    rec = store.get_recording(recording_id)
-    if not rec:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Recording '{recording_id}' not found")
-    return RecordingResponse(**rec)
-
-
-@router.get(
-    "/recordings/{recording_id}/segments",
-    response_model=list[RecordingSegmentResponse],
-    tags=["NVR Recordings"],
-    summary="List all video segments belonging to a recording",
-)
-async def list_recording_segments(
-    request: Request,
-    recording_id: str,
-    current_user: UserIdentity = Depends(require_permission("recordings:read")),
-) -> list[RecordingSegmentResponse]:
-    store = getattr(request.app.state, "sqlite_store", None)
-    if not store:
-        return []
-    segments = store.list_recording_segments(recording_id)
-    return [RecordingSegmentResponse(**s) for s in segments]
-
-
-@router.get(
     "/recordings/timeline",
     response_model=RecordingTimelineResponse,
     tags=["NVR Recordings"],
@@ -750,6 +714,9 @@ async def get_recording_timeline(
     playback: PlaybackTimelineEngine = getattr(request.app.state, "playback_engine", None)
     if not playback:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Playback engine unavailable")
+
+    if start_time_utc > end_time_utc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="start_time_utc cannot be greater than end_time_utc")
 
     spans = playback.get_camera_timeline(camera_id, start_time_utc, end_time_utc)
     span_models = [
@@ -788,6 +755,9 @@ async def export_recording_clip(
     if not playback:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Playback engine unavailable")
 
+    if body.start_time_utc > body.end_time_utc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="start_time_utc cannot be greater than end_time_utc")
+
     out_file = Path("data/exports") / f"clip_{body.camera_id}_{int(time.time())}.mp4"
     try:
         manifest = playback.export_clipped_range(
@@ -799,6 +769,46 @@ async def export_recording_clip(
         return ClippedExportResponse(**manifest)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
+@router.get(
+    "/recordings/{recording_id}",
+    response_model=RecordingResponse,
+    tags=["NVR Recordings"],
+    summary="Get single recording session details",
+)
+async def get_recording(
+    request: Request,
+    recording_id: str,
+    current_user: UserIdentity = Depends(require_permission("recordings:read")),
+) -> RecordingResponse:
+    store = getattr(request.app.state, "sqlite_store", None)
+    if not store:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Storage engine unavailable")
+    rec = store.get_recording(recording_id)
+    if not rec:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Recording '{recording_id}' not found")
+    return RecordingResponse(**rec)
+
+
+@router.get(
+    "/recordings/{recording_id}/segments",
+    response_model=list[RecordingSegmentResponse],
+    tags=["NVR Recordings"],
+    summary="List all video segments belonging to a recording",
+)
+async def list_recording_segments(
+    request: Request,
+    recording_id: str,
+    current_user: UserIdentity = Depends(require_permission("recordings:read")),
+) -> list[RecordingSegmentResponse]:
+    store = getattr(request.app.state, "sqlite_store", None)
+    if not store:
+        return []
+    segments = store.list_recording_segments(recording_id)
+    return [RecordingSegmentResponse(**s) for s in segments]
 
 
 # ---------------------------------------------------------------------------

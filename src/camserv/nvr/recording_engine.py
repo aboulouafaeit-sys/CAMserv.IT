@@ -47,6 +47,8 @@ class PreRollBuffer:
 
     def push(self, timestamp_utc: float, frame: np.ndarray, metadata: dict[str, Any] | None = None) -> None:
         """Add a frame to the circular memory buffer and prune expired frames."""
+        if frame is None or not isinstance(frame, np.ndarray):
+            return
         self._buffer.append((timestamp_utc, frame.copy(), metadata or {}))
         cutoff = timestamp_utc - self.pre_roll_seconds
         while self._buffer and self._buffer[0][0] < cutoff:
@@ -115,6 +117,8 @@ class SegmentWriter:
         """Write frame to active segment."""
         if self._is_closed:
             raise RuntimeError("Attempted to write frame to closed SegmentWriter.")
+        if frame is None or not isinstance(frame, np.ndarray):
+            return
 
         # Update SHA-256 with raw frame bytes
         raw_bytes = frame.tobytes()
@@ -164,8 +168,13 @@ class SegmentWriter:
                     file_hasher.update(chunk)
             sha256_hash = file_hasher.hexdigest()
 
-            # Atomic rename .part -> .mp4
-            self.part_path.replace(self.final_path)
+            # Atomic rename with retry for Windows process file handle release
+            for attempt in range(5):
+                try:
+                    self.part_path.replace(self.final_path)
+                    break
+                except PermissionError:
+                    time.sleep(0.05)
             return (self.final_path, file_size, sha256_hash, duration)
 
         return (self.final_path, 0, self._hasher.hexdigest(), duration)
@@ -503,6 +512,11 @@ class NVRRecordingEngine:
             for rec in recordings:
                 # Do not delete active recordings
                 if rec["recording_id"] in [s.recording_id for s in self.active_sessions.values()]:
+                    continue
+
+                # Never purge recordings locked under judicial hold or tagged as forensic incidents
+                rec_meta = rec.get("metadata", {})
+                if rec_meta.get("judicial_hold") or rec_meta.get("is_incident") or rec.get("recording_type") == "event":
                     continue
 
                 rec_id = rec["recording_id"]
