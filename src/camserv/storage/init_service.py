@@ -59,6 +59,14 @@ def initialize_appliance_storage(use_system_paths: bool | None = None) -> int:
                     os.chmod(d, 0o700)
                 else:
                     os.chmod(d, 0o750)
+            elif os.name == "nt":
+                # Apply Windows NTFS ACL permissions via platform adapter
+                try:
+                    from camserv.platform.windows.filesystem import WindowsFilesystem
+                    wfs = WindowsFilesystem()
+                    wfs.secure_directory(d, is_sensitive=("vault" in str(d) or "config" in str(d)))
+                except Exception:
+                    pass
             logger.debug("storage.directory_verified", path=str(d))
         except Exception as e:
             logger.warning("storage.directory_create_failed", path=str(d), error=str(e))

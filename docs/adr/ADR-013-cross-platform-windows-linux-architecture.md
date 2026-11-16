@@ -1,7 +1,7 @@
 # ADR-013: Cross-Platform Windows & Linux Architecture Abstraction
 
 ## Status
-Proposed / Approved for Phase 15 Foundation
+Accepted & Implemented in Phase 15
 
 ## Context
 CAMserv has established its Linux appliance deployment model on Debian 13 (Trixie) and Debian 12 (Bookworm) with systemd, cgroup sandboxing, and V4L2 device integration. However, enterprise security operations centers, corporate workstations, and system integrators frequently mandate native Microsoft Windows execution without reliance on virtual machines or WSL.
