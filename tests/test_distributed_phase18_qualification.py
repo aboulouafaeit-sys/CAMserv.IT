@@ -122,7 +122,7 @@ def test_split_brain_prevention_strict_majority_quorum() -> None:
     assert coord_majority.has_quorum is True
     majority_leader = coord_majority.elect_leader()
     assert majority_leader == "node-b"
-    assert coord_majority.cluster_term >= 1
+    assert coord_majority.cluster_term == 1
     assert coord_majority.active_fencing_token is not None
     assert coord_majority.active_fencing_token.leader_id == "node-b"
 
