@@ -2,7 +2,7 @@
 Description=CAMserv AI Appliance Unified Target
 Documentation=https://github.com/aboulouafaeit-sys/CAMserv.IT
 After=network.target local-fs.target
-Wants=camserv-storage.service camserv-ingestion.service camserv-inference.service camserv-core.service camserv-agent.service
+Wants=camserv-storage.service camserv-core.service camserv-nvr.service camserv-ingestion.service camserv-inference.service camserv-agent.service
 
 [Install]
 WantedBy=multi-user.target

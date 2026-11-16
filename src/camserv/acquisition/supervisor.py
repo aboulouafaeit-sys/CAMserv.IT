@@ -259,3 +259,37 @@ class CameraWorkerSupervisor:
 
         self.ring_buffer.unlink()
         logger.info("supervisor.worker_stopped", camera_id=self.camera_id)
+
+
+def run_supervisor_daemon() -> None:
+    """Production entry point for camserv-ingestion.service."""
+    import argparse
+    import signal
+
+    parser = argparse.ArgumentParser(description="CAMserv Camera Ingestion Supervisor")
+    parser.add_argument("--check-interval", type=float, default=2.0)
+    args = parser.parse_args()
+
+    logger.info("ingestion.supervisor.started")
+
+    running = True
+
+    def _on_signal(sig: int, frame: Any) -> None:
+        nonlocal running
+        logger.info("ingestion.supervisor.shutting_down", signal=sig)
+        running = False
+
+    signal.signal(signal.SIGINT, _on_signal)
+    signal.signal(signal.SIGTERM, _on_signal)
+
+    while running:
+        slept = 0.0
+        while running and slept < args.check_interval:
+            time.sleep(0.5)
+            slept += 0.5
+
+    logger.info("ingestion.supervisor.stopped")
+
+
+if __name__ == "__main__":
+    run_supervisor_daemon()

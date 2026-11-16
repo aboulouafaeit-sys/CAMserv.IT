@@ -4,7 +4,7 @@ Section: video
 Priority: optional
 Architecture: amd64
 Maintainer: CAMserv Engineering Team <eng@camserv.it>
-Depends: python3 (>= 3.10), python3-pip, python3-venv, ffmpeg, libgl1, libglib2.0-0, sqlite3, libcap2-bin, systemd
+Depends: python3 (>= 3.10), python3-pip, python3-venv, ffmpeg, libgl1, libglib2.0-0t64 | libglib2.0-0, sqlite3, libcap2-bin, systemd
 Recommends: v4l-utils, onvif-tools, openvino-bin
 Homepage: https://github.com/aboulouafaeit-sys/CAMserv.IT
 Description: CAMserv — Privacy-First Security Intelligence & NVR Appliance Platform

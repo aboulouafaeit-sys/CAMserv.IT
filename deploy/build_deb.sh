@@ -1,53 +1,42 @@
 #!/bin/bash
 # ==============================================================================
 # CAMserv Appliance Debian Package Builder
-# Builds standalone .deb installer for Debian 12 (Bookworm) & Ubuntu 24.04 LTS
+# Builds standalone .deb installer for Debian 13 (Trixie), Debian 12 (Bookworm) & Ubuntu 24.04 LTS
+# Supports amd64 and arm64 multi-architecture builds.
 # ==============================================================================
 
 set -euo pipefail
 
 PACKAGE_NAME="camserv"
-VERSION="0.9.0-rc1"
-ARCH="amd64"
-DIST_DIR="dist/deb/${PACKAGE_NAME}_${VERSION}_${ARCH}"
+VERSION="${1:-0.9.0-rc1}"
+ARCH="${2:-amd64}"
 
-echo "[*] Initializing CAMserv Debian package build structure..."
-rm -rf dist/deb
-mkdir -p "${DIST_DIR}/DEBIAN"
-mkdir -p "${DIST_DIR}/opt/camserv"
-mkdir -p "${DIST_DIR}/lib/systemd/system"
-mkdir -p "${DIST_DIR}/etc/camserv"
-mkdir -p "${DIST_DIR}/usr/bin"
+echo "[*] Initializing CAMserv Debian package build for ${PACKAGE_NAME} v${VERSION} (${ARCH})..."
 
-# 1. Copy package metadata and maintainer scripts
-cp deploy/debian/control "${DIST_DIR}/DEBIAN/control"
-cp deploy/debian/postinst "${DIST_DIR}/DEBIAN/postinst"
-cp deploy/debian/prerm "${DIST_DIR}/DEBIAN/prerm"
-cp deploy/debian/postrm "${DIST_DIR}/DEBIAN/postrm"
-chmod 755 "${DIST_DIR}/DEBIAN/postinst" "${DIST_DIR}/DEBIAN/prerm" "${DIST_DIR}/DEBIAN/postrm"
-
-# 2. Copy systemd services
-cp deploy/systemd/*.service "${DIST_DIR}/lib/systemd/system/"
-cp deploy/systemd/*.target "${DIST_DIR}/lib/systemd/system/"
-
-# 3. Copy source files
-cp -r src "${DIST_DIR}/opt/camserv/"
-cp pyproject.toml "${DIST_DIR}/opt/camserv/"
-cp README.md "${DIST_DIR}/opt/camserv/"
-cp LICENSE "${DIST_DIR}/opt/camserv/"
-
-# 4. Create symlink for CLI launcher
-cat << 'EOF' > "${DIST_DIR}/usr/bin/camserv"
+# Prefer python3 build_deb.py for cross-platform deterministic builds and audits
+if command -v python3 >/dev/null 2>&1; then
+    python3 deploy/build_deb.py --version "${VERSION}" --arch "${ARCH}"
+elif command -v dpkg-deb >/dev/null 2>&1; then
+    DIST_DIR="dist/deb/${PACKAGE_NAME}_${VERSION}_${ARCH}"
+    rm -rf "${DIST_DIR}"
+    mkdir -p "${DIST_DIR}/DEBIAN" "${DIST_DIR}/opt/camserv" "${DIST_DIR}/lib/systemd/system" "${DIST_DIR}/etc/camserv" "${DIST_DIR}/usr/bin"
+    cp deploy/debian/control "${DIST_DIR}/DEBIAN/control"
+    cp deploy/debian/postinst "${DIST_DIR}/DEBIAN/postinst"
+    cp deploy/debian/prerm "${DIST_DIR}/DEBIAN/prerm"
+    cp deploy/debian/postrm "${DIST_DIR}/DEBIAN/postrm"
+    chmod 755 "${DIST_DIR}/DEBIAN/postinst" "${DIST_DIR}/DEBIAN/prerm" "${DIST_DIR}/DEBIAN/postrm"
+    cp deploy/systemd/*.service "${DIST_DIR}/lib/systemd/system/"
+    cp deploy/systemd/*.target "${DIST_DIR}/lib/systemd/system/"
+    cp deploy/camserv.default.yaml "${DIST_DIR}/etc/camserv/camserv.yaml"
+    cp -r src pyproject.toml README.md LICENSE "${DIST_DIR}/opt/camserv/"
+    cat << 'EOF' > "${DIST_DIR}/usr/bin/camserv"
 #!/bin/sh
 exec /opt/camserv/venv/bin/python -m camserv.main "$@"
 EOF
-chmod 755 "${DIST_DIR}/usr/bin/camserv"
-
-# 5. Build Debian package using dpkg-deb if present
-if command -v dpkg-deb >/dev/null 2>&1; then
-    echo "[*] Running dpkg-deb --build..."
+    chmod 755 "${DIST_DIR}/usr/bin/camserv"
     dpkg-deb --build "${DIST_DIR}" "dist/deb/${PACKAGE_NAME}_${VERSION}_${ARCH}.deb"
     echo "[+] Successfully generated: dist/deb/${PACKAGE_NAME}_${VERSION}_${ARCH}.deb"
 else
-    echo "[!] dpkg-deb not found in current environment. Package directory staged at: ${DIST_DIR}"
+    echo "[-] Error: Neither python3 nor dpkg-deb is available in this environment."
+    exit 1
 fi

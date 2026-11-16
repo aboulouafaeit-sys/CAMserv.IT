@@ -1,11 +1,30 @@
 #!/bin/sh
 set -e
 
+# CAMserv post-removal script for Debian 13 (Trixie)
 case "$1" in
+    remove)
+        # Standard removal: keep all configurations, databases, recordings, and evidence untouched
+        if [ -d /run/systemd/system ]; then
+            systemctl daemon-reload
+        fi
+    ;;
     purge)
-        # Preserve recordings and evidence by default under GDPR storage limitation
-        # Clean up temporary logs and sockets
+        # Purge: remove application code and temporary caches
+        rm -rf /opt/camserv
+        rm -rf /var/cache/camserv
         rm -rf /var/log/camserv/*.sock || true
+
+        # INVIOLATE FORENSIC RETENTION POLICY:
+        # Never silently delete forensic evidence vault or recordings upon package purge.
+        # Required under GDPR Article 17(3)(e) and digital evidence chain-of-custody rules.
+        echo "================================================================================"
+        echo "[CAMserv Security Notice] Package purged."
+        echo "Forensic evidence vault (/var/lib/camserv/vault) and video recordings"
+        echo "(/var/lib/camserv/recordings) have been PRESERVED to prevent evidence loss."
+        echo "To delete evidence permanently, manual administrator authorization is required."
+        echo "================================================================================"
+
         if [ -d /run/systemd/system ]; then
             systemctl daemon-reload
         fi

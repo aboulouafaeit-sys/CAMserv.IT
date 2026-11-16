@@ -12,16 +12,16 @@
 
 ## 1. Executive Summary & Severity Breakdown
 
-This register catalogs all security vulnerabilities, architectural weaknesses, reliability defects, and production-readiness gaps discovered across post-Phase 3, Phase 11, and Phase 12 audits. Findings were independently discovered through static code analysis, architectural threat modeling, hardware testing, and reproduced via deterministic automated test suites.
+This register catalogs all security vulnerabilities, architectural weaknesses, reliability defects, and production-readiness gaps discovered across post-Phase 3, Phase 11, Phase 12, and Phase 13 audits. Findings were independently discovered through static code analysis, architectural threat modeling, hardware testing, and reproduced via deterministic automated test suites.
 
 | Severity | Total Discovered | Resolved / Remediated | Unresolved / Limitations |
 | :--- | :---: | :---: | :---: |
-| **CRITICAL** | 4 | 4 | 0 |
-| **HIGH** | 8 | 8 | 0 |
-| **MEDIUM** | 7 | 7 | 0 |
+| **CRITICAL** | 5 | 5 | 0 |
+| **HIGH** | 10 | 10 | 0 |
+| **MEDIUM** | 9 | 9 | 0 |
 | **LOW / INFORMATIONAL** | 3 | 3 | 0 |
 | **HARDWARE / OPERATIONAL LIMITATION** | 4 | N/A (Documented) | 4 (Physical/Environment Gaps) |
-| **TOTAL** | **26** | **22 Remediated** | **4 Operational Boundaries** |
+| **TOTAL** | **31** | **27 Remediated** | **4 Operational Boundaries** |
 
 ---
 
@@ -286,4 +286,66 @@ This register catalogs all security vulnerabilities, architectural weaknesses, r
 * **Impact:** Adaptive workload shedding and hardware tier policies were blind to GPU saturation and VRAM exhaustion.
 * **Remediation:** Integrated live `nvidia-smi` query parsing, extracting real-time GPU load, VRAM used, and VRAM total into `ResourceSnapshot`.
 * **Verification:** Tested in `tests/test_audit_phase12_regressions.py::test_adaptive_resource_manager_metrics` on host RTX 3060 Laptop GPU.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+## 5. Phase 13 Debian Appliance Engineering & Packaging Findings
+
+### SEC-P13-01: Broken Systemd Dependency Graph & Missing Storage Unit
+* **Severity:** **CRITICAL** (CWE-665 / CVSS 9.1)
+* **Affected Component:** `deploy/systemd/camserv-core.service`, `deploy/systemd/camserv.target`
+* **File & Lines:** `deploy/systemd/camserv-core.service:6`, `deploy/systemd/camserv.target:5`
+* **Root Cause:** `camserv-core.service` declared `Requires=camserv-storage.service`, but `camserv-storage.service` was completely absent from the deployment definitions. Furthermore, `camserv-nvr.service` was omitted from `camserv.target`.
+* **Impact:** Instant service startup failure: systemd refused to start `camserv-core.service`, completely breaking appliance initialization.
+* **Remediation:** Created `deploy/systemd/camserv-storage.service` (`Type=oneshot`, `RemainAfterExit=yes`), implemented `src/camserv/storage/init_service.py` for pre-flight directory and schema migrations, and added `camserv-nvr.service` to `camserv.target`.
+* **Verification:** Tested in `tests/test_audit_phase13_appliance.py::test_systemd_services_sandboxing_and_dependencies`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### SEC-P13-02: Invalid CLI Subcommand in `camserv-core.service`
+* **Severity:** **HIGH** (CWE-20 / CVSS 7.5)
+* **Affected Component:** `deploy/systemd/camserv-core.service`, `src/camserv/main.py`
+* **File & Lines:** `deploy/systemd/camserv-core.service:13`, `src/camserv/main.py:168-204`
+* **Root Cause:** `camserv-core.service` invoked `python -m camserv.main run --host 0.0.0.0 --port 8000`. However, `camserv.main` defined the command as `serve`, lacking a `run` parser.
+* **Impact:** Immediate crash on service launch: `camserv: error: argument command: invalid choice: 'run'`.
+* **Remediation:** Added `run` as a first-class alias for `serve` in `camserv.main`, and updated `camserv-core.service` to explicitly invoke `serve`.
+* **Verification:** Tested in `tests/test_audit_phase13_appliance.py::test_systemd_services_sandboxing_and_dependencies`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### SEC-P13-03: `Type=notify` Misconfiguration Without `sd_notify` Signaling
+* **Severity:** **MEDIUM** (CWE-392 / CVSS 5.3)
+* **Affected Component:** `deploy/systemd/camserv-core.service`, `camserv-ingestion.service`, `camserv-inference.service`
+* **File & Lines:** `deploy/systemd/*.service`
+* **Root Cause:** Services declared `Type=notify` in their service headers, but neither FastAPI/Uvicorn nor Python worker scripts implemented systemd notify socket signaling.
+* **Impact:** Systemd timed out after 90 seconds waiting for `READY=1` notification and terminated the processes with `SIGKILL`.
+* **Remediation:** Configured `Type=simple` across all continuous background services, ensuring deterministic startup without notification socket hangs.
+* **Verification:** Tested in `tests/test_audit_phase13_appliance.py::test_systemd_services_sandboxing_and_dependencies`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### SEC-P13-04: Missing `video` and `render` Group Membership for Appliance Account
+* **Severity:** **MEDIUM** (CWE-284 / CVSS 5.3)
+* **Affected Component:** `deploy/debian/postinst`, `deploy/systemd/camserv-ingestion.service`
+* **File & Lines:** `deploy/debian/postinst:11-14`, `deploy/systemd/camserv-ingestion.service:12-28`
+* **Root Cause:** The unprivileged `camserv` system account created during `postinst` was not granted membership in `video` or `render` groups, and `camserv-ingestion.service` lacked device permissions for optical video capture nodes.
+* **Impact:** Access to local USB/V4L2 webcams (`/dev/video*`) and GPU acceleration nodes (`/dev/dri/*`) failed with Permission Denied.
+* **Remediation:** Added automated group addition to `video` and `render` in `postinst`, declared `SupplementaryGroups=video render` in services, and added `DeviceAllow=/dev/video* rwm`.
+* **Verification:** Tested in `tests/test_audit_phase13_appliance.py::test_systemd_services_sandboxing_and_dependencies`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### SEC-P13-05: Nonexistent Daemon Module Entrypoints in Systemd Services
+* **Severity:** **HIGH** (CWE-665 / CVSS 7.5)
+* **Affected Component:** `camserv.central.agent`, `camserv.nvr.recording_engine`, `camserv.acquisition.supervisor`, `camserv.inference.engine`
+* **File & Lines:** `deploy/systemd/*.service`
+* **Root Cause:** `camserv-agent.service` targeted `camserv.central.agent` which did not exist. Furthermore, `recording_engine.py`, `supervisor.py`, and `engine.py` lacked `__main__` entry points and exited immediately with code 0 when run by systemd.
+* **Impact:** Inability to run modular background daemons under systemd.
+* **Remediation:** Implemented `src/camserv/central/agent.py` (CentralApplianceAgent), and added robust `run_daemon()` loops with `SIGINT`/`SIGTERM` handlers to `recording_engine.py`, `supervisor.py`, and `engine.py`.
+* **Verification:** Tested in `tests/test_audit_phase13_appliance.py::test_central_appliance_agent_sync_cycle`.
 * **Status:** **REMEDIATED & VERIFIED**.

@@ -2,26 +2,28 @@
 Description=CAMserv Neural Inference & Acceleration Worker
 Documentation=https://github.com/aboulouafaeit-sys/CAMserv.IT
 PartOf=camserv.target
-After=camserv-ingestion.service
+After=camserv-ingestion.service camserv-storage.service
+Requires=camserv-storage.service
 
 [Service]
-Type=notify
+Type=simple
 User=camserv
 Group=camserv
+SupplementaryGroups=video render
 WorkingDirectory=/opt/camserv
 ExecStart=/opt/camserv/venv/bin/python -m camserv.inference.engine
 Restart=on-failure
 RestartSec=5s
 StartLimitIntervalSec=60s
 StartLimitBurst=5
-WatchdogSec=15s
 
 # Hardware Acceleration & GPU Device Access
 DevicePolicy=auto
 PrivateTmp=true
 ProtectSystem=strict
+ProtectHome=true
 NoNewPrivileges=true
-ReadWritePaths=/dev/shm /var/log/camserv /data/models
+ReadWritePaths=/dev/shm /var/log/camserv /var/lib/camserv/models /data/models
 
 [Install]
 WantedBy=camserv.target

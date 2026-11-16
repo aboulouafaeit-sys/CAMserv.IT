@@ -3,11 +3,13 @@ Description=CAMserv Camera Ingestion & Shared Memory Supervisor
 Documentation=https://github.com/aboulouafaeit-sys/CAMserv.IT
 PartOf=camserv.target
 After=network.target local-fs.target camserv-storage.service
+Requires=camserv-storage.service
 
 [Service]
-Type=notify
+Type=simple
 User=camserv
 Group=camserv
+SupplementaryGroups=video render
 WorkingDirectory=/opt/camserv
 ExecStart=/opt/camserv/venv/bin/python -m camserv.acquisition.supervisor
 Restart=on-failure
@@ -16,12 +18,15 @@ StartLimitIntervalSec=60s
 StartLimitBurst=5
 WatchdogSec=15s
 
-# POSIX Shared Memory Access
+# Camera Device & POSIX Shared Memory Access
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
+PrivateDevices=false
+DevicePolicy=auto
+DeviceAllow=/dev/video* rwm
 NoNewPrivileges=true
-ReadWritePaths=/dev/shm /data/db /var/log/camserv
+ReadWritePaths=/dev/shm /var/lib/camserv/db /var/log/camserv /data/db
 
 [Install]
 WantedBy=camserv.target

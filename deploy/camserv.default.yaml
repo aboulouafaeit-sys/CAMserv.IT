@@ -1,0 +1,50 @@
+# ==============================================================================
+# CAMserv Appliance Default Configuration
+# Installed to /etc/camserv/camserv.yaml
+# ==============================================================================
+
+app_name: "CAMserv"
+environment: "production"
+log_level: "INFO"
+
+# API & Web Console Binding
+api:
+  host: "0.0.0.0"
+  port: 8000
+  workers: 2
+  root_path: ""
+
+# Appliance Storage & Directory Architecture
+storage:
+  database_path: "/var/lib/camserv/db/camserv.db"
+  recordings_path: "/var/lib/camserv/recordings"
+  vault_path: "/var/lib/camserv/vault"
+  exports_path: "/var/lib/camserv/exports"
+  segment_duration_seconds: 60.0
+  quota_max_usage_percent: 90.0
+
+# Fail-Closed Privacy Protection Policy
+privacy:
+  enforce_fail_closed: true
+  anonymization_level: "blur_faces"
+  mask_unauthorized_streams: true
+
+# Neural AI Inference Engine
+inference:
+  device: "cpu"
+  model_path: "/var/lib/camserv/models/yolov8n.onnx"
+  confidence_threshold: 0.45
+  num_workers: 2
+
+# Security & Audit Trail
+security:
+  audit_log_path: "/var/log/camserv/audit.jsonl"
+  require_dual_control: true
+  jwt_expiration_minutes: 60
+
+# Camera Ingestion Manager
+cameras:
+  max_concurrent: 16
+  buffer_size: 30
+  reconnect_enabled: true
+  sources: []

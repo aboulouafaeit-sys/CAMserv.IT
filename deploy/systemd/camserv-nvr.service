@@ -2,20 +2,20 @@
 Description=CAMserv NVR Continuous & Scheduled Recording Daemon
 Documentation=https://github.com/aboulouafaeit-sys/CAMserv.IT
 PartOf=camserv.target
-After=network.target camserv-core.service
-Requires=camserv-core.service
+After=network.target camserv-storage.service camserv-core.service
+Requires=camserv-storage.service
 
 [Service]
 Type=simple
 User=camserv
 Group=camserv
+SupplementaryGroups=video render
 WorkingDirectory=/opt/camserv
 ExecStart=/opt/camserv/venv/bin/python -m camserv.nvr.recording_engine
 Restart=on-failure
 RestartSec=5s
 StartLimitIntervalSec=60s
 StartLimitBurst=5
-WatchdogSec=30s
 
 # Sandboxing and Storage Isolation
 ProtectSystem=strict
@@ -24,7 +24,7 @@ ProtectKernelTunables=true
 ProtectControlGroups=true
 PrivateTmp=true
 NoNewPrivileges=true
-ReadWritePaths=/var/lib/camserv/recordings /var/lib/camserv/exports /var/log/camserv /data/recordings
+ReadWritePaths=/var/lib/camserv/recordings /var/lib/camserv/exports /var/lib/camserv/db /var/log/camserv /data/recordings /data/db
 
 [Install]
 WantedBy=camserv.target

@@ -165,10 +165,17 @@ def main() -> None:
     )
     subparsers = parser.add_subparsers(dest="command", help="Operational Subcommands")
 
-    # serve
+    # serve / run (alias)
     serve_parser = subparsers.add_parser("serve", help="Start CAMserv API and Analytics Server")
     serve_parser.add_argument("--host", type=str, default=None, help="Host interface to bind")
     serve_parser.add_argument("--port", type=int, default=None, help="Port to listen on")
+
+    run_parser = subparsers.add_parser("run", help="Alias for 'serve' command")
+    run_parser.add_argument("--host", type=str, default=None, help="Host interface to bind")
+    run_parser.add_argument("--port", type=int, default=None, help="Port to listen on")
+
+    # storage-init
+    subparsers.add_parser("storage-init", help="Initialize appliance storage directories, SQLite database, and run migrations")
 
     # verify-evidence
     ev_parser = subparsers.add_parser("verify-evidence", help="Verify forensic evidence package")
@@ -193,8 +200,14 @@ def main() -> None:
         parser.print_help()
         sys.exit(0)
 
+    def run_storage_init(a: argparse.Namespace) -> int:
+        from camserv.storage.init_service import initialize_appliance_storage
+        return initialize_appliance_storage()
+
     dispatch = {
         "serve": run_serve,
+        "run": run_serve,
+        "storage-init": run_storage_init,
         "verify-evidence": run_verify_evidence,
         "detect-hw": run_detect_hw,
         "nvr-scan": run_nvr_scan,

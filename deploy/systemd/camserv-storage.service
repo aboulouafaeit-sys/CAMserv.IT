@@ -1,0 +1,26 @@
+[Unit]
+Description=CAMserv Appliance Storage Pre-Flight & SQLite Schema Migration
+Documentation=https://github.com/aboulouafaeit-sys/CAMserv.IT
+PartOf=camserv.target
+After=local-fs.target
+Before=camserv-core.service camserv-nvr.service camserv-ingestion.service
+
+[Service]
+Type=oneshot
+User=camserv
+Group=camserv
+RemainAfterExit=yes
+WorkingDirectory=/opt/camserv
+ExecStart=/opt/camserv/venv/bin/python -m camserv.storage.init_service
+
+# Hardened Security & Isolation
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+PrivateTmp=true
+NoNewPrivileges=true
+ReadWritePaths=/var/lib/camserv /var/log/camserv /var/cache/camserv /etc/camserv /data
+
+[Install]
+WantedBy=camserv.target

@@ -580,3 +580,40 @@ class _DeterministicInferenceSession:
         detections.append(det)
 
         return detections
+
+
+def run_inference_daemon() -> None:
+    """Production entry point for camserv-inference.service."""
+    import argparse
+    import signal
+
+    parser = argparse.ArgumentParser(description="CAMserv Neural Inference Worker")
+    parser.add_argument("--workers", type=int, default=2)
+    args = parser.parse_args()
+
+    engine = InferenceEngine(num_workers=args.workers)
+    engine.initialize()
+    logger.info("inference.daemon.started", workers=args.workers, backend=engine.active_backend)
+
+    running = True
+
+    def _on_signal(sig: int, frame: Any) -> None:
+        nonlocal running
+        logger.info("inference.daemon.shutting_down", signal=sig)
+        running = False
+
+    signal.signal(signal.SIGINT, _on_signal)
+    signal.signal(signal.SIGTERM, _on_signal)
+
+    while running:
+        slept = 0.0
+        while running and slept < 5.0:
+            time.sleep(0.5)
+            slept += 0.5
+
+    engine.stop()
+    logger.info("inference.daemon.stopped")
+
+
+if __name__ == "__main__":
+    run_inference_daemon()

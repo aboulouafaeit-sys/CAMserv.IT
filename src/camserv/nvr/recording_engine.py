@@ -576,3 +576,68 @@ class NVRRecordingEngine:
             operator_id=operator_id,
             case_id=case_id,
         )
+
+
+def run_nvr_daemon() -> None:
+    """Production entry point for camserv-nvr.service."""
+    import argparse
+    import signal
+
+    parser = argparse.ArgumentParser(description="CAMserv NVR Continuous Recording Daemon")
+    parser.add_argument("--storage-dir", default=os.getenv("CAMSERV_STORAGE_DIR", "/var/lib/camserv/recordings"))
+    parser.add_argument("--db-path", default=os.getenv("CAMSERV_DB_PATH", "/var/lib/camserv/db/camserv.db"))
+    parser.add_argument("--segment-duration", type=float, default=60.0)
+    args = parser.parse_args()
+
+    storage_dir = Path(args.storage_dir)
+    if not storage_dir.exists() and not Path("/var/lib/camserv").exists():
+        storage_dir = Path("data/recordings")
+
+    db_path = Path(args.db_path)
+    if not db_path.exists() and not Path("/var/lib/camserv").exists():
+        db_path = Path("data/db/camserv.db")
+
+    storage_dir.mkdir(parents=True, exist_ok=True)
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+
+    store = SQLiteStore(db_path=db_path)
+    engine = NVRRecordingEngine(
+        storage_dir=storage_dir,
+        store=store,
+        segment_duration_seconds=args.segment_duration,
+    )
+
+    logger.info("nvr.daemon.started", storage_dir=str(storage_dir), db_path=str(db_path))
+
+    running = True
+
+    def _on_signal(sig: int, frame: Any) -> None:
+        nonlocal running
+        logger.info("nvr.daemon.shutting_down", signal=sig)
+        running = False
+
+    signal.signal(signal.SIGINT, _on_signal)
+    signal.signal(signal.SIGTERM, _on_signal)
+
+    # Periodic retention quota check loop
+    while running:
+        try:
+            engine.enforce_storage_quota()
+        except Exception as e:
+            logger.warning("nvr.daemon.quota_check_error", error=str(e))
+
+        slept = 0.0
+        while running and slept < 10.0:
+            time.sleep(0.5)
+            slept += 0.5
+
+    # Clean shutdown: stop active sessions
+    active_cams = list(engine.active_sessions.keys())
+    for cid in active_cams:
+        engine.stop_recording(cid)
+
+    logger.info("nvr.daemon.stopped")
+
+
+if __name__ == "__main__":
+    run_nvr_daemon()
