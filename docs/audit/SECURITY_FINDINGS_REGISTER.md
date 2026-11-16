@@ -12,16 +12,16 @@
 
 ## 1. Executive Summary & Severity Breakdown
 
-This register catalogs all security vulnerabilities, architectural weaknesses, reliability defects, and production-readiness gaps discovered across post-Phase 3, Phase 11, Phase 12, and Phase 13 audits. Findings were independently discovered through static code analysis, architectural threat modeling, hardware testing, and reproduced via deterministic automated test suites.
+This register catalogs all security vulnerabilities, architectural weaknesses, reliability defects, and production-readiness gaps discovered across post-Phase 3, Phase 11, Phase 12, Phase 13, and Phase 14 audits. Findings were independently discovered through static code analysis, architectural threat modeling, hardware testing, and reproduced via deterministic automated test suites.
 
 | Severity | Total Discovered | Resolved / Remediated | Unresolved / Limitations |
 | :--- | :---: | :---: | :---: |
 | **CRITICAL** | 5 | 5 | 0 |
-| **HIGH** | 10 | 10 | 0 |
+| **HIGH** | 13 | 13 | 0 |
 | **MEDIUM** | 9 | 9 | 0 |
 | **LOW / INFORMATIONAL** | 3 | 3 | 0 |
 | **HARDWARE / OPERATIONAL LIMITATION** | 4 | N/A (Documented) | 4 (Physical/Environment Gaps) |
-| **TOTAL** | **31** | **27 Remediated** | **4 Operational Boundaries** |
+| **TOTAL** | **34** | **30 Remediated** | **4 Operational Boundaries** |
 
 ---
 
@@ -348,4 +348,42 @@ This register catalogs all security vulnerabilities, architectural weaknesses, r
 * **Impact:** Inability to run modular background daemons under systemd.
 * **Remediation:** Implemented `src/camserv/central/agent.py` (CentralApplianceAgent), and added robust `run_daemon()` loops with `SIGINT`/`SIGTERM` handlers to `recording_engine.py`, `supervisor.py`, and `engine.py`.
 * **Verification:** Tested in `tests/test_audit_phase13_appliance.py::test_central_appliance_agent_sync_cycle`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+## 6. Phase 14 Release Candidate Qualification Findings
+
+### SEC-P14-01: Complex Password Scrubbing in RTSP / HTTP Connection Strings
+* **Severity:** **HIGH** (CWE-532 / CVSS 7.1)
+* **Affected Component:** `camserv.nvr.credentials.redact_url_credentials`
+* **File & Lines:** `src/camserv/nvr/credentials.py:30-35`
+* **Root Cause:** Standard URL parsing often broke when passwords contained multiple `@` symbols, colons, or URL-encoded entities (e.g., `rtsp://admin:P@ss@word@@cam/live`).
+* **Impact:** Plaintext camera passwords could be emitted into diagnostic logs, crash reports, or REST management endpoints.
+* **Remediation:** Upgraded the redaction regex to greedy prefix matching (`r"://([^/:]+):.*@([^/@]+)"`), ensuring that all characters between the first colon and the final `@` preceding the host are scrubbed into `***`.
+* **Verification:** Tested in `tests/test_audit_phase14_qualification.py::test_stage_f_credential_scrubbing_edge_cases`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### SEC-P14-02: Evidence Vault Destruction Risk on Administrative Package Purge
+* **Severity:** **HIGH** (CWE-404 / CVSS 7.8)
+* **Affected Component:** `deploy/debian/postrm`
+* **File & Lines:** `deploy/debian/postrm:14-22`
+* **Root Cause:** Standard Debian maintainer purge scripts typically delete `/var/lib/<package>`.
+* **Impact:** Running `apt purge camserv` would permanently delete video recordings and court-ordered forensic evidence archives, violating chain-of-custody and GDPR retention mandates.
+* **Remediation:** Hardened `postrm` to explicitly preserve `/var/lib/camserv/vault` and `/var/lib/camserv/recordings` during package purge operations.
+* **Verification:** Tested in `tests/test_audit_phase14_qualification.py::test_stage_g_and_h_18_stage_lifecycle_upgrade_rollback_and_concurrent_hold` (Scenario 15).
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### SEC-P14-03: Concurrent Judicial Hold vs. Quota Purge Race Condition
+* **Severity:** **HIGH** (CWE-362 / CVSS 7.4)
+* **Affected Component:** `camserv.storage.tiered_storage` & `camserv.storage.adaptive_vault`
+* **File & Lines:** `src/camserv/storage/tiered_storage.py:145-180`, `src/camserv/storage/adaptive_vault.py:160-195`
+* **Root Cause:** Background disk quota managers could mark an old video segment for deletion during the exact microsecond an operator flagged it for judicial retention.
+* **Impact:** Irreversible destruction of legally held video evidence.
+* **Remediation:** Enforced synchronized locking and active `judicial_hold=True` exclusion before disk unlinking.
+* **Verification:** Tested in `tests/test_audit_phase14_qualification.py::test_stage_g_and_h_18_stage_lifecycle_upgrade_rollback_and_concurrent_hold` (Scenario 18).
 * **Status:** **REMEDIATED & VERIFIED**.

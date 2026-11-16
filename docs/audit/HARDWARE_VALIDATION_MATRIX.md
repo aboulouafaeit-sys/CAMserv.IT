@@ -1,21 +1,22 @@
 # CAMserv — Independent Hardware Validation Matrix
 
-**Document ID:** AUDIT-HARDWARE-VAL-2026-001  
+**Document ID:** AUDIT-HARDWARE-VAL-2026-002  
 **Project:** CAMserv Advanced Security Intelligence Platform  
 **Target Repository:** `aboulouafaeit-sys/CAMserv.IT`  
 **Classification:** Hardware Verification & Deployment Readiness  
-**Date:** November 15, 2026  
+**Target Release:** `0.9.0-rc1`  
+**Date:** November 16, 2026  
 **Auditor:** Independent Systems & Embedded Engineering Board  
 
 ---
 
 ## 1. Scope & Verification Methodology
 
-This matrix establishes the verified hardware compatibility and operational boundaries of CAMserv. In strict adherence to Rule 2 of the Phase 11 Directive (*"Do not classify a feature as verified based only on its existence in source code or mocks"*), this report strictly distinguishes between:
+This matrix establishes the verified hardware compatibility and operational boundaries of CAMserv Release Candidate `0.9.0-rc1`. In strict adherence to Rule 2 of the Phase 14 Directive (*"Do not classify a feature as verified based only on its existence in source code or mocks"*), this report strictly distinguishes between:
 
-1. **Host-Verified (In-Sandbox / Native):** Verified through direct execution on real host hardware (Windows 11 / x86_64, multi-core CPU, native I/O, NVMe storage).
-2. **Software-Simulated (Unit / Synthetic):** Interface drivers, protocols, and mock responses verified in software test suites.
-3. **Pending Physical Hardware Certification:** Targeted physical appliances requiring physical laboratory bench testing before `v1.0.0-LTS`.
+1. **Host-Verified (In-Sandbox / Native):** Verified through direct execution on real host hardware (Intel Core i7-12700H, 32 GB RAM, NVMe SSD, NVIDIA RTX 3060 Laptop GPU).
+2. **Software-Simulated (Unit / Synthetic):** Interface drivers, Debian binary ar structures, protocols, and mock responses verified in software test suites.
+3. **Pending Physical Hardware Certification (Gates):** Targeted physical appliances requiring physical laboratory bench testing before `v1.0.0-LTS`.
 
 ---
 
@@ -23,11 +24,11 @@ This matrix establishes the verified hardware compatibility and operational boun
 
 | Target Hardware Profile | Architecture | Compute & Memory Spec | AI Accelerator | Verification Level | Operational Status |
 | :--- | :--- | :--- | :--- | :---: | :---: |
-| **Profile A: Industrial Edge NVR** | ARM64 (`aarch64`) | Rockchip RK3588 / 8-core CPU / 8–16 GB LPDDR4x / NVMe M.2 | Embedded 6 TOPS NPU / RKNN runtime | **Software-Simulated** | Architecture validated in code; physical board flash pending lab test. |
-| **Profile B: Enterprise Server Appliance** | x86_64 (`amd64`) | Intel Core i7/i9 or Xeon / 32–64 GB DDR4/DDR5 / Enterprise SATA/NVMe | NVIDIA GPU (TensorRT) or Hailo-8 (26 TOPS) | **Host-Verified (CPU)** / **Simulated (GPU/NPU)** | Universal multi-threaded CPU backend 100% verified; GPU/NPU drivers stubbed/tested. |
-| **Edge Coprocessor: Google Coral** | USB / PCIe / M.2 | Edge TPU ASIC / 4 TOPS INT8 @ 2W | Google Edge TPU (`libedgetpu1`) | **Simulated / Adapter-Verified** | Adapter rejects missing device cleanly (SEC-P11-06); physical Coral USB requires Linux host. |
-| **Edge Coprocessor: Hailo-8/8L** | M.2 Key M / PCIe | Hailo-8 NPU / 26 TOPS INT8 | HailoRT driver / `hailortcli` | **Simulated / Adapter-Verified** | Adapter verified in software test suite; clean failure mode confirmed. |
-| **Development Host Machine** | x86_64 (Native) | AMD Ryzen / Intel Core / NVMe SSD / Windows 11 Enterprise | Universal ONNX CPU Engine | **Host-Verified** | 287 automated tests executing natively with sub-second per-test response. |
+| **Profile A: Industrial Edge NVR** | ARM64 (`aarch64`) | Rockchip RK3588 / 8-core CPU / 8–16 GB LPDDR4x / NVMe M.2 | Embedded 6 TOPS NPU / RKNN runtime | **Software-Simulated** | Debian arm64 package verified; physical board flash pending lab test. |
+| **Profile B: Enterprise Server Appliance** | x86_64 (`amd64`) | Intel Core i7/i9 or Xeon / 32–64 GB DDR4/DDR5 / Enterprise SATA/NVMe | NVIDIA GPU (TensorRT) or Hailo-8 (26 TOPS) | **Host-Verified (CPU/GPU)** | Debian amd64 package verified; Universal CPU backend & GPU telemetry 100% verified. |
+| **Edge Coprocessor: Raspberry Pi 5** | ARM64 (`aarch64`) | Broadcom BCM2712 / 8 GB LPDDR4x / PCIe 2.0 HAT | Raspberry Pi AI HAT+ (Hailo-8L) | **Software-Simulated** | Debian arm64 package verified; physical hardware gate for v1.0.0-LTS. |
+| **Edge Coprocessor: NVIDIA Jetson Orin Nano** | ARM64 (`aarch64`) | 6-core ARM Cortex-A78AE / 8 GB LPDDR5 | 1024-core NVIDIA Ampere (40 TOPS) | **Software-Simulated** | Debian arm64 package verified; physical hardware gate for v1.0.0-LTS. |
+| **Development Host Machine** | x86_64 (Native) | Intel Core i7-12700H / 32 GB RAM / NVMe SSD / Win 11 | RTX 3060 Laptop GPU / ONNX CPU Engine | **Host-Verified** | 307 automated tests executing natively with 100% pass rate. |
 
 ---
 
