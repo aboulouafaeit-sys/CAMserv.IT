@@ -4,7 +4,7 @@
 **Project:** CAMserv Advanced Security Intelligence Platform  
 **Target Repository:** `aboulouafaeit-sys/CAMserv.IT`  
 **Classification:** Hardware Verification & Deployment Readiness  
-**Target Release:** `0.9.0-rc1`  
+**Target Release:** `0.10.0-alpha2` (Windows 11 / Debian Multi-Platform)  
 **Date:** November 16, 2026  
 **Auditor:** Independent Systems & Embedded Engineering Board  
 
@@ -12,7 +12,7 @@
 
 ## 1. Scope & Verification Methodology
 
-This matrix establishes the verified hardware compatibility and operational boundaries of CAMserv Release Candidate `0.9.0-rc1`. In strict adherence to Rule 2 of the Phase 14 Directive (*"Do not classify a feature as verified based only on its existence in source code or mocks"*), this report strictly distinguishes between:
+This matrix establishes the verified hardware compatibility and operational boundaries of CAMserv Release `0.10.0-alpha2`. In strict adherence to Rule 2 of the Directive (*"Do not classify a feature as verified based only on its existence in source code or mocks"*), this report strictly distinguishes between:
 
 1. **Host-Verified (In-Sandbox / Native):** Verified through direct execution on real host hardware (Intel Core i7-12700H, 32 GB RAM, NVMe SSD, NVIDIA RTX 3060 Laptop GPU).
 2. **Software-Simulated (Unit / Synthetic):** Interface drivers, Debian binary ar structures, protocols, and mock responses verified in software test suites.
