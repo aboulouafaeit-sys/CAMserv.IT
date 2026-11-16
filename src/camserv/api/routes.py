@@ -58,6 +58,7 @@ from camserv.api.models import (
     TripwireCreate,
     ZoneEventResponse,
 )
+from camserv.nvr.credentials import redact_url_credentials
 from camserv.nvr.ptz import PTZController, PTZUnsupportedError, PTZVector
 from camserv.nvr.groups import CameraGroupManager
 from camserv.nvr.playback import PlaybackTimelineEngine
@@ -194,7 +195,7 @@ async def list_cameras(
         CameraResponse(
             id=c["id"],
             name=c.get("name", c["id"]),
-            url=c.get("url", ""),
+            url=redact_url_credentials(c.get("url", "")),
             enabled=c.get("enabled", True),
             fps=c.get("fps", 15),
             resolution=tuple(c.get("resolution", (1920, 1080))),
@@ -222,7 +223,9 @@ async def get_camera(
     cameras = getattr(request.app.state, "cameras", {})
     if camera_id not in cameras:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Camera '{camera_id}' not found")
-    return CameraResponse(**cameras[camera_id])
+    cam_data = dict(cameras[camera_id])
+    cam_data["url"] = redact_url_credentials(cam_data.get("url", ""))
+    return CameraResponse(**cam_data)
 
 
 @router.post(
@@ -251,10 +254,12 @@ async def add_camera(
         action=AuditAction.CAMERA_ADD,
         resource=f"camera:{body.id}",
         result="SUCCESS",
-        details={"name": body.name, "url": body.url},
+        details={"name": body.name, "url": redact_url_credentials(body.url)},
     )
 
-    return CameraResponse(**cam_dict)
+    safe_response = dict(cam_dict)
+    safe_response["url"] = redact_url_credentials(cam_dict.get("url", ""))
+    return CameraResponse(**safe_response)
 
 
 @router.put(
@@ -277,16 +282,22 @@ async def update_camera(
     updates = body.model_dump(exclude_unset=True)
     cam.update(updates)
 
+    safe_updates = dict(updates)
+    if "url" in safe_updates:
+        safe_updates["url"] = redact_url_credentials(safe_updates["url"])
+
     audit: AuditLogger = request.app.state.audit_logger
     audit.log(
         actor=current_user.subject,
         action=AuditAction.CONFIG_CHANGE,
         resource=f"camera:{camera_id}",
         result="SUCCESS",
-        details=updates,
+        details=safe_updates,
     )
 
-    return CameraResponse(**cam)
+    safe_response = dict(cam)
+    safe_response["url"] = redact_url_credentials(cam.get("url", ""))
+    return CameraResponse(**safe_response)
 
 
 @router.delete(

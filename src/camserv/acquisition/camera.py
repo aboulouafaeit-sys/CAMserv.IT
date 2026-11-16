@@ -67,6 +67,7 @@ except ImportError:
     structlog = _MockStructlog()  # type: ignore[assignment]
 
 
+from camserv.nvr.credentials import redact_url_credentials
 from camserv.pipeline.interfaces import Frame, FrameSource
 
 logger = structlog.get_logger(__name__)
@@ -166,7 +167,7 @@ class CameraStream:
         self._frame_interval = 1.0 / config.target_fps if config.target_fps > 0 else 0.033
         self._supervisor: Any = None
 
-        self._log = logger.bind(camera_id=self._camera_id, source=config.source_url)
+        self._log = logger.bind(camera_id=self._camera_id, source=redact_url_credentials(config.source_url))
 
     # -- Properties -----------------------------------------------------------
 
@@ -272,7 +273,7 @@ class CameraStream:
                         timestamp=now_dt,
                         frame_id=frame_seq,
                         metadata={
-                            "source_url": self.config.source_url,
+                            "source_url": redact_url_credentials(self.config.source_url),
                             "process_isolated": True,
                             "shm_name": self._supervisor.shm_name,
                         },
@@ -307,7 +308,7 @@ class CameraStream:
                     timestamp=now_dt,
                     frame_id=self._frame_seq,
                     metadata={
-                        "source_url": self.config.source_url,
+                        "source_url": redact_url_credentials(self.config.source_url),
                         "capture_duration_ms": (time.monotonic() - loop_start) * 1000.0,
                     },
                 )
@@ -376,7 +377,10 @@ class CameraStream:
         def _open_capture() -> Any:
             try:
                 import cv2  # type: ignore[import-untyped]
-                cap = cv2.VideoCapture(self.config.source_url)
+                source_target: Any = self.config.source_url
+                if isinstance(source_target, str) and source_target.isdigit():
+                    source_target = int(source_target)
+                cap = cv2.VideoCapture(source_target)
                 if self.config.frame_width:
                     cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.config.frame_width)
                 if self.config.frame_height:

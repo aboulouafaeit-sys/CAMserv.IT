@@ -144,7 +144,7 @@ class FailClosedPrivacyPipeline:
         self,
         raw_frame: np.ndarray,
         camera_id: str,
-        frame_id: int,
+        frame_id: int = 0,
         privacy_detections: list[Detection] | None = None,
         timestamp_utc: str | None = None,
     ) -> tuple[np.ndarray, PrivacyEvidenceManifest, np.ndarray]:

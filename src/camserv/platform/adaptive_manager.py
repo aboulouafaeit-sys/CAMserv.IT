@@ -100,12 +100,40 @@ class AdaptiveResourceManager:
         is_warn = ram_pct >= self.warning_ram_threshold or cpu_pct >= self.warning_cpu_threshold
         is_emerg = ram_pct >= self.emergency_ram_threshold
 
+        gpu_pct = 0.0
+        vram_pct = 0.0
+        vram_used = 0
+
+        # Query real NVIDIA GPU metrics if physical device & nvidia-smi are available
+        import shutil
+        import subprocess
+        if shutil.which("nvidia-smi") is not None:
+            try:
+                proc = subprocess.run(
+                    ["nvidia-smi", "--query-gpu=utilization.gpu,memory.used,memory.total", "--format=csv,noheader,nounits"],
+                    capture_output=True,
+                    text=True,
+                    timeout=1.0,
+                )
+                if proc.returncode == 0 and proc.stdout.strip():
+                    parts = [p.strip() for p in proc.stdout.strip().split(",")]
+                    if len(parts) >= 3:
+                        gpu_pct = float(parts[0])
+                        vram_used = int(parts[1])
+                        vram_total = int(parts[2])
+                        vram_pct = (vram_used / vram_total * 100.0) if vram_total > 0 else 0.0
+            except Exception:
+                pass
+
         return ResourceSnapshot(
             timestamp=now,
             cpu_percent=cpu_pct,
             ram_percent=ram_pct,
             ram_used_mb=ram_used,
             ram_available_mb=ram_avail,
+            gpu_percent=gpu_pct,
+            vram_percent=round(vram_pct, 2),
+            vram_used_mb=vram_used,
             is_under_pressure=is_warn,
             is_emergency=is_emerg,
         )

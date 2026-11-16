@@ -12,16 +12,16 @@
 
 ## 1. Executive Summary & Severity Breakdown
 
-This register catalogs all security vulnerabilities, architectural weaknesses, reliability defects, and production-readiness gaps discovered during the independent post-Phase 3 security audit. Findings were independently discovered through static code analysis, architectural threat modeling, and reproduced via deterministic automated test suites in isolated synthetic test environments.
+This register catalogs all security vulnerabilities, architectural weaknesses, reliability defects, and production-readiness gaps discovered across post-Phase 3, Phase 11, and Phase 12 audits. Findings were independently discovered through static code analysis, architectural threat modeling, hardware testing, and reproduced via deterministic automated test suites.
 
 | Severity | Total Discovered | Resolved / Remediated | Unresolved / Limitations |
 | :--- | :---: | :---: | :---: |
-| **CRITICAL** | 3 | 3 | 0 |
-| **HIGH** | 6 | 6 | 0 |
-| **MEDIUM** | 5 | 5 | 0 |
+| **CRITICAL** | 4 | 4 | 0 |
+| **HIGH** | 8 | 8 | 0 |
+| **MEDIUM** | 7 | 7 | 0 |
 | **LOW / INFORMATIONAL** | 3 | 3 | 0 |
 | **HARDWARE / OPERATIONAL LIMITATION** | 4 | N/A (Documented) | 4 (Physical/Environment Gaps) |
-| **TOTAL** | **21** | **17 Remediated** | **4 Operational Boundaries** |
+| **TOTAL** | **26** | **22 Remediated** | **4 Operational Boundaries** |
 
 ---
 
@@ -224,4 +224,66 @@ This register catalogs all security vulnerabilities, architectural weaknesses, r
 * **Finding:** Discrepancies existed between `__version__ = "0.1.0"` in `__init__.py` and the target Release Candidate `0.9.0-rc1` documented in `RELEASE_ROADMAP.md`. Additionally, docstrings previously described dual-control quorum as a statutory mandate of GDPR Art. 25 rather than an engineering policy implementing Data Protection by Design.
 * **Remediation:** Synchronized version `0.9.0-rc1` across `__init__.py`, `pyproject.toml`, and regenerated CycloneDX SBOM. Refined API docstrings to accurately state that dual-control quorum is an engineering measure realizing GDPR Article 25 requirements.
 * **Verification:** Tested in `tests/test_audit_phase11_regressions.py::test_version_manifest_alignment`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+## 4. Phase 12 Real-World Hardware & Camera Compatibility Findings
+
+### SEC-P12-01: Plaintext RTSP Credentials Leakage in Logs, Metadata & APIs
+* **Severity:** **HIGH** (CWE-532 / CWE-312 / CVSS 7.5)
+* **Affected Component:** `camserv.acquisition.camera`, `camserv.api.routes`, `camserv.nvr.credentials`
+* **File & Lines:** `src/camserv/nvr/credentials.py:65-98`, `src/camserv/acquisition/camera.py:102-108`, `src/camserv/api/routes.py:136-160`
+* **Root Cause:** Ingestion configurations stored RTSP URLs containing embedded plaintext credentials (`rtsp://admin:pass@host/live`). This URL was bound directly to logger contexts, attached to raw `Frame.metadata["source"]`, and returned in REST API responses (`/api/v1/cameras`).
+* **Impact:** Operators with log access or read-only API tokens could harvest plaintext surveillance camera credentials and gain unauthorized access to camera feeds and configuration interfaces.
+* **Remediation:** Implemented `redact_url_credentials(url: str) -> str` using greedy userinfo regex, masked credentials in `CameraCredential.to_safe_dict()`, and sanitized all logger bindings, frame metadata, and API responses.
+* **Verification:** Tested in `tests/test_audit_phase12_regressions.py::test_redact_url_credentials_comprehensive` and `test_camera_stream_redacts_credentials_in_logs_and_metadata`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### SEC-P12-02: Unconditional False Success Reporting in NVRCompatibilityTester
+* **Severity:** **HIGH** (CWE-392 / CVSS 7.2)
+* **Affected Component:** `camserv.acquisition.onvif.NVRCompatibilityTester`
+* **File & Lines:** `src/camserv/acquisition/onvif.py:270-285`
+* **Root Cause:** When checking camera network reachability, `NVRCompatibilityTester` substituted `allow_simulation` into the connection success flag when the TCP socket connection failed, reporting `"NVR is fully compatible"` for offline or unreachable cameras.
+* **Impact:** Automated pre-flight installation checks reported success on failed camera setups, leading to silent failures during field deployment.
+* **Remediation:** Decoupled physical socket connection status (`conn_ok`) from simulation fallback, enforcing explicit validation classification (`VERIFIED_ON_REAL_CAMERA` vs `SIMULATED` vs `FAILED`).
+* **Verification:** Tested in `tests/test_audit_phase12_regressions.py::test_nvr_compatibility_tester_honest_reporting`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### SEC-P12-03: Device Index Numeric String Parse Failure on Physical UVC Webcams
+* **Severity:** **MEDIUM** (CWE-20 / CVSS 5.3)
+* **Affected Component:** `camserv.acquisition.camera._open_capture`, `supervisor.py`
+* **File & Lines:** `src/camserv/acquisition/camera.py:175-182`
+* **Root Cause:** Passing string `"0"` to `cv2.VideoCapture("0")` causes OpenCV on Windows MSMF/DirectShow to treat the source as a file path rather than a hardware device index, returning `isOpened() == False`.
+* **Impact:** Inability to ingest real USB and integrated webcam streams when configured via string identifiers (`source_url="0"`).
+* **Remediation:** Added automated numeric string detection converting `source_url` to `int` when `.isdigit()` is true.
+* **Verification:** Tested in `tests/test_audit_phase12_regressions.py::test_camera_stream_device_index_parsing` and verified with physical Integrated Camera index 0.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### SEC-P12-04: False CUDA Adapter Availability on Hosts with Physical GPU but Missing Python Runtime
+* **Severity:** **MEDIUM** (CWE-392 / CVSS 5.3)
+* **Affected Component:** `camserv.analytics.adapters.cuda.CUDABackendAdapter`
+* **File & Lines:** `src/camserv/analytics/adapters/cuda.py:45-92`
+* **Root Cause:** `CUDABackendAdapter.is_available()` checked only for the presence of `nvidia-smi` binary, ignoring whether the Python environment possessed a working CUDA execution runtime (`onnxruntime-gpu`, `torch.cuda`).
+* **Impact:** System falsely claimed GPU hardware acceleration when running on CPU fallback, misleading administrators and risking runtime crashes during model loading.
+* **Remediation:** Separated physical device detection (`is_device_detected()`) from execution runtime availability (`is_runtime_available()`). Returns `is_available()=False` and cleanly falls back to `onnx_cpu` when Python runtime is missing.
+* **Verification:** Tested in `tests/test_audit_phase12_regressions.py::test_cuda_adapter_honest_reporting`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### SEC-P12-05: Missing GPU and VRAM Telemetry in AdaptiveResourceManager
+* **Severity:** **MEDIUM** (CWE-392 / CVSS 4.3)
+* **Affected Component:** `camserv.platform.adaptive_manager.AdaptiveResourceManager`
+* **File & Lines:** `src/camserv/platform/adaptive_manager.py:82-115`
+* **Root Cause:** `AdaptiveResourceManager` lacked telemetry collection for GPU utilization and VRAM consumption on host systems equipped with dedicated graphics cards.
+* **Impact:** Adaptive workload shedding and hardware tier policies were blind to GPU saturation and VRAM exhaustion.
+* **Remediation:** Integrated live `nvidia-smi` query parsing, extracting real-time GPU load, VRAM used, and VRAM total into `ResourceSnapshot`.
+* **Verification:** Tested in `tests/test_audit_phase12_regressions.py::test_adaptive_resource_manager_metrics` on host RTX 3060 Laptop GPU.
 * **Status:** **REMEDIATED & VERIFIED**.

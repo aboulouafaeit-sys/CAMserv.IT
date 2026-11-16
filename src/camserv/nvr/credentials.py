@@ -13,6 +13,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import re
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -24,6 +25,13 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from camserv.security.encryption import EncryptionManager
 
 logger = structlog.get_logger(__name__)
+
+
+def redact_url_credentials(url: str) -> str:
+    """Scrub embedded plaintext passwords from camera RTSP/HTTP URLs."""
+    if not url or "@" not in url or "://" not in url:
+        return url
+    return re.sub(r"://([^/:]+):.*@([^/@]+)", r"://\1:***@\2", url)
 
 
 @dataclass(slots=True)
@@ -43,6 +51,17 @@ class CameraCredential:
     def to_dict(self) -> dict[str, Any]:
         """Serialize credential record."""
         return asdict(self)
+
+    def to_safe_dict(self) -> dict[str, Any]:
+        """Serialize credential record with sensitive secrets redacted for telemetry/diagnostics."""
+        d = asdict(self)
+        if d.get("password"):
+            d["password"] = "********"
+        if d.get("onvif_password"):
+            d["onvif_password"] = "********"
+        if d.get("api_token"):
+            d["api_token"] = "********"
+        return d
 
 
 class CameraCredentialVault:

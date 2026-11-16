@@ -70,7 +70,10 @@ def _worker_loop_entry(
     if not synthetic_mode:
         try:
             import cv2
-            cap = cv2.VideoCapture(source_url)
+            src_target: Any = source_url
+            if isinstance(src_target, str) and src_target.isdigit():
+                src_target = int(src_target)
+            cap = cv2.VideoCapture(src_target)
         except Exception:
             synthetic_mode = True
 

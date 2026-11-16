@@ -87,20 +87,28 @@ class PTZController:
     def register_camera_capabilities(
         self,
         camera_id: str,
-        is_ptz: bool,
+        is_ptz: bool | PTZCapabilities = True,
         supports_continuous: bool = True,
         supports_relative: bool = True,
         supports_presets: bool = True,
         max_presets: int = 128,
         notes: str = "",
+        capabilities: PTZCapabilities | None = None,
     ) -> PTZCapabilities:
         """Register hardware capabilities for a camera channel."""
+        if isinstance(is_ptz, PTZCapabilities):
+            self._capabilities[camera_id] = is_ptz
+            return is_ptz
+        if capabilities is not None:
+            self._capabilities[camera_id] = capabilities
+            return capabilities
+
         caps = PTZCapabilities(
             camera_id=camera_id,
-            is_ptz_capable=is_ptz,
+            is_ptz_capable=bool(is_ptz),
             supports_continuous_move=supports_continuous if is_ptz else False,
             supports_relative_move=supports_relative if is_ptz else False,
-            supports_absolute_move=is_ptz,
+            supports_absolute_move=bool(is_ptz),
             supports_presets=supports_presets if is_ptz else False,
             max_presets=max_presets if is_ptz else 0,
             notes=notes or ("Full PTZ enabled" if is_ptz else "Fixed channel; PTZ unsupported"),
@@ -237,3 +245,6 @@ class PTZController:
         if self.store is not None:
             return self.store.delete_ptz_preset(preset_id)
         return False
+
+    register_camera = register_camera_capabilities
+    move = continuous_move

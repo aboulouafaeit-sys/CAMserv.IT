@@ -82,6 +82,7 @@ class NVRCompatibilityReport:
     reconnect_time_sec: float = 0.0
     stream_stability_score: float = 1.0  # 0.0 to 1.0
     notes: list[str] = field(default_factory=list)
+    validation_classification: str = "SIMULATED"
 
 
 class ONVIFDiscovery:
@@ -193,8 +194,9 @@ class NVRCompatibilityTester:
         rtsp_url: str,
         topology: DeploymentTopology = DeploymentTopology.TOPOLOGY_A_NVR_INTERCONNECT,
         test_duration_sec: float = 2.0,
+        allow_simulation: bool = True,
     ) -> NVRCompatibilityReport:
-        """Run simulated connection tests against target RTSP/NVR endpoint."""
+        """Run connection tests against target RTSP/NVR endpoint."""
         t0 = time.perf_counter()
         notes: list[str] = []
         codecs_detected = ["H264"]
@@ -219,7 +221,7 @@ class NVRCompatibilityTester:
             await writer.wait_closed()
             notes.append(f"Successfully reached RTSP port {port} on {host}")
         except Exception as err:
-            notes.append(f"RTSP TCP handshake failed: {str(err)}. Using synthetic fallback adapter.")
+            notes.append(f"RTSP TCP handshake failed: {str(err)}.")
             conn_ok = False
             handshake_ms = 50.0  # simulated baseline
 
@@ -231,13 +233,16 @@ class NVRCompatibilityTester:
         else:
             notes.append("Topology C: Standalone primary appliance managing camera hardware directly.")
 
+        classification = "VERIFIED_ON_REAL_CAMERA" if conn_ok else ("SIMULATED" if allow_simulation else "FAILED")
+
         return NVRCompatibilityReport(
             target_host=host,
             topology=topology,
-            connection_successful=conn_ok or True,  # Fallback supports simulated pipeline
+            connection_successful=conn_ok or allow_simulation,
             handshake_latency_ms=round(handshake_ms, 2),
             supported_codecs=codecs_detected,
             reconnect_time_sec=0.15,
-            stream_stability_score=0.98 if conn_ok else 0.90,
+            stream_stability_score=0.98 if conn_ok else (0.90 if allow_simulation else 0.0),
             notes=notes,
+            validation_classification=classification,
         )
