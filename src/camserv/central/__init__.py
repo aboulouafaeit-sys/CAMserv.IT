@@ -1,4 +1,11 @@
 """camserv.central package exports."""
+from camserv.central.cluster import (
+    CameraAssignment,
+    ClusterCoordinator,
+    ClusterNode,
+    ClusterNodeRole,
+    ClusterNodeState,
+)
 from camserv.central.comm import (
     DataMinimizationViolationError,
     DistributedGateway,
@@ -18,11 +25,21 @@ from camserv.central.models import (
     SecurityState,
     SiteRecord,
 )
+from camserv.central.mtls import (
+    EnterpriseMtlsGateway,
+    NodeCertificateInfo,
+)
 from camserv.central.registry import (
     DeviceAuthenticationError,
     DeviceEnrollmentError,
     DeviceRegistry,
     SiteAccessDeniedError,
+)
+from camserv.central.replication import (
+    DistributedReplicationEngine,
+    EvidenceSealRecord,
+    VerificationVerdict,
+    WitnessAttestation,
 )
 from camserv.central.sync import (
     CentralSyncEngine,
@@ -32,8 +49,13 @@ from camserv.central.sync import (
 )
 
 __all__ = [
+    "CameraAssignment",
     "CentralFleetOverview",
     "CentralSyncEngine",
+    "ClusterCoordinator",
+    "ClusterNode",
+    "ClusterNodeRole",
+    "ClusterNodeState",
     "DataMinimizationViolationError",
     "DeviceAuthenticationError",
     "DeviceEnrollmentError",
@@ -43,10 +65,14 @@ __all__ = [
     "DeviceStatus",
     "DeviceTelemetry",
     "DistributedGateway",
+    "DistributedReplicationEngine",
     "EdgeSyncClient",
+    "EnterpriseMtlsGateway",
+    "EvidenceSealRecord",
     "FleetCameraInfo",
     "FleetRecordingRecord",
     "MessageVerificationError",
+    "NodeCertificateInfo",
     "OfflineMessageBuffer",
     "PayloadType",
     "RateLimitExceededError",
@@ -55,4 +81,6 @@ __all__ = [
     "SecurityState",
     "SiteAccessDeniedError",
     "SiteRecord",
+    "VerificationVerdict",
+    "WitnessAttestation",
 ]

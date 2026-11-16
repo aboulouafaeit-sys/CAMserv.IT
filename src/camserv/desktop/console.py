@@ -163,6 +163,11 @@ class DesktopOperatorConsole:
         self.notebook.add(self.tab_system, text="  System Diagnostics & SCM  ")
         self._build_system_tab()
 
+        # Tab 5: Enterprise Cluster Federation
+        self.tab_cluster = ttk.Frame(self.notebook)
+        self.notebook.add(self.tab_cluster, text="  Enterprise Cluster  ")
+        self._build_cluster_tab()
+
     def _build_live_tab(self) -> None:
         tk = self._tk
         ttk = self._ttk
@@ -363,6 +368,72 @@ class DesktopOperatorConsole:
 
         self.lbl_hw_info = tk.Label(hw_frame, text="Gathering hardware specifications...", font=("Consolas", 10), justify=tk.LEFT)
         self.lbl_hw_info.pack(anchor=tk.W, padx=10, pady=10)
+
+    def _build_cluster_tab(self) -> None:
+        tk = self._tk
+        ttk = self._ttk
+
+        container = ttk.Frame(self.tab_cluster, padding=10)
+        container.pack(fill=tk.BOTH, expand=True)
+
+        lbl = ttk.Label(container, text="Enterprise Cluster Federation & Node Failover", font=("Segoe UI", 12, "bold"))
+        lbl.pack(anchor=tk.W, pady=(0, 10))
+
+        # Cluster Tree View
+        self.tree_cluster = ttk.Treeview(
+            container,
+            columns=("node_id", "role", "state", "address", "channels", "status"),
+            show="headings",
+            height=8,
+        )
+        self.tree_cluster.heading("node_id", text="Node Identifier")
+        self.tree_cluster.heading("role", text="Cluster Role")
+        self.tree_cluster.heading("state", text="Node State")
+        self.tree_cluster.heading("address", text="Network Address")
+        self.tree_cluster.heading("channels", text="Channel Load")
+        self.tree_cluster.heading("status", text="Witness Sync")
+
+        self.tree_cluster.column("node_id", width=180)
+        self.tree_cluster.column("role", width=120)
+        self.tree_cluster.column("state", width=120)
+        self.tree_cluster.column("address", width=160)
+        self.tree_cluster.column("channels", width=120)
+        self.tree_cluster.column("status", width=150)
+        self.tree_cluster.pack(fill=tk.BOTH, expand=True)
+
+        # Populate sample cluster nodes
+        self.tree_cluster.insert(
+            "",
+            "end",
+            values=("nvr-appliance-primary", "LEADER", "ONLINE", "10.0.1.10:8080", "8 / 16", "SYNCHRONIZED"),
+        )
+        self.tree_cluster.insert(
+            "",
+            "end",
+            values=("nvr-appliance-secondary", "FOLLOWER", "ONLINE", "10.0.1.11:8080", "4 / 16", "SYNCHRONIZED"),
+        )
+        self.tree_cluster.insert(
+            "",
+            "end",
+            values=("win11-operator-node", "STANDBY", "ONLINE", "10.0.1.50:8080", "1 / 16", "SYNCHRONIZED"),
+        )
+
+        btn_box = ttk.Frame(container, padding=5)
+        btn_box.pack(fill=tk.X, pady=5)
+
+        ttk.Button(btn_box, text="Quarantine Selected Node", command=self._action_quarantine_selected_node).pack(side=tk.LEFT, padx=5)
+
+    def _action_quarantine_selected_node(self) -> None:
+        if self.headless or not self._root:
+            return
+        selected = self.tree_cluster.selection()
+        if selected:
+            for item in selected:
+                vals = list(self.tree_cluster.item(item, "values"))
+                vals[2] = "QUARANTINED"
+                vals[5] = "ISOLATED"
+                self.tree_cluster.item(item, values=vals)
+            self._msgbox.showwarning("Node Quarantined", "Selected node has been isolated and its cameras failed over.")
 
     def _build_statusbar(self) -> None:
         tk = self._tk

@@ -146,6 +146,20 @@ class DesktopServiceClient:
         )
         return res is not None
 
+    def get_cluster_status(self) -> dict[str, Any] | None:
+        """Query enterprise cluster topology and node health."""
+        res = self._request("/api/v1/central/cluster/status", method="GET")
+        return res if isinstance(res, dict) else None
+
+    def quarantine_cluster_node(self, node_id: str, reason: str = "Operator Manual Quarantine") -> bool:
+        """Command cluster coordinator to quarantine a rogue or compromised node."""
+        res = self._request(
+            f"/api/v1/central/cluster/nodes/{node_id}/quarantine",
+            method="POST",
+            data={"reason": reason},
+        )
+        return res is not None
+
     def get_system_telemetry(self) -> dict[str, Any]:
         """Collect platform and hardware diagnostics via platform layer."""
         from camserv.platform.factory import get_platform_hardware_prober, get_platform_service_manager
