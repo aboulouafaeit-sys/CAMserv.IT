@@ -2,8 +2,8 @@
 camserv.central.replication
 ===========================
 
-Distributed Forensic Replication, Cross-Node Merkle Synchronization, and Peer Witness Sealing.
-Guarantees mathematically unalterable chain-of-custody across multi-appliance NVR clusters.
+Distributed Forensic Replication, Canonical Evidence Serialization, Anti-Replay Attestations,
+and Merkle Tree Inclusion Proofs for Multi-Appliance NVR Clusters.
 """
 
 from __future__ import annotations
@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 import time
+import uuid
 from dataclasses import asdict, dataclass, field
 from enum import Enum
 from typing import Any
@@ -25,6 +26,8 @@ class VerificationVerdict(str, Enum):
     TAMPER_DETECTED = "TAMPER_DETECTED"
     QUORUM_UNAVAILABLE = "QUORUM_UNAVAILABLE"
     UNREGISTERED_SEGMENT = "UNREGISTERED_SEGMENT"
+    REPLAY_ATTACK_DETECTED = "REPLAY_ATTACK_DETECTED"
+    TENANT_MISMATCH = "TENANT_MISMATCH"
 
 
 @dataclass
@@ -38,13 +41,36 @@ class EvidenceSealRecord:
     start_timestamp: float
     end_timestamp: float
     frame_count: int
+    tenant_id: str = "default"
+    nonce: str = field(default_factory=lambda: uuid.uuid4().hex)
     signature: str = ""
     created_at: float = field(default_factory=time.time)
 
+    def compute_canonical_evidence_digest(self) -> str:
+        """
+        Unambiguous canonical evidence serialization (RFC 8785 style canonical format).
+        Domain-separated: CAMSERV-FORENSIC-SEAL-V2
+        Eliminates delimiter injection vulnerabilities present in simple concatenation.
+        """
+        canonical_dict = {
+            "schema_version": "v2",
+            "domain": "CAMSERV-FORENSIC-SEAL-V2",
+            "segment_id": self.segment_id,
+            "camera_id": self.camera_id,
+            "tenant_id": self.tenant_id,
+            "origin_node_id": self.origin_node_id,
+            "sha256_hash": self.sha256_hash.upper(),
+            "start_timestamp": round(self.start_timestamp, 4),
+            "end_timestamp": round(self.end_timestamp, 4),
+            "frame_count": int(self.frame_count),
+            "nonce": self.nonce,
+        }
+        canonical_json = json.dumps(canonical_dict, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(canonical_json.encode("utf-8")).hexdigest().upper()
+
     def compute_seal_digest(self) -> str:
-        """Deterministic digest over core evidence metadata."""
-        payload = f"{self.segment_id}|{self.camera_id}|{self.origin_node_id}|{self.sha256_hash}|{self.start_timestamp}|{self.end_timestamp}|{self.frame_count}"
-        return hashlib.sha256(payload.encode("utf-8")).hexdigest().upper()
+        """Backwards compatible alias for compute_canonical_evidence_digest."""
+        return self.compute_canonical_evidence_digest()
 
 
 @dataclass
@@ -53,48 +79,75 @@ class WitnessAttestation:
 
     seal_digest: str
     witness_node_id: str
+    tenant_id: str = "default"
+    nonce: str = field(default_factory=lambda: uuid.uuid4().hex)
     attestation_timestamp: float = field(default_factory=time.time)
     signature: str = ""
 
 
 class DistributedReplicationEngine:
     """
-    Manages peer witness sealing and cross-node evidence verification across cluster nodes.
+    Manages peer witness sealing, cross-node evidence verification, anti-replay guards,
+    and Merkle tree inclusion proofs.
     """
 
-    def __init__(self, local_node_id: str, quorum_threshold: int = 2) -> None:
+    def __init__(
+        self,
+        local_node_id: str,
+        tenant_id: str = "default",
+        quorum_threshold: int = 2,
+    ) -> None:
         self.local_node_id = local_node_id
+        self.tenant_id = tenant_id
         self.quorum_threshold = quorum_threshold
         # segment_id -> EvidenceSealRecord
         self.primary_seals: dict[str, EvidenceSealRecord] = {}
         # segment_id -> list[WitnessAttestation]
         self.witness_attestations: dict[str, list[WitnessAttestation]] = {}
-        # Merkle tree leaf hashes
+        # Seen nonces to reject replay attacks: (witness_node_id, nonce)
+        self.seen_attestation_nonces: set[tuple[str, str]] = set()
+        # Merkle tree leaf hashes (digest -> leaf index)
         self.merkle_leaves: list[str] = []
 
     def register_evidence_seal(self, seal: EvidenceSealRecord) -> str:
         """Register a new evidence segment seal on the origin node."""
+        if seal.tenant_id != self.tenant_id:
+            logger.error("replication.tenant_mismatch", seal_tenant=seal.tenant_id, engine_tenant=self.tenant_id)
+            raise PermissionError(f"Evidence seal tenant '{seal.tenant_id}' does not match engine tenant '{self.tenant_id}'")
+
         self.primary_seals[seal.segment_id] = seal
-        digest = seal.compute_seal_digest()
+        digest = seal.compute_canonical_evidence_digest()
         self.merkle_leaves.append(digest)
         logger.info(
-            "replication.seal_registered",
+            "replication.canonical_seal_registered",
             segment_id=seal.segment_id,
             camera_id=seal.camera_id,
             digest=digest,
+            nonce=seal.nonce,
         )
         return digest
 
     def submit_witness_attestation(self, attestation: WitnessAttestation, segment_id: str) -> bool:
-        """Record an independent witness signature from a peer cluster node."""
+        """Record an independent witness signature with anti-replay protection."""
+        if attestation.tenant_id != self.tenant_id:
+            logger.warning("replication.attestation_tenant_mismatch", attestation_tenant=attestation.tenant_id)
+            return False
+
+        # Anti-replay check: reject duplicate nonces from same witness
+        nonce_key = (attestation.witness_node_id, attestation.nonce)
+        if nonce_key in self.seen_attestation_nonces:
+            logger.error("replication.replay_attack_rejected", witness=attestation.witness_node_id, nonce=attestation.nonce)
+            return False
+
         if segment_id not in self.witness_attestations:
             self.witness_attestations[segment_id] = []
 
-        # Prevent duplicate attestations from the same witness node
         existing_witnesses = {w.witness_node_id for w in self.witness_attestations[segment_id]}
         if attestation.witness_node_id in existing_witnesses:
+            logger.warning("replication.duplicate_witness_rejected", witness=attestation.witness_node_id)
             return False
 
+        self.seen_attestation_nonces.add(nonce_key)
         self.witness_attestations[segment_id].append(attestation)
         logger.info(
             "replication.witness_attestation_recorded",
@@ -108,6 +161,7 @@ class DistributedReplicationEngine:
         self,
         segment_id: str,
         current_file_bytes: bytes,
+        tenant_id: str | None = None,
     ) -> tuple[VerificationVerdict, dict[str, Any]]:
         """
         Cryptographically validates a video segment against local seal and peer witness quorum.
@@ -117,6 +171,10 @@ class DistributedReplicationEngine:
             return VerificationVerdict.UNREGISTERED_SEGMENT, {"error": "Segment not registered"}
 
         seal = self.primary_seals[segment_id]
+        effective_tenant = tenant_id or self.tenant_id
+        if seal.tenant_id != effective_tenant:
+            return VerificationVerdict.TENANT_MISMATCH, {"error": "Cross-tenant evidence access denied"}
+
         computed_file_hash = hashlib.sha256(current_file_bytes).hexdigest().upper()
 
         # 1. Verify local file bytes match the original registered seal
@@ -147,8 +205,8 @@ class DistributedReplicationEngine:
                 "witness_count": len(witnesses),
             }
 
-        # 3. Verify all witnesses signed the exact same seal digest
-        expected_digest = seal.compute_seal_digest()
+        # 3. Verify all witnesses signed the exact same canonical seal digest
+        expected_digest = seal.compute_canonical_evidence_digest()
         invalid_witnesses: list[str] = []
         for w in witnesses:
             if w.seal_digest != expected_digest:
@@ -170,6 +228,7 @@ class DistributedReplicationEngine:
             "sha256": computed_file_hash,
             "witness_quorum": len(witnesses),
             "seal_digest": expected_digest,
+            "tenant_id": seal.tenant_id,
         }
 
     def compute_cluster_merkle_root(self) -> str:
@@ -188,3 +247,48 @@ class DistributedReplicationEngine:
             current_layer = next_layer
 
         return current_layer[0]
+
+    def generate_inclusion_proof(self, leaf_digest: str) -> list[tuple[str, str]]:
+        """
+        Generates Merkle inclusion proof path for a specific leaf digest.
+        Returns list of (sibling_hash, direction) tuples ('left' or 'right').
+        """
+        if leaf_digest not in self.merkle_leaves:
+            raise KeyError(f"Leaf digest '{leaf_digest}' not in Merkle tree")
+
+        idx = self.merkle_leaves.index(leaf_digest)
+        proof: list[tuple[str, str]] = []
+        current_layer = list(self.merkle_leaves)
+
+        while len(current_layer) > 1:
+            if idx % 2 == 0:
+                # Sibling is to the right
+                sibling = current_layer[idx + 1] if idx + 1 < len(current_layer) else current_layer[idx]
+                proof.append((sibling, "right"))
+            else:
+                # Sibling is to the left
+                sibling = current_layer[idx - 1]
+                proof.append((sibling, "left"))
+
+            # Build next layer
+            next_layer = []
+            for i in range(0, len(current_layer), 2):
+                l = current_layer[i]
+                r = current_layer[i + 1] if i + 1 < len(current_layer) else l
+                next_layer.append(hashlib.sha256(f"{l}:{r}".encode("utf-8")).hexdigest().upper())
+            idx = idx // 2
+            current_layer = next_layer
+
+        return proof
+
+    @staticmethod
+    def verify_inclusion_proof(leaf_digest: str, proof: list[tuple[str, str]], expected_root: str) -> bool:
+        """Mathematically verifies that a leaf digest is included in expected_root using the proof path."""
+        current = leaf_digest
+        for sibling, direction in proof:
+            if direction == "right":
+                combined = f"{current}:{sibling}".encode("utf-8")
+            else:
+                combined = f"{sibling}:{current}".encode("utf-8")
+            current = hashlib.sha256(combined).hexdigest().upper()
+        return current == expected_root

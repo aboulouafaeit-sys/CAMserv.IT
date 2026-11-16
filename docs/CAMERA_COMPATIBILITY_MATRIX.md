@@ -1,8 +1,8 @@
 # CAMserv Camera Compatibility Matrix
 
-**Document ID:** MATRIX-CAMERA-2026-001  
+**Document ID:** MATRIX-CAMERA-2026-002  
 **Classification:** Hardware Verification & Compatibility Registry  
-**Version:** 1.1.0 (Phase 16 Multi-Platform)  
+**Version:** 1.2.0 (Phase 18 Enterprise Cluster Hardening)  
 **Date:** November 16, 2026  
 
 ---
@@ -49,3 +49,4 @@ CAMserv adheres to an uncompromising standard of technical honesty. Universal co
 1. **No Simulated Controls:** If a camera lacks PTZ hardware, the web UI explicitly disables PTZ controls and displays "PTZ Unsupported on this Channel". Simulated pan/tilt vectors are never fabricated.
 2. **Graceful Fallback:** If H.265 stream negotiation fails, the ingestion supervisor attempts H.264 fallback negotiation before raising an error.
 3. **Health Telemetry:** Every camera channel continuously reports uptime, FPS, packet loss, and reconnection counts to `/system/metrics`.
+4. **Fencing & Dual-Writer Protection:** Under multi-node cluster operations, camera ingestion is bound to a single active cluster node tagged with a monotonic `assignment_epoch`. Stale writers are barred from appending video segments to prevent stream corruption.

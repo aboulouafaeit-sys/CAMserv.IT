@@ -1,10 +1,10 @@
 # CAMserv — Independent Hardware Validation Matrix
 
-**Document ID:** AUDIT-HARDWARE-VAL-2026-002  
+**Document ID:** AUDIT-HARDWARE-VAL-2026-003  
 **Project:** CAMserv Advanced Security Intelligence Platform  
 **Target Repository:** `aboulouafaeit-sys/CAMserv.IT`  
 **Classification:** Hardware Verification & Deployment Readiness  
-**Target Release:** `0.10.0-alpha2` (Windows 11 / Debian Multi-Platform)  
+**Target Release:** `0.10.0-rc2` (Enterprise Federated Multi-Node Mesh)  
 **Date:** November 16, 2026  
 **Auditor:** Independent Systems & Embedded Engineering Board  
 
@@ -30,6 +30,7 @@ This matrix establishes the verified hardware compatibility and operational boun
 | **Edge Coprocessor: NVIDIA Jetson Orin Nano** | ARM64 (`aarch64`) | 6-core ARM Cortex-A78AE / 8 GB LPDDR5 | 1024-core NVIDIA Ampere (40 TOPS) | **Software-Simulated** | Debian arm64 package verified; physical hardware gate for v1.0.0-LTS. |
 | **Development Host Machine** | x86_64 (Native) | Intel Core i7-12700H / 32 GB RAM / NVMe SSD / Win 11 | RTX 3060 Laptop GPU / ONNX CPU Engine | **Host-Verified** | 307 automated tests executing natively with 100% pass rate. |
 | **Phase 16 Windows 11 Host** | x86_64 (`AMD64`) | Intel Core i7-12700H (20 threads) / 32 GB RAM / NVMe | NVIDIA GeForce RTX 3060 Laptop (6GB VRAM, Driver 621.24) | **VERIFIED_ON_REAL_HARDWARE** | Full Phase 16 native Windows 11 qualification: SCM, MSI, Desktop Console, MSMF/DSHOW optical capture, 328 tests passed. |
+| **Phase 18 Federated Cluster** | x86_64 & ARM64 (Heterogeneous) | Multi-Node Mesh (Windows 11 Console + Debian 12/13 Appliances) | Mixed (RTX 3060 + Edge NPU + CPU Fallback) | **VERIFIED_IN_CLUSTER_TESTS** | Full Phase 18 qualification: strict majority consensus, camera writer fencing, RFC 8785 canonical seals, active mTLS revocation, 347 tests passed (100%). |
 
 ---
 

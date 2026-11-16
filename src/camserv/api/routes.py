@@ -510,9 +510,10 @@ async def health_check(request: Request) -> HealthCheckResponse:
     if not redis_ok or not milvus_ok:
         status_str = "degraded"
 
+    from camserv import __version__
     return HealthCheckResponse(
         status=status_str,
-        version="0.1.0",
+        version=__version__,
         timestamp=datetime.now(timezone.utc).isoformat(),
         components={
             "redis": {"connected": redis_ok, "status": "up" if redis_ok else "fallback"},

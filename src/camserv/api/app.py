@@ -12,6 +12,7 @@ from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from camserv import __version__
 from camserv.api.routes import router as api_v1_router
 from camserv.config.settings import CamservSettings
 from camserv.nvr.credentials import CameraCredentialVault
@@ -34,7 +35,8 @@ logger = structlog.get_logger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Lifespan context manager for connection pooling, background tasks, and clean teardown."""
-    logger.info("camserv.starting_up", version="0.1.0")
+    from camserv import __version__
+    logger.info("camserv.starting_up", version=__version__)
 
     # Connect Redis
     redis_cache: RedisCache | None = getattr(app.state, "redis_cache", None)
@@ -64,7 +66,7 @@ def create_app(settings: CamservSettings | None = None) -> FastAPI:
             "Advanced Security Intelligence Platform — real-time video analytics, "
             "tamper-evident evidence storage, and privacy-preserving AI inference."
         ),
-        version="0.1.0",
+        version=__version__,
         docs_url="/docs",
         redoc_url="/redoc",
         openapi_url="/openapi.json",
@@ -203,7 +205,8 @@ def create_app(settings: CamservSettings | None = None) -> FastAPI:
     # ---------------------------------------------------------------------------
     @app.get("/health", tags=["System"])
     async def root_health() -> dict[str, str]:
-        return {"status": "ok", "app": "CAMserv", "version": "0.1.0"}
+        from camserv import __version__
+        return {"status": "ok", "app": "CAMserv", "version": __version__}
 
     app.include_router(api_v1_router)
 

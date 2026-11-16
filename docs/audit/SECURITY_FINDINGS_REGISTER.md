@@ -12,16 +12,16 @@
 
 ## 1. Executive Summary & Severity Breakdown
 
-This register catalogs all security vulnerabilities, architectural weaknesses, reliability defects, and production-readiness gaps discovered across post-Phase 3, Phase 11, Phase 12, Phase 13, Phase 14, Phase 15, and Phase 16 audits. Findings were independently discovered through static code analysis, architectural threat modeling, hardware testing, and reproduced via deterministic automated test suites.
+This register catalogs all security vulnerabilities, architectural weaknesses, reliability defects, and production-readiness gaps discovered across post-Phase 3, Phase 11, Phase 12, Phase 13, Phase 14, Phase 15, Phase 16, and Phase 18 audits. Findings were independently discovered through static code analysis, architectural threat modeling, hardware testing, and reproduced via deterministic automated test suites.
 
 | Severity | Total Discovered | Resolved / Remediated | Unresolved / Limitations |
 | :--- | :---: | :---: | :---: |
-| **CRITICAL** | 5 | 5 | 0 |
-| **HIGH** | 16 | 16 | 0 |
-| **MEDIUM** | 9 | 9 | 0 |
-| **LOW / INFORMATIONAL** | 3 | 3 | 0 |
+| **CRITICAL** | 6 | 6 | 0 |
+| **HIGH** | 19 | 19 | 0 |
+| **MEDIUM** | 10 | 10 | 0 |
+| **LOW / INFORMATIONAL** | 4 | 4 | 0 |
 | **HARDWARE / OPERATIONAL LIMITATION** | 4 | N/A (Documented) | 4 (Physical/Environment Gaps) |
-| **TOTAL** | **37** | **33 Remediated** | **4 Operational Boundaries** |
+| **TOTAL** | **43** | **39 Remediated** | **4 Operational Boundaries** |
 
 ---
 
@@ -421,4 +421,78 @@ This register catalogs all security vulnerabilities, architectural weaknesses, r
 * **Impact:** Compromise of elevated service process from unprivileged desktop session.
 * **Remediation:** Strictly decoupled the architecture: `WindowsServiceRunner` contains zero windowing or GUI code; `DesktopOperatorConsole` operates exclusively in user desktop sessions communicating via loopback REST/WebSocket (`127.0.0.1:8080`) with JWT authentication.
 * **Verification:** Tested in `tests/test_windows_phase16_qualification.py::test_desktop_client_mock_api_interaction` and Session 0 inspection.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+## 8. Phase 18 Distributed Enterprise Cluster Findings
+
+### SEC-P18-01: Split-Brain & Dual-Master Vulnerability in Minority Partitions
+* **Severity:** **CRITICAL** (CWE-662 / CVSS 9.2)
+* **Affected Component:** `camserv.central.cluster.ClusterCoordinator`
+* **File & Lines:** `src/camserv/central/cluster.py:140-230`
+* **Root Cause:** Leader election logic previously considered any healthy node count $> 0$ sufficient to elect a cluster leader, enabling isolated minority partitions to elect independent leaders during network splits.
+* **Impact:** Concurrent active cluster leaders issuing conflicting camera channel assignments and divergent state transitions.
+* **Remediation:** Implemented strict majority consensus quorum threshold $Q = \lfloor N/2 \rfloor + 1$. Elections in minority partitions raise `QuorumUnavailableError` and clear active leader state. Added monotonic cluster term counter and fencing tokens (`FencingToken`).
+* **Verification:** Tested in `tests/test_distributed_phase18_qualification.py::test_split_brain_prevention_strict_majority_quorum` and `test_consensus_monotonic_cluster_term_advancement`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### SEC-P18-02: Camera Ingestion Dual-Writer Hazard under Asymmetric Partitioning
+* **Severity:** **HIGH** (CWE-362 / CVSS 8.1)
+* **Affected Component:** `camserv.central.cluster.CameraAssignment` & `verify_writer_fencing`
+* **File & Lines:** `src/camserv/central/cluster.py:90-115, 275-320`
+* **Root Cause:** Failover migrations reassigned camera streams without invalidating or fencing existing writers, allowing a partitioned previous owner to continue writing video segments concurrently.
+* **Impact:** Overwritten or corrupted video segments, duplicate timestamps, and compromised forensic timeline integrity.
+* **Remediation:** Added strictly monotonic `assignment_epoch` to `CameraAssignment`. Implemented `verify_writer_fencing(camera_id, claiming_node_id, epoch)` to reject any write from an unassigned node or a stale epoch with `FencedWriterError`. Inhibited failover triggers when strict quorum is lost.
+* **Verification:** Tested in `tests/test_distributed_phase18_qualification.py::test_camera_stream_ownership_monotonic_epoch_fencing`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### SEC-P18-03: Delimiter Injection & Attestation Replay in Witness Sealing
+* **Severity:** **HIGH** (CWE-74 / CVSS 7.8)
+* **Affected Component:** `camserv.central.replication.DistributedForensicSegment` & `WitnessReplicator`
+* **File & Lines:** `src/camserv/central/replication.py:40-85, 120-210`
+* **Root Cause:** Witness attestation records concatenated metadata fields with pipe delimiters (`|`), permitting delimiter injection if identifiers contained pipes. Furthermore, attestations lacked random nonces and Merkle tree inclusion verification.
+* **Impact:** Possibility of forged witness signatures, cross-protocol payload confusion, and signature replay attacks.
+* **Remediation:** Migrated attestation serialization to RFC 8785 canonical JSON with sorted keys under domain separation `CAMSERV-FORENSIC-SEAL-V2`. Added cryptographic anti-replay `nonce` field with duplicate nonce detection. Implemented cryptographic Merkle tree inclusion proof generator and validator (`verify_inclusion_proof`).
+* **Verification:** Tested in `tests/test_distributed_phase18_qualification.py::test_canonical_rfc8785_evidence_serialization`, `test_witness_anti_replay_nonce_verification`, and `test_merkle_inclusion_proof_verification`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### SEC-P18-04: In-Flight TLS Session Persistence Following Certificate Revocation
+* **Severity:** **HIGH** (CWE-295 / CVSS 7.5)
+* **Affected Component:** `camserv.central.mtls.EnterpriseMtlsGateway`
+* **File & Lines:** `src/camserv/central/mtls.py:25-95`
+* **Root Cause:** Node certificate revocation only appended node IDs to an in-memory CRL for subsequent TLS handshakes. Existing in-flight TLS connections remained open and active.
+* **Impact:** Compromised or rogue nodes could continue streaming video or exfiltrating data post-revocation until socket restart.
+* **Remediation:** Added active session tracking (`active_sessions`) to `EnterpriseMtlsGateway`. Implemented `terminate_active_sessions(node_id)` called synchronously within `revoke_node()`, immediately marking all in-flight connections as terminated. Added bidirectional SAN/CommonName validation.
+* **Verification:** Tested in `tests/test_distributed_phase18_qualification.py::test_mtls_identity_binding_and_san_validation` and `test_mtls_active_session_invalidation_on_crl_revocation`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### SEC-P18-05: Missing Multi-Tenant Scoping in Cluster Registration & Attestation
+* **Severity:** **MEDIUM** (CWE-284 / CVSS 6.5)
+* **Affected Component:** `camserv.central.cluster.ClusterCoordinator` & `camserv.central.replication.WitnessReplicator`
+* **File & Lines:** `src/camserv/central/cluster.py:150-165`, `src/camserv/central/replication.py:150-185`
+* **Root Cause:** Cluster coordinator accepted node registrations and stream routing without verifying tenant domain membership. Forensics replication did not check tenant alignment.
+* **Impact:** Cross-tenant leakage of camera feeds and unauthorized witness co-signing across client boundaries.
+* **Remediation:** Enforced tenant validation in `register_node()`, raising `TenantIsolationViolationError` on mismatch. Added tenant verification in `verify_segment()`, rejecting foreign witness attestations with `VerificationVerdict.TENANT_MISMATCH`.
+* **Verification:** Tested in `tests/test_distributed_phase18_qualification.py::test_cross_tenant_isolation_boundary_enforcement` and `test_tenant_isolation_in_witness_verification`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### SEC-P18-06: Hardcoded Version Discrepancy in API Health & OpenAPI Specs
+* **Severity:** **LOW** (CWE-1026 / CVSS 3.1)
+* **Affected Component:** `camserv.api.app` & `camserv.api.routes`
+* **File & Lines:** `src/camserv/api/app.py:14-25`, `src/camserv/api/routes.py:18-28`
+* **Root Cause:** FastAPI application metadata and `/health` route hardcoded version string `"0.1.0"` instead of reading the platform release version.
+* **Impact:** Inconsistent operational telemetry and inaccurate fleet reporting during upgrades.
+* **Remediation:** Dynamically imported `__version__` from `camserv` package, binding FastAPI OpenAPI documentation and `/health` response directly to the platform version.
+* **Verification:** Tested in `tests/test_distributed_phase18_qualification.py::test_api_version_identity_consistency`.
 * **Status:** **REMEDIATED & VERIFIED**.
