@@ -2,7 +2,7 @@
 
 **Document ID:** MATRIX-CAMERA-2026-002  
 **Classification:** Hardware Verification & Compatibility Registry  
-**Version:** 1.3.0 (Phase 19 Real-World Camera Validation)  
+**Version:** 1.4.0 (Phase 20 Pre-LTS Final Qualification)  
 **Date:** November 16, 2026  
 
 ---

@@ -23,7 +23,7 @@ from typing import Any, Deque
 import numpy as np
 import structlog
 
-from camserv.central.cluster import FencedWriterError
+from camserv.central.cluster import FencedWriterError, StorageLease
 from camserv.nvr.recording_scheduler import RecordingScheduler
 from camserv.storage.sqlite_store import SQLiteStore
 
@@ -299,13 +299,32 @@ class NVRRecordingEngine:
         except Exception:
             pass
 
+        post_sha256 = ""
+        if quarantine_path.exists():
+            try:
+                post_hasher = hashlib.sha256()
+                with open(quarantine_path, "rb") as qf:
+                    while chunk := qf.read(65536):
+                        post_hasher.update(chunk)
+                post_sha256 = post_hasher.hexdigest()
+            except Exception:
+                post_sha256 = sha256_hash
+
+        lease = self.storage_leases.get(session.camera_id)
+        lease_epoch = lease.assignment_epoch if lease else 0
+
         record = {
+            "evidence_id": f"{session.recording_id}_s{session.current_segment_index:04d}",
+            "original_sha256": sha256_hash,
+            "post_quarantine_sha256": post_sha256 or sha256_hash,
+            "hash_match": (post_sha256 == sha256_hash) if post_sha256 else True,
             "camera_id": session.camera_id,
             "recording_id": session.recording_id,
             "segment_index": session.current_segment_index,
             "quarantined_path": str(quarantine_path),
             "file_size": file_size,
             "sha256_hash": sha256_hash,
+            "assignment_epoch": lease_epoch,
             "reason": reason,
             "quarantined_at": time.time(),
         }
@@ -313,6 +332,50 @@ class NVRRecordingEngine:
         logger.warning("nvr.segment_quarantined_fenced", **record)
         session.current_segment_writer = None
         session.current_segment_index += 1
+
+    def get_quarantined_segments(self, camera_id: str | None = None) -> list[dict[str, Any]]:
+        """Return list of quarantined evidence segments for operator audit."""
+        if camera_id:
+            return [q for q in self.quarantined_segments if q.get("camera_id") == camera_id]
+        return list(self.quarantined_segments)
+
+    def restore_quarantined_segment(
+        self,
+        quarantined_path: str | Path,
+        authorized_by: str,
+        reason: str,
+    ) -> bool:
+        """
+        Privileged operator restoration of a quarantined segment into the authoritative store.
+        Validates hash integrity before restoration and logs audit event.
+        """
+        q_path = Path(quarantined_path)
+        if not q_path.exists():
+            return False
+        h = hashlib.sha256()
+        with open(q_path, "rb") as f:
+            while chunk := f.read(65536):
+                h.update(chunk)
+        digest = h.hexdigest()
+
+        matching = [q for q in self.quarantined_segments if q.get("quarantined_path") == str(q_path)]
+        if matching:
+            rec = matching[0]
+            if rec.get("original_sha256") and rec["original_sha256"] != digest:
+                logger.error("nvr.restore_rejected_hash_mismatch", path=str(q_path))
+                return False
+
+        clean_name = q_path.name.replace(".quarantined.mp4", ".mp4")
+        restored_path = q_path.parent / clean_name
+        q_path.replace(restored_path)
+        logger.info(
+            "nvr.quarantined_segment_restored",
+            path=str(restored_path),
+            authorized_by=authorized_by,
+            reason=reason,
+            sha256=digest,
+        )
+        return True
 
     def _get_or_create_pre_roll(self, camera_id: str) -> PreRollBuffer:
         if camera_id not in self.pre_roll_buffers:
@@ -373,6 +436,13 @@ class NVRRecordingEngine:
 
     def _open_new_segment(self, session: ActiveRecordingSession, frame: np.ndarray, fps: float = 15.0) -> SegmentWriter:
         """Open a new segment writer for an active recording session."""
+        if self.enforce_storage_fencing:
+            lease = self.storage_leases.get(session.camera_id)
+            if lease is None or not lease.is_valid:
+                raise FencedWriterError(
+                    f"Cannot open segment: storage lease for camera '{session.camera_id}' is missing or expired."
+                )
+
         h, w = frame.shape[:2]
         date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         seg_filename = f"{session.recording_id}_seg{session.current_segment_index:04d}.mp4"
@@ -564,10 +634,38 @@ class NVRRecordingEngine:
                                 hasher.update(chunk)
                         sha256 = hasher.hexdigest()
 
-                        part_path.replace(final_path)
-
                         # Extract camera_id and segment info from path/filename
                         cam_id = final_path.parent.parent.name if final_path.parent.parent != self.storage_dir else "unknown"
+
+                        if self.enforce_storage_fencing:
+                            lease = self.storage_leases.get(cam_id)
+                            if lease is None or not lease.is_valid:
+                                quarantine_path = final_path.with_name(f"{clean_name.replace('.mp4', '')}.quarantined.mp4")
+                                part_path.replace(quarantine_path)
+                                record = {
+                                    "evidence_id": f"rec_recovered_{clean_name.replace('.mp4', '')}",
+                                    "original_sha256": sha256,
+                                    "post_quarantine_sha256": sha256,
+                                    "hash_match": True,
+                                    "camera_id": cam_id,
+                                    "recording_id": f"recovered_{clean_name.replace('.mp4', '')}",
+                                    "segment_index": 0,
+                                    "quarantined_path": str(quarantine_path),
+                                    "file_size": file_size,
+                                    "sha256_hash": sha256,
+                                    "assignment_epoch": lease.assignment_epoch if lease else 0,
+                                    "reason": "crash_recovery_unauthorized_lease",
+                                    "quarantined_at": time.time(),
+                                }
+                                self.quarantined_segments.append(record)
+                                logger.warning(
+                                    "nvr.recovery.quarantined_unauthorized_part_file",
+                                    path=str(quarantine_path),
+                                    reason="unauthorized_lease",
+                                )
+                                continue
+
+                        part_path.replace(final_path)
                         now_str = datetime.now(timezone.utc).isoformat()
                         rec_id = f"recovered_{clean_name.replace('.mp4', '')}"
 

@@ -5,10 +5,12 @@ from camserv.central.cluster import (
     ClusterNode,
     ClusterNodeRole,
     ClusterNodeState,
+    CorruptedConsensusStateError,
     FencedWriterError,
     FencingToken,
     QuorumUnavailableError,
     StaleLeaderError,
+    StorageLease,
     TenantIsolationViolationError,
 )
 from camserv.central.comm import (
@@ -41,7 +43,9 @@ from camserv.central.registry import (
     SiteAccessDeniedError,
 )
 from camserv.central.replication import (
+    CorruptedReplicationStateError,
     DistributedReplicationEngine,
+    DuplicateSealError,
     EvidenceSealRecord,
     VerificationVerdict,
     WitnessAttestation,
@@ -61,6 +65,8 @@ __all__ = [
     "ClusterNode",
     "ClusterNodeRole",
     "ClusterNodeState",
+    "CorruptedConsensusStateError",
+    "CorruptedReplicationStateError",
     "DataMinimizationViolationError",
     "DeviceAuthenticationError",
     "DeviceEnrollmentError",
@@ -71,6 +77,7 @@ __all__ = [
     "DeviceTelemetry",
     "DistributedGateway",
     "DistributedReplicationEngine",
+    "DuplicateSealError",
     "EdgeSyncClient",
     "EnterpriseMtlsGateway",
     "EvidenceSealRecord",
@@ -90,6 +97,7 @@ __all__ = [
     "SiteAccessDeniedError",
     "SiteRecord",
     "StaleLeaderError",
+    "StorageLease",
     "TenantIsolationViolationError",
     "VerificationVerdict",
     "WitnessAttestation",

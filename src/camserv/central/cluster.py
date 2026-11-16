@@ -10,6 +10,7 @@ while guaranteeing split-brain prevention and exclusive camera ownership.
 from __future__ import annotations
 
 import json
+import os
 import time
 import uuid
 from dataclasses import asdict, dataclass, field
@@ -50,6 +51,38 @@ class FencedWriterError(RuntimeError):
 
 class TenantIsolationViolationError(PermissionError):
     """Raised when an operation attempts to cross tenant boundaries."""
+
+
+class CorruptedConsensusStateError(RuntimeError):
+    """Raised when persisted cluster consensus state is corrupted, unreadable, or violates invariants."""
+
+
+@dataclass
+class StorageLease:
+    """
+    Time-bounded, epoch-tagged exclusive storage write lease for a camera channel.
+    Guarantees that an isolated node whose lease expires cannot write or finalize segments.
+    """
+
+    camera_id: str
+    node_id: str
+    assignment_epoch: int
+    granted_at: float
+    lease_duration_sec: float
+    fencing_token: str = ""
+
+    @property
+    def expires_at(self) -> float:
+        return self.granted_at + self.lease_duration_sec
+
+    @property
+    def is_valid(self) -> bool:
+        return time.time() < self.expires_at
+
+    def renew(self, duration_sec: float | None = None) -> None:
+        self.granted_at = time.time()
+        if duration_sec is not None:
+            self.lease_duration_sec = duration_sec
 
 
 @dataclass
@@ -117,6 +150,8 @@ class ClusterCoordinator:
         heartbeat_timeout_sec: float = 10.0,
         enforce_strict_quorum: bool = False,
         state_dir: Path | str | None = None,
+        expected_cluster_size: int = 0,
+        cluster_nodes: list[str] | set[str] | None = None,
     ) -> None:
         self.local_node_id = local_node_id
         self.site_id = site_id
@@ -124,6 +159,10 @@ class ClusterCoordinator:
         self.heartbeat_timeout_sec = heartbeat_timeout_sec
         self.enforce_strict_quorum = enforce_strict_quorum
         self.state_dir = Path(state_dir).resolve() if state_dir else None
+        self.expected_cluster_size = expected_cluster_size
+        self._configured_cluster_nodes = set(cluster_nodes or [])
+        if self._configured_cluster_nodes and self.expected_cluster_size == 0:
+            self.expected_cluster_size = len(self._configured_cluster_nodes)
 
         self.cluster_term: int = 0
         self.active_fencing_token: FencingToken | None = None
@@ -171,10 +210,14 @@ class ClusterCoordinator:
                     )
             logger.info("cluster.state_restored_from_disk", term=self.cluster_term, cameras=len(self.cameras))
         except Exception as e:
-            logger.error("cluster.failed_to_load_persisted_state", error=str(e))
+            logger.critical("cluster.failed_to_load_persisted_state", error=str(e))
+            raise CorruptedConsensusStateError(
+                f"Persisted cluster state in '{state_path}' is corrupted or unreadable: {e}. "
+                "Refusing to silently reset consensus terms to 0."
+            ) from e
 
     def _persist_state(self) -> None:
-        """Atomically flushes cluster terms, fencing tokens, and assignments to durable storage."""
+        """Atomically flushes cluster terms, fencing tokens, and assignments to durable storage with fsync."""
         if not self.state_dir:
             return
         try:
@@ -187,7 +230,11 @@ class ClusterCoordinator:
             }
             tmp_path = self.state_dir / "cluster_state.json.tmp"
             final_path = self.state_dir / "cluster_state.json"
-            tmp_path.write_text(json.dumps(state_data, indent=2), encoding="utf-8")
+            payload = json.dumps(state_data, indent=2).encode("utf-8")
+            with open(tmp_path, "wb") as f:
+                f.write(payload)
+                f.flush()
+                os.fsync(f.fileno())
             tmp_path.replace(final_path)
             logger.debug("cluster.state_persisted", term=self.cluster_term)
         except Exception as e:
@@ -196,10 +243,14 @@ class ClusterCoordinator:
     @property
     def quorum_threshold(self) -> int:
         """Strict majority threshold: floor(N / 2) + 1."""
-        total_registered = len(self.nodes)
-        if total_registered == 0:
+        total_voting_members = max(
+            len(self.nodes),
+            self.expected_cluster_size,
+            len(self._configured_cluster_nodes),
+        )
+        if total_voting_members == 0:
             return 1
-        return (total_registered // 2) + 1
+        return (total_voting_members // 2) + 1
 
     @property
     def healthy_nodes_count(self) -> int:
@@ -230,10 +281,11 @@ class ClusterCoordinator:
 
         # Trigger leader election if no active leader exists and quorum is available
         if not self.current_leader_id or self.current_leader_id not in self.nodes:
-            try:
-                self.elect_leader()
-            except QuorumUnavailableError:
-                pass
+            if self.has_quorum:
+                try:
+                    self.elect_leader()
+                except QuorumUnavailableError:
+                    pass
         return True
 
     def heartbeat(self, node_id: str, telemetry: dict[str, Any] | None = None) -> bool:
@@ -381,6 +433,42 @@ class ClusterCoordinator:
         )
         self._persist_state()
         return target_node.node_id
+
+    def issue_storage_lease(
+        self,
+        camera_id: str,
+        requesting_node_id: str,
+        duration_sec: float = 30.0,
+    ) -> StorageLease:
+        """
+        Issues or renews an exclusive StorageLease for a camera channel.
+        Strict quorum gate: Minority partitions (< N/2 + 1) cannot issue valid writer leases.
+        Leader authority gate: Only the active cluster leader can issue leases.
+        """
+        if self.enforce_strict_quorum and not self.has_quorum:
+            raise QuorumUnavailableError(
+                f"Cannot issue storage lease: quorum unavailable ({self.healthy_nodes_count}/{self.quorum_threshold} nodes)."
+            )
+        if self.current_leader_id is None:
+            raise QuorumUnavailableError("Cannot issue storage lease: no active cluster leader.")
+        if camera_id not in self.cameras:
+            raise FencedWriterError(f"Camera '{camera_id}' is not registered in cluster.")
+        assignment = self.cameras[camera_id]
+        if assignment.active_node_id != requesting_node_id:
+            raise FencedWriterError(
+                f"Node '{requesting_node_id}' is not the assigned active writer '{assignment.active_node_id}' for camera '{camera_id}'."
+            )
+        now = time.time()
+        assignment.lease_expiry = now + duration_sec
+        self._persist_state()
+        return StorageLease(
+            camera_id=camera_id,
+            node_id=requesting_node_id,
+            assignment_epoch=assignment.assignment_epoch,
+            granted_at=now,
+            lease_duration_sec=duration_sec,
+            fencing_token=assignment.fencing_token,
+        )
 
     def verify_writer_fencing(
         self,

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import time
 import uuid
 from dataclasses import asdict, dataclass, field
@@ -29,6 +30,14 @@ class VerificationVerdict(str, Enum):
     UNREGISTERED_SEGMENT = "UNREGISTERED_SEGMENT"
     REPLAY_ATTACK_DETECTED = "REPLAY_ATTACK_DETECTED"
     TENANT_MISMATCH = "TENANT_MISMATCH"
+
+
+class CorruptedReplicationStateError(RuntimeError):
+    """Raised when persisted replication/nonce state is corrupted or unreadable."""
+
+
+class DuplicateSealError(ValueError):
+    """Raised when an attempt is made to overwrite or alter an existing evidence seal."""
 
 
 @dataclass
@@ -128,7 +137,11 @@ class DistributedReplicationEngine:
                 self.seen_attestation_nonces = {tuple(x) for x in raw_nonces}
                 logger.info("replication.nonces_restored_from_disk", count=len(self.seen_attestation_nonces))
             except Exception as e:
-                logger.error("replication.failed_to_load_nonces", error=str(e))
+                logger.critical("replication.failed_to_load_nonces", error=str(e))
+                raise CorruptedReplicationStateError(
+                    f"Persisted seen nonces file in '{nonces_file}' is corrupted or unreadable: {e}. "
+                    "Refusing to silently discard replay protection cache."
+                ) from e
 
         seals_file = self.state_dir / "primary_seals.json"
         if seals_file.exists():
@@ -153,30 +166,41 @@ class DistributedReplicationEngine:
                         self.merkle_leaves.append(seal.compute_canonical_evidence_digest())
                 logger.info("replication.seals_restored_from_disk", count=len(self.primary_seals))
             except Exception as e:
-                logger.error("replication.failed_to_load_seals", error=str(e))
+                logger.critical("replication.failed_to_load_seals", error=str(e))
+                raise CorruptedReplicationStateError(
+                    f"Persisted primary seals file in '{seals_file}' is corrupted or unreadable: {e}."
+                ) from e
 
     def _persist_nonces(self) -> None:
-        """Atomically persist seen nonces to disk."""
+        """Atomically persist seen nonces to disk with fsync."""
         if not self.state_dir:
             return
         try:
             tmp_path = self.state_dir / "seen_nonces.json.tmp"
             final_path = self.state_dir / "seen_nonces.json"
             nonce_list = [list(x) for x in self.seen_attestation_nonces]
-            tmp_path.write_text(json.dumps(nonce_list, indent=2), encoding="utf-8")
+            payload = json.dumps(nonce_list, indent=2).encode("utf-8")
+            with open(tmp_path, "wb") as f:
+                f.write(payload)
+                f.flush()
+                os.fsync(f.fileno())
             tmp_path.replace(final_path)
         except Exception as e:
             logger.error("replication.failed_to_persist_nonces", error=str(e))
 
     def _persist_seals(self) -> None:
-        """Atomically persist primary seals to disk."""
+        """Atomically persist primary seals to disk with fsync."""
         if not self.state_dir:
             return
         try:
             tmp_path = self.state_dir / "primary_seals.json.tmp"
             final_path = self.state_dir / "primary_seals.json"
             seals_dict = {sid: asdict(seal) for sid, seal in self.primary_seals.items()}
-            tmp_path.write_text(json.dumps(seals_dict, indent=2), encoding="utf-8")
+            payload = json.dumps(seals_dict, indent=2).encode("utf-8")
+            with open(tmp_path, "wb") as f:
+                f.write(payload)
+                f.flush()
+                os.fsync(f.fileno())
             tmp_path.replace(final_path)
         except Exception as e:
             logger.error("replication.failed_to_persist_seals", error=str(e))
@@ -186,6 +210,21 @@ class DistributedReplicationEngine:
         if seal.tenant_id != self.tenant_id:
             logger.error("replication.tenant_mismatch", seal_tenant=seal.tenant_id, engine_tenant=self.tenant_id)
             raise PermissionError(f"Evidence seal tenant '{seal.tenant_id}' does not match engine tenant '{self.tenant_id}'")
+
+        if seal.segment_id in self.primary_seals:
+            existing = self.primary_seals[seal.segment_id]
+            if existing.sha256_hash != seal.sha256_hash or existing.nonce != seal.nonce:
+                logger.error(
+                    "replication.conflicting_seal_rejected",
+                    segment_id=seal.segment_id,
+                    existing_hash=existing.sha256_hash,
+                    presented_hash=seal.sha256_hash,
+                )
+                raise DuplicateSealError(
+                    f"Conflicting seal for segment '{seal.segment_id}' rejected: existing hash {existing.sha256_hash} != {seal.sha256_hash}"
+                )
+            # Idempotent return of existing digest without duplicating Merkle leaves
+            return existing.compute_canonical_evidence_digest()
 
         self.primary_seals[seal.segment_id] = seal
         digest = seal.compute_canonical_evidence_digest()

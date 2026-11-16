@@ -16,12 +16,12 @@ This register catalogs all security vulnerabilities, architectural weaknesses, r
 
 | Severity | Total Discovered | Resolved / Remediated | Unresolved / Limitations |
 | :--- | :---: | :---: | :---: |
-| **CRITICAL** | 6 | 6 | 0 |
-| **HIGH** | 22 | 22 | 0 |
-| **MEDIUM** | 11 | 11 | 0 |
+| **CRITICAL** | 7 | 7 | 0 |
+| **HIGH** | 26 | 26 | 0 |
+| **MEDIUM** | 12 | 12 | 0 |
 | **LOW / INFORMATIONAL** | 4 | 4 | 0 |
 | **HARDWARE / OPERATIONAL LIMITATION** | 4 | N/A (Documented) | 4 (Physical/Environment Gaps) |
-| **TOTAL** | **47** | **43 Remediated** | **4 Operational Boundaries** |
+| **TOTAL** | **53** | **49 Remediated** | **4 Operational Boundaries** |
 
 ---
 
@@ -545,4 +545,78 @@ This register catalogs all security vulnerabilities, architectural weaknesses, r
 * **Impact:** Uncontrolled segment merging and potential overwrite of majority-committed recordings.
 * **Remediation:** Implemented `reconcile_partitioned_writer()` on `ClusterCoordinator`. Stale epoch writes are quarantined (`admitted=False, quarantined=True`), preserving authoritative majority footage.
 * **Verification:** Tested in `tests/test_real_cluster_phase19_qualification.py::test_partitioned_writer_reconciliation_quarantines_stale_epoch` and `test_recovering_node_cannot_overwrite_majority_committed_evidence`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+## 10. Phase 20 Pre-LTS Qualification & Storage Security Findings
+
+### SEC-P20-01: Quorum Calculation Vulnerability on Isolated Startup
+* **Severity:** **CRITICAL** (CWE-662 / CVSS 9.1)
+* **Affected Component:** `camserv.central.cluster.ClusterCoordinator` (`quorum_threshold`)
+* **File & Lines:** `src/camserv/central/cluster.py:228-235`
+* **Root Cause:** Quorum threshold was dynamically calculated solely from connected nodes (`len(nodes)`). A single isolated node booting in a planned 5-node cluster calculated $Q = \lfloor 1/2 \rfloor + 1 = 1$, electing itself leader despite 4 missing voting members.
+* **Impact:** Immediate split-brain leadership on boot under network partitions.
+* **Remediation:** Added `expected_cluster_size` and static `cluster_nodes`. Threshold calculates $Q = \lfloor \max(\text{len}(nodes), \text{expected}) / 2 \rfloor + 1$.
+* **Verification:** Tested in `tests/test_pre_lts_phase20_qualification.py::test_single_node_startup_when_configured_as_multinode`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### SEC-P20-02: Crash Recovery Storage Fencing Bypass
+* **Severity:** **HIGH** (CWE-362 / CVSS 7.8)
+* **Affected Component:** `camserv.nvr.recording_engine.NVRRecordingEngine` (`recover_incomplete_recordings`)
+* **File & Lines:** `src/camserv/nvr/recording_engine.py:645-675`
+* **Root Cause:** Incomplete `.part` files recovered after abrupt shutdown were admitted into SQLiteStore without checking if the local node held an active storage lease.
+* **Impact:** Recovered partitioned nodes admitted unauthorized video files into the authoritative evidence store.
+* **Remediation:** Enforced lease validation during recovery. Incomplete files belonging to cameras without an active valid lease are quarantined to `.quarantined.mp4`.
+* **Verification:** Tested in `tests/test_pre_lts_phase20_qualification.py::test_crash_recovery_quarantines_unleased_part_files`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### SEC-P20-03: Silent Term Regression on Corrupted Consensus State
+* **Severity:** **HIGH** (CWE-392 / CVSS 7.5)
+* **Affected Component:** `camserv.central.cluster.ClusterCoordinator` (`_load_persisted_state`)
+* **File & Lines:** `src/camserv/central/cluster.py:171-207`
+* **Root Cause:** Exceptions during state loading were caught and swallowed, silently resetting `cluster_term = 0`.
+* **Impact:** Term rewind and loss of monotonic epoch guarantees following state corruption.
+* **Remediation:** Raised `CorruptedConsensusStateError`. System fails closed and refuses to reset term to 0.
+* **Verification:** Tested in `tests/test_pre_lts_phase20_qualification.py::test_corrupted_consensus_state_fails_closed`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### SEC-P20-04: Silent Replay Guard Loss on Corrupted Nonce Cache
+* **Severity:** **HIGH** (CWE-294 / CVSS 7.5)
+* **Affected Component:** `camserv.central.replication.DistributedReplicationEngine` (`_load_persisted_state`)
+* **File & Lines:** `src/camserv/central/replication.py:128-165`
+* **Root Cause:** Corrupted `seen_nonces.json` fell back to an empty set, allowing replay attacks across restarts.
+* **Impact:** Attackers could replay previously verified attestation packets post-reboot.
+* **Remediation:** Raised `CorruptedReplicationStateError`, failing closed.
+* **Verification:** Tested in `tests/test_pre_lts_phase20_qualification.py::test_corrupted_nonce_cache_fails_closed`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### SEC-P20-05: Conflicting Primary Seal Silent Overwrite
+* **Severity:** **MEDIUM** (CWE-436 / CVSS 6.5)
+* **Affected Component:** `camserv.central.replication.DistributedReplicationEngine` (`register_evidence_seal`)
+* **File & Lines:** `src/camserv/central/replication.py:192-210`
+* **Root Cause:** Calling `register_evidence_seal` with an existing `segment_id` and divergent hash overwrote the primary seal and duplicated Merkle leaves.
+* **Impact:** Potential evidence replacement or Merkle tree divergence.
+* **Remediation:** Enforced immutability. Conflicting hashes raise `DuplicateSealError`. Identical seals are idempotent.
+* **Verification:** Tested in `tests/test_pre_lts_phase20_qualification.py::test_duplicate_and_conflicting_primary_seal_handling`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### SEC-P20-06: Unfenced Writer Lease Issuance on Minority Partition
+* **Severity:** **HIGH** (CWE-285 / CVSS 7.4)
+* **Affected Component:** `camserv.central.cluster.ClusterCoordinator` (`issue_storage_lease`)
+* **File & Lines:** `src/camserv/central/cluster.py:435-470`
+* **Root Cause:** Coordinator lacked an explicit quorum-gated lease issuance method, permitting minority coordinators to grant writer leases.
+* **Impact:** Minority partitions could continue authorizing local writes.
+* **Remediation:** Added `issue_storage_lease()`. Verifies active leader role and strict quorum before issuing leases.
+* **Verification:** Tested in `tests/test_pre_lts_phase20_qualification.py::test_minority_partition_cannot_issue_storage_lease`.
 * **Status:** **REMEDIATED & VERIFIED**.
