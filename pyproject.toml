@@ -80,6 +80,8 @@ dev = [
 
 [project.scripts]
 camserv = "camserv.main:main"
+camserv-service = "camserv.platform.windows.service:main"
+camserv-console = "camserv.desktop.main:main"
 
 [project.urls]
 Homepage = "https://github.com/camserv/camserv"

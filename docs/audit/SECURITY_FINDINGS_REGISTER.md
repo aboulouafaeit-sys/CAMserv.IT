@@ -387,3 +387,38 @@ This register catalogs all security vulnerabilities, architectural weaknesses, r
 * **Remediation:** Enforced synchronized locking and active `judicial_hold=True` exclusion before disk unlinking.
 * **Verification:** Tested in `tests/test_audit_phase14_qualification.py::test_stage_g_and_h_18_stage_lifecycle_upgrade_rollback_and_concurrent_hold` (Scenario 18).
 * **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+## 7. Phase 16 Windows 11 Implementation Findings
+
+### SEC-P16-01: Windows MSI Uninstallation Evidence Destruction Prevention
+* **Severity:** **HIGH** (CWE-404 / CVSS 7.8)
+* **Affected Component:** `deploy/windows/build_msi.py`
+* **Root Cause:** Standard Windows Installer component lifecycles remove all authored directory paths on package uninstall (`MsiInstallProduct` / `REMOVE=ALL`).
+* **Impact:** Uninstalling or upgrading the Windows package would erase recorded video files and signed digital forensic vaults.
+* **Remediation:** Configured `msidbComponentAttributesPermanent` (`0x0010`) on components `cmp_recordings`, `cmp_vault`, and `cmp_data`.
+* **Verification:** Tested in `tests/test_windows_phase16_qualification.py::test_windows_msi_tables_and_service_schema`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### SEC-P16-02: Plaintext Windows Credential Storage Elimination via DPAPI
+* **Severity:** **HIGH** (CWE-312 / CVSS 7.5)
+* **Affected Component:** `camserv.platform.windows.credentials.WindowsDPAPIVault`
+* **Root Cause:** Windows services often store credentials in plaintext YAML or registry keys vulnerable to unprivileged inspection.
+* **Impact:** Local privilege escalation or credential theft by malicious local users.
+* **Remediation:** Integrated Win32 `CryptProtectData` with `_CRYPTPROTECT_LOCAL_MACHINE` and `_CRYPTPROTECT_UI_FORBIDDEN` to encrypt all camera passwords and signing keys bound to local machine hardware context.
+* **Verification:** Tested in `tests/test_windows_phase16_qualification.py::test_windows_dpapi_machine_protection`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### SEC-P16-03: Session 0 Shatter Attack Mitigation via Decoupled Console Architecture
+* **Severity:** **HIGH** (CWE-250 / CVSS 7.4)
+* **Affected Component:** `camserv.platform.windows.service.WindowsServiceRunner` & `camserv.desktop.console.DesktopOperatorConsole`
+* **Root Cause:** Running GUI widgets directly inside Session 0 Windows Services exposes the process to shatter attacks and GUI isolation failures.
+* **Impact:** Compromise of elevated service process from unprivileged desktop session.
+* **Remediation:** Strictly decoupled the architecture: `WindowsServiceRunner` contains zero windowing or GUI code; `DesktopOperatorConsole` operates exclusively in user desktop sessions communicating via loopback REST/WebSocket (`127.0.0.1:8080`) with JWT authentication.
+* **Verification:** Tested in `tests/test_windows_phase16_qualification.py::test_desktop_client_mock_api_interaction` and Session 0 inspection.
+* **Status:** **REMEDIATED & VERIFIED**.

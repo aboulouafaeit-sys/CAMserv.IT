@@ -39,6 +39,7 @@ CAMserv adheres to an uncompromising standard of technical honesty. Universal co
 | **Axis Communications**| M-Series, P-Series | Topology B & C | 99.2% | RTSPS over TLS, Profile S/T, Ultra-low handshake latency. |
 | **Hanwha Techwin** | Wisenet X & Q Series | Topology A & C | 98.0% | H.265 RTSP, ONVIF Profile S, Dynamic frame-rate scaling. |
 | **Generic ONVIF IP** | Standard WS-Discovery endpoints | Topology C | 95.0% | Profile S discovery, RTSP H.264 streaming. |
+| **Windows Optical Webcam (Host)** | Integrated Webcam / USB UVC | Direct Host Interface | 100.0% | `VERIFIED_ON_REAL_HARDWARE`. 640x480 RGB frame acquisition via DirectShow / Media Foundation. |
 | **Synthetic Feeds** | CI Test Harness Generator | All Topologies | 100.0% | Deterministic resolution, FPS, packet loss emulation. |
 
 ---

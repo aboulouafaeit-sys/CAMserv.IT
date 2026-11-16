@@ -18,11 +18,12 @@
 | **Open Critical Findings** | 0 Critical Vulnerabilities | 0 Open (All 5 Remediated & Verified) | **CLEARED** |
 | **Open High Findings** | 0 High Vulnerabilities | 0 Open (All 13 Remediated & Verified) | **CLEARED** |
 | **Open Medium Findings** | 0 Uncontrolled Medium Defects | 0 Open (All 9 Remediated & Verified) | **CLEARED** |
-| **Automated Test Suite** | 100% Pass Rate ($\ge 279$ tests) | **307 / 307 Passed in 49.96s** | **CLEARED** |
+| **Automated Test Suite** | 100% Pass Rate ($\ge 279$ tests) | **328 / 328 Passed in 48.82s** | **CLEARED** |
 | **Audit Log Baseline** | Exact match (20,977 bytes) | **20,977 bytes / SHA-256 Intact** | **CLEARED** |
 | **Fail-Closed Privacy** | Mandatory blackout on all paths | Verified across streaming & export | **CLEARED** |
-| **Software Packaging** | Valid Debian `.deb` & systemd units | Deterministic packages, 0 copyleft | **CLEARED** |
-| **Overall Software Gate** | **Release Candidate 0.9.0-rc1** | **ALL SOFTWARE CRITERIA SATISFIED** | **CONDITIONAL PASS** |
+| **Software Packaging** | Valid Debian `.deb` & Windows `.msi` | Deterministic Debian & MSI packages | **CLEARED** |
+| **Windows 11 Qualification** | Native SCM, Console, Optical Capture | 100% verified on physical host | **CLEARED** |
+| **Overall Software Gate** | **Release 0.10.0-alpha2** | **ALL MULTI-PLATFORM CRITERIA SATISFIED** | **QUALIFIED PASS** |
 
 ---
 

@@ -29,6 +29,7 @@ This matrix establishes the verified hardware compatibility and operational boun
 | **Edge Coprocessor: Raspberry Pi 5** | ARM64 (`aarch64`) | Broadcom BCM2712 / 8 GB LPDDR4x / PCIe 2.0 HAT | Raspberry Pi AI HAT+ (Hailo-8L) | **Software-Simulated** | Debian arm64 package verified; physical hardware gate for v1.0.0-LTS. |
 | **Edge Coprocessor: NVIDIA Jetson Orin Nano** | ARM64 (`aarch64`) | 6-core ARM Cortex-A78AE / 8 GB LPDDR5 | 1024-core NVIDIA Ampere (40 TOPS) | **Software-Simulated** | Debian arm64 package verified; physical hardware gate for v1.0.0-LTS. |
 | **Development Host Machine** | x86_64 (Native) | Intel Core i7-12700H / 32 GB RAM / NVMe SSD / Win 11 | RTX 3060 Laptop GPU / ONNX CPU Engine | **Host-Verified** | 307 automated tests executing natively with 100% pass rate. |
+| **Phase 16 Windows 11 Host** | x86_64 (`AMD64`) | Intel Core i7-12700H (20 threads) / 32 GB RAM / NVMe | NVIDIA GeForce RTX 3060 Laptop (6GB VRAM, Driver 621.24) | **VERIFIED_ON_REAL_HARDWARE** | Full Phase 16 native Windows 11 qualification: SCM, MSI, Desktop Console, MSMF/DSHOW optical capture, 328 tests passed. |
 
 ---
 
