@@ -23,6 +23,7 @@ from typing import Any, Deque
 import numpy as np
 import structlog
 
+from camserv.central.cluster import FencedWriterError
 from camserv.nvr.recording_scheduler import RecordingScheduler
 from camserv.storage.sqlite_store import SQLiteStore
 
@@ -181,6 +182,34 @@ class SegmentWriter:
 
 
 @dataclass
+class StorageLease:
+    """
+    Time-bounded, epoch-tagged exclusive storage write lease for a camera channel.
+    Guarantees that an isolated node whose lease expires cannot write or finalize segments.
+    """
+
+    camera_id: str
+    node_id: str
+    assignment_epoch: int
+    granted_at: float
+    lease_duration_sec: float
+    fencing_token: str = ""
+
+    @property
+    def expires_at(self) -> float:
+        return self.granted_at + self.lease_duration_sec
+
+    @property
+    def is_valid(self) -> bool:
+        return time.time() < self.expires_at
+
+    def renew(self, duration_sec: float | None = None) -> None:
+        self.granted_at = time.time()
+        if duration_sec is not None:
+            self.lease_duration_sec = duration_sec
+
+
+@dataclass
 class ActiveRecordingSession:
     """In-flight recording state for a camera."""
 
@@ -214,6 +243,8 @@ class NVRRecordingEngine:
         pre_roll_seconds: float = 15.0,
         post_roll_seconds: float = 30.0,
         quota_max_usage_percent: float = 90.0,
+        storage_leases: dict[str, StorageLease] | None = None,
+        enforce_storage_fencing: bool = False,
     ) -> None:
         self.storage_dir = Path(storage_dir).resolve()
         self.storage_dir.mkdir(parents=True, exist_ok=True)
@@ -227,6 +258,61 @@ class NVRRecordingEngine:
 
         self.active_sessions: dict[str, ActiveRecordingSession] = {}
         self.pre_roll_buffers: dict[str, PreRollBuffer] = {}
+        self.storage_leases: dict[str, StorageLease] = dict(storage_leases or {})
+        self.enforce_storage_fencing = enforce_storage_fencing
+        self.quarantined_segments: list[dict[str, Any]] = []
+
+    def grant_storage_lease(self, lease: StorageLease) -> None:
+        """Grant or renew an exclusive time-bounded storage write lease for a camera channel."""
+        self.storage_leases[lease.camera_id] = lease
+        logger.info(
+            "nvr.storage_lease_granted",
+            camera_id=lease.camera_id,
+            node_id=lease.node_id,
+            epoch=lease.assignment_epoch,
+            expires_at=lease.expires_at,
+        )
+
+    def revoke_storage_lease(self, camera_id: str) -> bool:
+        """Immediately revoke a storage write lease and quarantine active in-flight writes."""
+        if camera_id in self.storage_leases:
+            del self.storage_leases[camera_id]
+            logger.warning("nvr.storage_lease_revoked", camera_id=camera_id)
+            session = self.active_sessions.get(camera_id)
+            if session and session.current_segment_writer:
+                self._quarantine_current_segment(session, reason="storage_lease_revoked")
+            return True
+        return False
+
+    def _quarantine_current_segment(self, session: ActiveRecordingSession, reason: str = "fenced") -> None:
+        """Safely closes an active writer and moves the segment file to quarantined storage."""
+        writer = session.current_segment_writer
+        if writer is None:
+            return
+        final_path, file_size, sha256_hash, duration = writer.close()
+        quarantine_path = final_path.with_name(f"{final_path.stem}.quarantined.mp4")
+        try:
+            if final_path.exists():
+                final_path.replace(quarantine_path)
+            elif writer.part_path.exists():
+                writer.part_path.replace(quarantine_path)
+        except Exception:
+            pass
+
+        record = {
+            "camera_id": session.camera_id,
+            "recording_id": session.recording_id,
+            "segment_index": session.current_segment_index,
+            "quarantined_path": str(quarantine_path),
+            "file_size": file_size,
+            "sha256_hash": sha256_hash,
+            "reason": reason,
+            "quarantined_at": time.time(),
+        }
+        self.quarantined_segments.append(record)
+        logger.warning("nvr.segment_quarantined_fenced", **record)
+        session.current_segment_writer = None
+        session.current_segment_index += 1
 
     def _get_or_create_pre_roll(self, camera_id: str) -> PreRollBuffer:
         if camera_id not in self.pre_roll_buffers:
@@ -303,6 +389,13 @@ class NVRRecordingEngine:
         if writer is None:
             return
 
+        if self.enforce_storage_fencing:
+            lease = self.storage_leases.get(session.camera_id)
+            if lease is None or not lease.is_valid:
+                logger.error("nvr.segment_finalization_fenced", camera_id=session.camera_id)
+                self._quarantine_current_segment(session, reason="lease_expired_at_finalization")
+                return
+
         end_ts = time.time()
         final_path, file_size, sha256_hash, duration = writer.close()
         session.total_size_bytes += file_size
@@ -367,6 +460,24 @@ class NVRRecordingEngine:
         session = self.active_sessions.get(camera_id)
         if session is None:
             return
+
+        # Storage-level writer fencing check
+        if self.enforce_storage_fencing:
+            lease = self.storage_leases.get(camera_id)
+            if lease is None:
+                logger.error("nvr.storage_write_rejected_no_lease", camera_id=camera_id)
+                raise FencedWriterError(f"Storage write rejected: camera '{camera_id}' has no granted storage lease.")
+            if not lease.is_valid:
+                logger.error(
+                    "nvr.storage_write_rejected_lease_expired",
+                    camera_id=camera_id,
+                    epoch=lease.assignment_epoch,
+                    expires_at=lease.expires_at,
+                    now=time.time(),
+                )
+                raise FencedWriterError(
+                    f"Storage write rejected: storage lease for camera '{camera_id}' has expired at {lease.expires_at} (epoch {lease.assignment_epoch})."
+                )
 
         # Check post-roll timeout for event recordings
         if session.recording_type == "event" and session.post_roll_until > 0:

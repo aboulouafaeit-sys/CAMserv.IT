@@ -9,10 +9,12 @@ while guaranteeing split-brain prevention and exclusive camera ownership.
 
 from __future__ import annotations
 
+import json
 import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from enum import Enum
+from pathlib import Path
 from typing import Any
 
 import structlog
@@ -114,12 +116,14 @@ class ClusterCoordinator:
         tenant_id: str = "default",
         heartbeat_timeout_sec: float = 10.0,
         enforce_strict_quorum: bool = False,
+        state_dir: Path | str | None = None,
     ) -> None:
         self.local_node_id = local_node_id
         self.site_id = site_id
         self.tenant_id = tenant_id
         self.heartbeat_timeout_sec = heartbeat_timeout_sec
         self.enforce_strict_quorum = enforce_strict_quorum
+        self.state_dir = Path(state_dir).resolve() if state_dir else None
 
         self.cluster_term: int = 0
         self.active_fencing_token: FencingToken | None = None
@@ -127,6 +131,67 @@ class ClusterCoordinator:
         self.cameras: dict[str, CameraAssignment] = {}
         self.current_leader_id: str | None = None
         self.failover_history: list[dict[str, Any]] = []
+
+        if self.state_dir:
+            self.state_dir.mkdir(parents=True, exist_ok=True)
+            self._load_persisted_state()
+
+    def _load_persisted_state(self) -> None:
+        """Durable state recovery: restores monotonic terms and assignments across process restarts."""
+        if not self.state_dir:
+            return
+        state_path = self.state_dir / "cluster_state.json"
+        if not state_path.exists():
+            return
+        try:
+            raw = json.loads(state_path.read_text(encoding="utf-8"))
+            self.cluster_term = max(self.cluster_term, int(raw.get("cluster_term", 0)))
+            token_raw = raw.get("active_fencing_token")
+            if token_raw and isinstance(token_raw, dict):
+                self.active_fencing_token = FencingToken(
+                    token_id=token_raw.get("token_id", ""),
+                    leader_id=token_raw.get("leader_id", ""),
+                    term=int(token_raw.get("term", self.cluster_term)),
+                    tenant_id=token_raw.get("tenant_id", self.tenant_id),
+                    issued_at=float(token_raw.get("issued_at", time.time())),
+                )
+            cameras_raw = raw.get("cameras", {})
+            for cid, cdata in cameras_raw.items():
+                if isinstance(cdata, dict):
+                    self.cameras[cid] = CameraAssignment(
+                        camera_id=cdata.get("camera_id", cid),
+                        primary_node_id=cdata.get("primary_node_id", ""),
+                        active_node_id=cdata.get("active_node_id", ""),
+                        rtsp_url=cdata.get("rtsp_url", ""),
+                        assignment_epoch=int(cdata.get("assignment_epoch", 1)),
+                        fencing_token=cdata.get("fencing_token", ""),
+                        tenant_id=cdata.get("tenant_id", self.tenant_id),
+                        is_active=bool(cdata.get("is_active", True)),
+                        lease_expiry=float(cdata.get("lease_expiry", 0.0)),
+                    )
+            logger.info("cluster.state_restored_from_disk", term=self.cluster_term, cameras=len(self.cameras))
+        except Exception as e:
+            logger.error("cluster.failed_to_load_persisted_state", error=str(e))
+
+    def _persist_state(self) -> None:
+        """Atomically flushes cluster terms, fencing tokens, and assignments to durable storage."""
+        if not self.state_dir:
+            return
+        try:
+            state_data = {
+                "cluster_term": self.cluster_term,
+                "active_fencing_token": asdict(self.active_fencing_token) if self.active_fencing_token else None,
+                "current_leader_id": self.current_leader_id,
+                "cameras": {cid: asdict(cas) for cid, cas in self.cameras.items()},
+                "updated_at": time.time(),
+            }
+            tmp_path = self.state_dir / "cluster_state.json.tmp"
+            final_path = self.state_dir / "cluster_state.json"
+            tmp_path.write_text(json.dumps(state_data, indent=2), encoding="utf-8")
+            tmp_path.replace(final_path)
+            logger.debug("cluster.state_persisted", term=self.cluster_term)
+        except Exception as e:
+            logger.error("cluster.failed_to_persist_state", error=str(e))
 
     @property
     def quorum_threshold(self) -> int:
@@ -245,6 +310,7 @@ class ClusterCoordinator:
             fencing_token=token_id,
             quorum_count=len(healthy_nodes),
         )
+        self._persist_state()
         return self.current_leader_id
 
     def verify_leader_fencing(self, presented_term: int, presented_leader_id: str) -> bool:
@@ -313,6 +379,7 @@ class ClusterCoordinator:
             epoch=initial_epoch,
             fencing_token=fencing_token,
         )
+        self._persist_state()
         return target_node.node_id
 
     def verify_writer_fencing(
@@ -358,6 +425,62 @@ class ClusterCoordinator:
             )
 
         return True
+
+    def reconcile_partitioned_writer(
+        self,
+        camera_id: str,
+        recovering_node_id: str,
+        reported_epoch: int,
+        pending_segments: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        """
+        Safely reconciles a recovering partitioned node.
+        Guarantees that uncommitted segments recorded under a stale epoch are quarantined
+        and cannot overwrite newer segments committed by the majority failover writer.
+        """
+        if camera_id not in self.cameras:
+            return {
+                "admitted": False,
+                "quarantined": True,
+                "reason": f"Camera '{camera_id}' has no cluster assignment.",
+                "admitted_segments": 0,
+                "quarantined_segments": len(pending_segments or []),
+            }
+
+        assignment = self.cameras[camera_id]
+        if reported_epoch < assignment.assignment_epoch:
+            logger.warning(
+                "cluster.reconciliation_stale_epoch_quarantined",
+                camera_id=camera_id,
+                node_id=recovering_node_id,
+                reported_epoch=reported_epoch,
+                active_epoch=assignment.assignment_epoch,
+                quarantined_count=len(pending_segments or []),
+            )
+            return {
+                "admitted": False,
+                "quarantined": True,
+                "reason": f"Stale writer epoch {reported_epoch} superseded by active cluster epoch {assignment.assignment_epoch}.",
+                "admitted_segments": 0,
+                "quarantined_segments": len(pending_segments or []),
+            }
+
+        if assignment.active_node_id != recovering_node_id:
+            return {
+                "admitted": False,
+                "quarantined": True,
+                "reason": f"Node '{recovering_node_id}' is not the active owner '{assignment.active_node_id}'.",
+                "admitted_segments": 0,
+                "quarantined_segments": len(pending_segments or []),
+            }
+
+        return {
+            "admitted": True,
+            "quarantined": False,
+            "reason": "Epoch and ownership match active cluster state.",
+            "admitted_segments": len(pending_segments or []),
+            "quarantined_segments": 0,
+        }
 
     def check_cluster_health(self) -> dict[str, Any]:
         """Audit heartbeats, identify dead nodes, enforce quorum, and trigger failovers."""
@@ -449,6 +572,7 @@ class ClusterCoordinator:
             self.failover_history.append(event)
             logger.warning("cluster.camera_failed_over_with_fencing", **event)
 
+        self._persist_state()
         return reassigned
 
     def quarantine_node(self, node_id: str, reason: str) -> bool:

@@ -14,6 +14,7 @@ import time
 import uuid
 from dataclasses import asdict, dataclass, field
 from enum import Enum
+from pathlib import Path
 from typing import Any
 
 import structlog
@@ -96,10 +97,13 @@ class DistributedReplicationEngine:
         local_node_id: str,
         tenant_id: str = "default",
         quorum_threshold: int = 2,
+        state_dir: Path | str | None = None,
     ) -> None:
         self.local_node_id = local_node_id
         self.tenant_id = tenant_id
         self.quorum_threshold = quorum_threshold
+        self.state_dir = Path(state_dir).resolve() if state_dir else None
+
         # segment_id -> EvidenceSealRecord
         self.primary_seals: dict[str, EvidenceSealRecord] = {}
         # segment_id -> list[WitnessAttestation]
@@ -108,6 +112,74 @@ class DistributedReplicationEngine:
         self.seen_attestation_nonces: set[tuple[str, str]] = set()
         # Merkle tree leaf hashes (digest -> leaf index)
         self.merkle_leaves: list[str] = []
+
+        if self.state_dir:
+            self.state_dir.mkdir(parents=True, exist_ok=True)
+            self._load_persisted_state()
+
+    def _load_persisted_state(self) -> None:
+        """Durable forensic replay protection: reload seen nonces and primary seals across witness reboots."""
+        if not self.state_dir:
+            return
+        nonces_file = self.state_dir / "seen_nonces.json"
+        if nonces_file.exists():
+            try:
+                raw_nonces = json.loads(nonces_file.read_text(encoding="utf-8"))
+                self.seen_attestation_nonces = {tuple(x) for x in raw_nonces}
+                logger.info("replication.nonces_restored_from_disk", count=len(self.seen_attestation_nonces))
+            except Exception as e:
+                logger.error("replication.failed_to_load_nonces", error=str(e))
+
+        seals_file = self.state_dir / "primary_seals.json"
+        if seals_file.exists():
+            try:
+                raw_seals = json.loads(seals_file.read_text(encoding="utf-8"))
+                for sid, sdata in raw_seals.items():
+                    if isinstance(sdata, dict):
+                        seal = EvidenceSealRecord(
+                            segment_id=sdata.get("segment_id", sid),
+                            camera_id=sdata.get("camera_id", ""),
+                            origin_node_id=sdata.get("origin_node_id", ""),
+                            sha256_hash=sdata.get("sha256_hash", ""),
+                            start_timestamp=float(sdata.get("start_timestamp", 0.0)),
+                            end_timestamp=float(sdata.get("end_timestamp", 0.0)),
+                            frame_count=int(sdata.get("frame_count", 0)),
+                            tenant_id=sdata.get("tenant_id", self.tenant_id),
+                            nonce=sdata.get("nonce", ""),
+                            signature=sdata.get("signature", ""),
+                            created_at=float(sdata.get("created_at", time.time())),
+                        )
+                        self.primary_seals[sid] = seal
+                        self.merkle_leaves.append(seal.compute_canonical_evidence_digest())
+                logger.info("replication.seals_restored_from_disk", count=len(self.primary_seals))
+            except Exception as e:
+                logger.error("replication.failed_to_load_seals", error=str(e))
+
+    def _persist_nonces(self) -> None:
+        """Atomically persist seen nonces to disk."""
+        if not self.state_dir:
+            return
+        try:
+            tmp_path = self.state_dir / "seen_nonces.json.tmp"
+            final_path = self.state_dir / "seen_nonces.json"
+            nonce_list = [list(x) for x in self.seen_attestation_nonces]
+            tmp_path.write_text(json.dumps(nonce_list, indent=2), encoding="utf-8")
+            tmp_path.replace(final_path)
+        except Exception as e:
+            logger.error("replication.failed_to_persist_nonces", error=str(e))
+
+    def _persist_seals(self) -> None:
+        """Atomically persist primary seals to disk."""
+        if not self.state_dir:
+            return
+        try:
+            tmp_path = self.state_dir / "primary_seals.json.tmp"
+            final_path = self.state_dir / "primary_seals.json"
+            seals_dict = {sid: asdict(seal) for sid, seal in self.primary_seals.items()}
+            tmp_path.write_text(json.dumps(seals_dict, indent=2), encoding="utf-8")
+            tmp_path.replace(final_path)
+        except Exception as e:
+            logger.error("replication.failed_to_persist_seals", error=str(e))
 
     def register_evidence_seal(self, seal: EvidenceSealRecord) -> str:
         """Register a new evidence segment seal on the origin node."""
@@ -125,6 +197,7 @@ class DistributedReplicationEngine:
             digest=digest,
             nonce=seal.nonce,
         )
+        self._persist_seals()
         return digest
 
     def submit_witness_attestation(self, attestation: WitnessAttestation, segment_id: str) -> bool:
@@ -148,6 +221,7 @@ class DistributedReplicationEngine:
             return False
 
         self.seen_attestation_nonces.add(nonce_key)
+        self._persist_nonces()
         self.witness_attestations[segment_id].append(attestation)
         logger.info(
             "replication.witness_attestation_recorded",

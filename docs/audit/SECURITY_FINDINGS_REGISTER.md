@@ -12,16 +12,16 @@
 
 ## 1. Executive Summary & Severity Breakdown
 
-This register catalogs all security vulnerabilities, architectural weaknesses, reliability defects, and production-readiness gaps discovered across post-Phase 3, Phase 11, Phase 12, Phase 13, Phase 14, Phase 15, Phase 16, and Phase 18 audits. Findings were independently discovered through static code analysis, architectural threat modeling, hardware testing, and reproduced via deterministic automated test suites.
+This register catalogs all security vulnerabilities, architectural weaknesses, reliability defects, and production-readiness gaps discovered across post-Phase 3, Phase 11, Phase 12, Phase 13, Phase 14, Phase 15, Phase 16, Phase 18, and Phase 19 audits. Findings were independently discovered through static code analysis, architectural threat modeling, hardware testing, and reproduced via deterministic automated test suites.
 
 | Severity | Total Discovered | Resolved / Remediated | Unresolved / Limitations |
 | :--- | :---: | :---: | :---: |
 | **CRITICAL** | 6 | 6 | 0 |
-| **HIGH** | 19 | 19 | 0 |
-| **MEDIUM** | 10 | 10 | 0 |
+| **HIGH** | 22 | 22 | 0 |
+| **MEDIUM** | 11 | 11 | 0 |
 | **LOW / INFORMATIONAL** | 4 | 4 | 0 |
 | **HARDWARE / OPERATIONAL LIMITATION** | 4 | N/A (Documented) | 4 (Physical/Environment Gaps) |
-| **TOTAL** | **43** | **39 Remediated** | **4 Operational Boundaries** |
+| **TOTAL** | **47** | **43 Remediated** | **4 Operational Boundaries** |
 
 ---
 
@@ -495,4 +495,54 @@ This register catalogs all security vulnerabilities, architectural weaknesses, r
 * **Impact:** Inconsistent operational telemetry and inaccurate fleet reporting during upgrades.
 * **Remediation:** Dynamically imported `__version__` from `camserv` package, binding FastAPI OpenAPI documentation and `/health` response directly to the platform version.
 * **Verification:** Tested in `tests/test_distributed_phase18_qualification.py::test_api_version_identity_consistency`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+## 9. Phase 19 Real-World Enterprise Cluster Findings
+
+### SEC-P19-01: Storage-Level Writer Fencing Decoupling
+* **Severity:** **HIGH** (CWE-362 / CVSS 8.4)
+* **Affected Component:** `camserv.nvr.recording_engine.NVRRecordingEngine`
+* **File & Lines:** `src/camserv/nvr/recording_engine.py:230-310, 420-475`
+* **Root Cause:** Fencing checks were enforced only on administrative coordinator calls. `NVRRecordingEngine` wrote frames directly to disk without checking fencing tokens, allowing a network-isolated node to continue recording and creating dual-writer conflicts upon reconnect.
+* **Impact:** Corrupted video segments, duplicate segment indices, and divergent forensic timelines under network partitions.
+* **Remediation:** Created `StorageLease` protocol with time-bounded expiration and monotonic epochs. Integrated lease validation into `ingest_frame()` and `_finalize_current_segment()`. Unleased or expired writes raise `FencedWriterError` and in-flight segments are quarantined to `.quarantined.mp4` without database commits.
+* **Verification:** Tested in `tests/test_real_cluster_phase19_qualification.py::test_storage_level_writer_fencing_rejects_unleased_camera`, `test_storage_level_writer_fencing_rejects_expired_lease`, and `test_storage_level_writer_fencing_quarantines_segment_on_lease_expiry`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### SEC-P19-02: Volatile Consensus Term & State Reset on Reboot
+* **Severity:** **HIGH** (CWE-662 / CVSS 7.9)
+* **Affected Component:** `camserv.central.cluster.ClusterCoordinator`
+* **File & Lines:** `src/camserv/central/cluster.py:112-165`
+* **Root Cause:** Cluster terms, active fencing tokens, and camera epochs were stored only in memory (`self.cluster_term = 0`), resetting to zero on process restart and violating term monotonicity.
+* **Impact:** Consensus deadlock or split-brain leadership proposals upon coordinator reboot.
+* **Remediation:** Added durable state persistence to `ClusterCoordinator`. Persisted terms and tokens to `cluster_state.json` via atomic `.tmp` replace. Reloaded persisted term on startup.
+* **Verification:** Tested in `tests/test_real_cluster_phase19_qualification.py::test_durable_consensus_term_recovery_across_reboots`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### SEC-P19-03: Volatile Witness Nonce Reset & Post-Reboot Replay
+* **Severity:** **HIGH** (CWE-294 / CVSS 7.5)
+* **Affected Component:** `camserv.central.replication.DistributedReplicationEngine`
+* **File & Lines:** `src/camserv/central/replication.py:95-145`
+* **Root Cause:** `seen_attestation_nonces` was an in-memory set, wiped clean upon witness appliance restart, permitting historical witness attestation replay attacks.
+* **Impact:** Replay attacks against forensic witness verification post-reboot.
+* **Remediation:** Added durable persistence to `DistributedReplicationEngine`, saving observed nonces to `seen_nonces.json` atomically and reloading on reboot.
+* **Verification:** Tested in `tests/test_real_cluster_phase19_qualification.py::test_durable_witness_nonce_persistence_across_reboots`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### SEC-P19-04: Partitioned Segment Reconnection & Stale Evidence Ingestion Hazard
+* **Severity:** **MEDIUM** (CWE-436 / CVSS 6.8)
+* **Affected Component:** `camserv.central.cluster.ClusterCoordinator` (reconcile_partitioned_writer)
+* **File & Lines:** `src/camserv/central/cluster.py:430-485`
+* **Root Cause:** Recovering partitioned nodes reconnected without an authoritative reconciliation check, risking silent divergence of recorded video evidence.
+* **Impact:** Uncontrolled segment merging and potential overwrite of majority-committed recordings.
+* **Remediation:** Implemented `reconcile_partitioned_writer()` on `ClusterCoordinator`. Stale epoch writes are quarantined (`admitted=False, quarantined=True`), preserving authoritative majority footage.
+* **Verification:** Tested in `tests/test_real_cluster_phase19_qualification.py::test_partitioned_writer_reconciliation_quarantines_stale_epoch` and `test_recovering_node_cannot_overwrite_majority_committed_evidence`.
 * **Status:** **REMEDIATED & VERIFIED**.
