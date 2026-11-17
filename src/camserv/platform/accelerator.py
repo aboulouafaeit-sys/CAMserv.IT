@@ -23,6 +23,7 @@ MANDATORY POLICY:
 
 from __future__ import annotations
 
+import collections
 import enum
 import os
 import platform
@@ -35,6 +36,216 @@ from typing import Any, Callable
 import structlog
 
 logger = structlog.get_logger(__name__)
+
+
+class FallbackAdmissionDecision(str, enum.Enum):
+    """Explicit outcomes of the CPU fallback admission controller."""
+
+    FALLBACK_ACCEPTED = "fallback_accepted"          # Ample headroom (< 65% CPU); full migration permitted
+    FALLBACK_REDUCED = "fallback_reduced"            # Moderate headroom (65-80% CPU); admitted with reduced FPS/ROI
+    FALLBACK_DEFERRED = "fallback_deferred"          # Elevated headroom (80-90% CPU); queued or deferred
+    FALLBACK_REJECTED = "fallback_rejected"          # Heavy load (> 90% CPU) or thermal critical; strictly rejected
+    FALLBACK_UNAVAILABLE = "fallback_unavailable"    # Host resources / RAM completely exhausted
+
+
+@dataclass(slots=True)
+class TaskCPUCostEstimate:
+    """Estimated CPU resource profile for a fallback workload."""
+
+    task_id: str
+    task_type: str                                    # "video_decode", "ai_inference", "motion_detect"
+    camera_id: str
+    estimated_cpu_percent: float                     # Measured or estimated CPU load increment
+    target_fps: float = 30.0
+    reduced_fps: float = 5.0
+    can_reduce: bool = True
+    priority: int = 10                               # 1: Critical recording, 5: Motion detection, 10: Deep AI re-id
+
+
+@dataclass(slots=True)
+class FallbackEvaluationResult:
+    """Documented outcome of an admission evaluation."""
+
+    decision: FallbackAdmissionDecision
+    task_id: str
+    allocated_fps: float
+    cpu_percent_before: float
+    estimated_cpu_percent_after: float
+    reason: str
+    timestamp_utc: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "decision": self.decision.value,
+            "task_id": self.task_id,
+            "allocated_fps": self.allocated_fps,
+            "cpu_percent_before": round(self.cpu_percent_before, 1),
+            "estimated_cpu_percent_after": round(self.estimated_cpu_percent_after, 1),
+            "reason": self.reason,
+            "timestamp_utc": self.timestamp_utc,
+        }
+
+
+class CPUFallbackAdmissionController:
+    """
+    Capacity-aware admission controller preventing host saturation during accelerator failover.
+    Evaluates moving-average CPU load, active recording count, thermal state, and memory pressure.
+    Guarantees that continuous surveillance recording is never compromised by runaway AI fallback.
+    """
+
+    def __init__(
+        self,
+        accepted_cpu_threshold: float = 65.0,
+        reduced_cpu_threshold: float = 80.0,
+        reject_cpu_threshold: float = 90.0,
+        history_window_samples: int = 5,
+    ) -> None:
+        self.accepted_cpu_threshold = accepted_cpu_threshold
+        self.reduced_cpu_threshold = reduced_cpu_threshold
+        self.reject_cpu_threshold = reject_cpu_threshold
+        self._load_history: collections.deque[float] = collections.deque(maxlen=history_window_samples)
+        self.admitted_tasks: dict[str, TaskCPUCostEstimate] = {}
+        self.deferred_tasks: dict[str, TaskCPUCostEstimate] = {}
+        self.rejected_tasks: dict[str, str] = {}
+        self.recording_pipeline_healthy: bool = True
+        self.thermal_state: str = "nominal"
+        self.ram_exhausted: bool = False
+
+    def record_cpu_sample(self, cpu_percent: float) -> None:
+        """Record a live CPU utilization sample."""
+        self._load_history.append(max(0.0, min(100.0, cpu_percent)))
+
+    @property
+    def current_cpu_average(self) -> float:
+        """Compute windowed moving average of CPU load."""
+        if not self._load_history:
+            return 25.0  # Nominal default if unpopulated
+        return sum(self._load_history) / len(self._load_history)
+
+    @property
+    def total_admitted_cpu_load(self) -> float:
+        """Sum of estimated CPU loads for all currently admitted tasks."""
+        return sum(t.estimated_cpu_percent for t in self.admitted_tasks.values())
+
+    def evaluate_task_admission(
+        self,
+        task: TaskCPUCostEstimate,
+        current_cpu_percent: float | None = None,
+    ) -> FallbackEvaluationResult:
+        """
+        Evaluate whether an accelerator task can safely migrate to CPU.
+        Returns a FallbackEvaluationResult with explicit decision and allocated FPS.
+        """
+        if current_cpu_percent is not None:
+            self.record_cpu_sample(current_cpu_percent)
+
+        cpu_baseline = self.current_cpu_average
+        projected_cpu = cpu_baseline + task.estimated_cpu_percent
+
+        # 1. Check for complete host exhaustion or broken recording pipeline
+        if self.ram_exhausted or not self.recording_pipeline_healthy:
+            self.rejected_tasks[task.task_id] = "Host RAM exhausted or recording pipeline under pressure"
+            return FallbackEvaluationResult(
+                decision=FallbackAdmissionDecision.FALLBACK_UNAVAILABLE,
+                task_id=task.task_id,
+                allocated_fps=0.0,
+                cpu_percent_before=cpu_baseline,
+                estimated_cpu_percent_after=cpu_baseline,
+                reason="Host RAM exhausted or recording pipeline under pressure. Rejecting migration.",
+            )
+
+        # 2. Check for thermal throttle or extreme CPU saturation (> 90%)
+        if self.thermal_state in ("critical", "throttled") or projected_cpu >= self.reject_cpu_threshold:
+            self.rejected_tasks[task.task_id] = f"Projected CPU ({projected_cpu:.1f}%) exceeds reject threshold ({self.reject_cpu_threshold}%)"
+            return FallbackEvaluationResult(
+                decision=FallbackAdmissionDecision.FALLBACK_REJECTED,
+                task_id=task.task_id,
+                allocated_fps=0.0,
+                cpu_percent_before=cpu_baseline,
+                estimated_cpu_percent_after=cpu_baseline,
+                reason=f"Severe CPU saturation (projected {projected_cpu:.1f}% >= {self.reject_cpu_threshold}%). AI task rejected to preserve recording.",
+            )
+
+        # 3. Check for elevated CPU (80% - 90%): Defer non-critical analytics
+        if projected_cpu >= self.reduced_cpu_threshold:
+            if not task.can_reduce or task.priority > 5:
+                self.deferred_tasks[task.task_id] = task
+                return FallbackEvaluationResult(
+                    decision=FallbackAdmissionDecision.FALLBACK_DEFERRED,
+                    task_id=task.task_id,
+                    allocated_fps=0.0,
+                    cpu_percent_before=cpu_baseline,
+                    estimated_cpu_percent_after=cpu_baseline,
+                    reason=f"Elevated CPU load ({projected_cpu:.1f}%). Task deferred pending headroom.",
+                )
+
+        # 4. Moderate load (65% - 80%): Accept with reduced FPS/workload
+        if projected_cpu >= self.accepted_cpu_threshold:
+            if task.can_reduce:
+                reduced_cost = task.estimated_cpu_percent * (task.reduced_fps / max(1.0, task.target_fps))
+                reduced_task = TaskCPUCostEstimate(
+                    task_id=task.task_id,
+                    task_type=task.task_type,
+                    camera_id=task.camera_id,
+                    estimated_cpu_percent=reduced_cost,
+                    target_fps=task.target_fps,
+                    reduced_fps=task.reduced_fps,
+                    can_reduce=False,
+                    priority=task.priority,
+                )
+                self.admitted_tasks[task.task_id] = reduced_task
+                self._load_history.append(min(95.0, cpu_baseline + reduced_cost))
+                return FallbackEvaluationResult(
+                    decision=FallbackAdmissionDecision.FALLBACK_REDUCED,
+                    task_id=task.task_id,
+                    allocated_fps=task.reduced_fps,
+                    cpu_percent_before=cpu_baseline,
+                    estimated_cpu_percent_after=cpu_baseline + reduced_cost,
+                    reason=f"Moderate CPU load. Admitted at reduced framerate ({task.reduced_fps} FPS).",
+                )
+
+        # 5. Ample headroom (< 65% CPU): Full acceptance
+        self.admitted_tasks[task.task_id] = task
+        self._load_history.append(min(95.0, projected_cpu))
+        return FallbackEvaluationResult(
+            decision=FallbackAdmissionDecision.FALLBACK_ACCEPTED,
+            task_id=task.task_id,
+            allocated_fps=task.target_fps,
+            cpu_percent_before=cpu_baseline,
+            estimated_cpu_percent_after=projected_cpu,
+            reason=f"Sufficient CPU headroom. Admitted at full framerate ({task.target_fps} FPS).",
+        )
+
+    def release_task(self, task_id: str) -> bool:
+        """Release an admitted task when it terminates or moves back to accelerator."""
+        if task_id in self.admitted_tasks:
+            t = self.admitted_tasks.pop(task_id)
+            if self._load_history:
+                new_avg = max(5.0, self._load_history[-1] - t.estimated_cpu_percent)
+                self._load_history.append(new_avg)
+            return True
+        self.deferred_tasks.pop(task_id, None)
+        self.rejected_tasks.pop(task_id, None)
+        return False
+
+    def clear(self) -> None:
+        """Reset admission state."""
+        self.admitted_tasks.clear()
+        self.deferred_tasks.clear()
+        self.rejected_tasks.clear()
+        self._load_history.clear()
+
+    def get_status(self) -> dict[str, Any]:
+        """Observability telemetry for admission controller."""
+        return {
+            "current_cpu_average": round(self.current_cpu_average, 1),
+            "admitted_task_count": len(self.admitted_tasks),
+            "deferred_task_count": len(self.deferred_tasks),
+            "rejected_task_count": len(self.rejected_tasks),
+            "total_admitted_cpu_load": round(self.total_admitted_cpu_load, 1),
+            "recording_pipeline_healthy": self.recording_pipeline_healthy,
+            "thermal_state": self.thermal_state,
+        }
 
 
 class AcceleratorLifecycleState(str, enum.Enum):
@@ -111,6 +322,7 @@ class AcceleratorAbstractionManager:
         self.active_decode_backend: AcceleratorBackendType = AcceleratorBackendType.CPU_UNIVERSAL
         self.active_inference_backend: AcceleratorBackendType = AcceleratorBackendType.CPU_UNIVERSAL
         self.failure_history: list[dict[str, Any]] = []
+        self.admission_controller = CPUFallbackAdmissionController()
 
         # Always register Universal CPU Fallback as verified baseline
         self._register_cpu_universal_baseline()
@@ -315,11 +527,17 @@ class AcceleratorAbstractionManager:
 
         return True
 
-    def handle_accelerator_failure(self, device_id: str, reason: str) -> None:
+    def handle_accelerator_failure(
+        self,
+        device_id: str,
+        reason: str,
+        active_tasks: list[TaskCPUCostEstimate] | None = None,
+        current_cpu_percent: float | None = None,
+    ) -> list[FallbackEvaluationResult]:
         """
-        Handle failure of a hardware accelerator gracefully.
-        Transitions failed device to FAILED state and routes active workloads to CPU_UNIVERSAL.
-        Core video recording continues uninterrupted.
+        Handle failure of a hardware accelerator gracefully with admission control.
+        Transitions failed device to FAILED state and evaluates fallback tasks.
+        Preserves core recording while shedding, reducing, or deferring AI tasks.
         """
         dev = self.devices.get(device_id)
         if dev:
@@ -338,12 +556,72 @@ class AcceleratorAbstractionManager:
         self.active_decode_backend = AcceleratorBackendType.CPU_UNIVERSAL
         self.active_inference_backend = AcceleratorBackendType.CPU_UNIVERSAL
 
+        evaluation_results: list[FallbackEvaluationResult] = []
+        if active_tasks:
+            # Sort tasks by priority (lowest number = highest priority)
+            sorted_tasks = sorted(active_tasks, key=lambda t: t.priority)
+            for t in sorted_tasks:
+                res = self.admission_controller.evaluate_task_admission(t, current_cpu_percent=current_cpu_percent)
+                evaluation_results.append(res)
+                logger.info(
+                    "accelerator.fallback_admission_decision",
+                    task_id=t.task_id,
+                    decision=res.decision.value,
+                    allocated_fps=res.allocated_fps,
+                    reason=res.reason,
+                )
+
         logger.warning(
             "accelerator.isolated_and_failed_over_to_cpu",
             failed_device=device_id,
             reason=reason,
             fallback=AcceleratorBackendType.CPU_UNIVERSAL.value,
+            tasks_evaluated=len(evaluation_results),
         )
+        return evaluation_results
+
+    def gradual_accelerator_recovery(
+        self,
+        device_id: str,
+        verifier_fn: Callable[[], bool],
+        batch_size: int = 2,
+    ) -> dict[str, Any]:
+        """
+        Phased restoration of an accelerator after failure without mass thundering herd.
+        Verifies workload, promotes canary stream, and migrates tasks in controlled batches.
+        """
+        dev = self.devices.get(device_id)
+        if not dev:
+            return {"status": "error", "message": f"Device '{device_id}' not found"}
+
+        # Phase 1: Re-verify under small test workload
+        verified = self.advance_lifecycle(device_id, AcceleratorLifecycleState.VERIFIED_WORKLOAD, verifier_fn)
+        if not verified:
+            return {
+                "status": "verification_failed",
+                "message": f"Accelerator '{device_id}' failed workload verification during recovery",
+            }
+
+        # Phase 2: Canary / Batch Migration
+        admitted_task_ids = list(self.admission_controller.admitted_tasks.keys())
+        migrated: list[str] = []
+        batch = admitted_task_ids[:batch_size]
+
+        for task_id in batch:
+            self.admission_controller.release_task(task_id)
+            migrated.append(task_id)
+
+        # Update active backends
+        self.active_decode_backend = dev.backend_type
+        self.active_inference_backend = dev.backend_type
+
+        return {
+            "status": "success",
+            "device_id": device_id,
+            "migrated_tasks": migrated,
+            "remaining_on_cpu": len(self.admission_controller.admitted_tasks),
+            "backend": dev.backend_type.value,
+        }
 
     def select_optimal_backends(self) -> tuple[AcceleratorBackendType, AcceleratorBackendType]:
         """
@@ -379,4 +657,5 @@ class AcceleratorAbstractionManager:
             "device_count": len(self.devices),
             "devices": {dev_id: dev.to_dict() for dev_id, dev in self.devices.items()},
             "failure_events": len(self.failure_history),
+            "admission_controller": self.admission_controller.get_status(),
         }

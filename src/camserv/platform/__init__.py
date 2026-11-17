@@ -4,6 +4,10 @@ from camserv.platform.accelerator import (
     AcceleratorBackendType,
     AcceleratorDevice,
     AcceleratorLifecycleState,
+    CPUFallbackAdmissionController,
+    FallbackAdmissionDecision,
+    FallbackEvaluationResult,
+    TaskCPUCostEstimate,
 )
 from camserv.platform.adaptive_manager import (
     AdaptationAction,
@@ -35,11 +39,17 @@ from camserv.platform.hardware import GPUCapability, HardwareDetector, HardwareP
 from camserv.platform.shared.paths import PathResolver, PlatformPaths
 from camserv.platform.stability import (
     BoundedPipelineQueue,
+    CancellationToken,
+    DiscontinuityEvent,
     NonBlockingExecutor,
+    PipelineType,
     QueueOverflowPolicy,
     QueueTelemetry,
+    RecordingContinuityLedger,
+    RecordingContinuityRecord,
     ServicePriority,
     WorkerCrashSupervisor,
+    WorkerLifecycleState,
     calculate_backoff_with_jitter,
 )
 from camserv.platform.tiers import HardwareTier, TierConfiguration, TierPolicyEngine
@@ -57,6 +67,16 @@ __all__ = [
     "ApplianceProfileType",
     "ApplianceSpecification",
     "BoundedPipelineQueue",
+    "CPUFallbackAdmissionController",
+    "CancellationToken",
+    "DiscontinuityEvent",
+    "FallbackAdmissionDecision",
+    "FallbackEvaluationResult",
+    "TaskCPUCostEstimate",
+    "PipelineType",
+    "RecordingContinuityLedger",
+    "RecordingContinuityRecord",
+    "WorkerLifecycleState",
     "GPUCapability",
     "HardwareDetector",
     "HardwareProfile",

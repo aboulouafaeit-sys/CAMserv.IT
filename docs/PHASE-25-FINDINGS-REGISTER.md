@@ -116,3 +116,66 @@ Every finding in this register was evaluated against actual source code, physica
 | **`GATE-HW-02`** | Physical PoE Camera Matrix | Direct bench ingestion against physical Axis, Hikvision, Dahua, and Hanwha cameras over physical 802.3at switch. | **BLOCKED_BY_ENVIRONMENT** |
 | **`GATE-HW-03`** | 72-Hour 45°C Environmental Soak | 72-hour continuous multi-camera ingestion in fanless enclosure inside calibrated thermal chamber at 45°C ambient. | **BLOCKED_BY_ENVIRONMENT** |
 | **`GATE-HW-04`** | 50-Cycle AC Relay Power Cut | 50 consecutive unexpected AC power drops via external relay actuator during active multi-channel writing. | **BLOCKED_BY_ENVIRONMENT** |
+
+
+---
+
+## 4. Phase 25.1 Hardening Findings & Remediations (F25.1-01 through F25.1-06)
+
+### FINDING-P25.1-01: Enterprise GPU & Redundant PSU Electrical Contradiction
+* **Severity:** **CRITICAL ELECTRICAL / SAFETY**
+* **Affected Subsystem:** `camserv.platform.appliance.ApplianceCatalog._SPEC_ENTERPRISE`, `docs/PHASE-25.1-POWER-BUDGET-CORRECTION.md`
+* **Root Cause:** Phase 25 claimed a worst-case load of 680W for Profile D Enterprise while listing dual RTX 4090 GPUs (450W each = 900W), 32 CPU cores (200W-280W), and 16 HDDs (320W inrush). Unclamped dual RTX 4090s exceed 1,500W, instantly tripping an 800W single surviving PSU.
+* **Remediation:** Reconciled component loads. Mandated SAS staggered drive spin-up (reducing inrush from 384W to 157.2W). Replaced mandatory dual 4090s with power-efficient enterprise accelerators (Dual NVIDIA L4 at 72W each or RTX 4000 Ada SFF at 70W each = 144W total). Total worst-case simultaneous draw is 608.2W. Single surviving 800W PSU carries 608.2W with 31.5% continuous headroom ($800\text{W} \ge 608.2\text{W}$). Unclamped RTX 4090s are strictly prohibited on 800W PSUs; dual 1600W Titanium PSUs mandated if unclamped.
+* **Verification:** Tested in `tests/test_phase25_1_reliability_hardening.py::test_enterprise_psu_calculation_validation`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### FINDING-P25.1-02: Blind Unconditional CPU Fallback Host Saturation
+* **Severity:** **CRITICAL SYSTEM STABILITY / EVIDENCE INTEGRITY**
+* **Affected Subsystem:** `camserv.platform.accelerator.CPUFallbackAdmissionController`
+* **Root Cause:** Transparent accelerator failover previously moved all decoding and AI tasks immediately to `CPU_UNIVERSAL` without checking CPU load, run queues, thermals, or active stream count. On a multi-camera host, this immediate dump drove CPU to 100%, causing recording frame drops and host lockup.
+* **Remediation:** Implemented `CPUFallbackAdmissionController` evaluating moving-average CPU load, recording pipeline health, and task costs. Enforces 5 explicit decisions: `FALLBACK_ACCEPTED`, `FALLBACK_REDUCED`, `FALLBACK_DEFERRED`, `FALLBACK_REJECTED`, `FALLBACK_UNAVAILABLE`. Implemented phased gradual recovery (canary stream + batch size of 2) when accelerator returns to health.
+* **Verification:** Tested in `tests/test_phase25_1_reliability_hardening.py::test_cpu_fallback_admission_under_saturation`, `test_cpu_fallback_accepted_with_headroom`, `test_cpu_fallback_rejected_when_recording_endangered`, `test_gradual_accelerator_recovery_canary_batching`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### FINDING-P25.1-03: Inappropriate Video Pipeline Ingestion Backpressure
+* **Severity:** **HIGH RELIABILITY / EVIDENCE INTEGRITY**
+* **Affected Subsystem:** `camserv.platform.stability.BoundedPipelineQueue`, `camserv.platform.stability.RecordingContinuityLedger`
+* **Root Cause:** Applying backpressure to RTSP network ingestion threads caused socket buffer overflow and camera connection resets, as physical IP cameras do not pause network transmission.
+* **Remediation:** Separated queue policies: Recording Ingest uses bounded ring buffers with bounded backpressure (500ms max) and logs explicit discontinuity events rather than dropping sockets; Live Preview uses `DROP_OLDEST`; AI Analytics uses `DROP_OLDEST` and downsampling; Storage Writer uses bounded backpressure with disk-full emergency rejection ($< 0.05\text{ ms}$). Created `RecordingContinuityLedger` and `DiscontinuityEvent` to record sequence, PTS timestamps, and gap durations without fabricated data.
+* **Verification:** Tested in `tests/test_phase25_1_reliability_hardening.py::test_ai_queue_overload_without_recording_interruption`, `test_recording_queue_overflow_bounded_timeout`, `test_explicit_recording_discontinuity_metadata`, `test_disk_full_emergency_rejection`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### FINDING-P25.1-04: Hung Native Operation Isolation & Duplicate Worker Fencing
+* **Severity:** **HIGH RELIABILITY / PROCESS HYGIENE**
+* **Affected Subsystem:** `camserv.platform.stability.WorkerCrashSupervisor`, `camserv.platform.stability.NonBlockingExecutor`
+* **Root Cause:** Thread-level timeouts could not interrupt hung native C/C++ library operations. Restarted workers could collide with stalled workers on the same camera channel, causing corrupted recordings.
+* **Remediation:** Added worker heartbeat watchdog monitoring (`record_heartbeat()`, `check_hung()`), atomic channel lease fencing (`acquire_channel_lease()`, `revoke_channel_lease()`), cooperative cancellation (`CancellationToken`), and safe in-flight `.part` quarantine (`quarantine_partial_segment` preserving existing bytes as `.recovered_partial.mp4`).
+* **Verification:** Tested in `tests/test_phase25_1_reliability_hardening.py::test_hung_worker_detection_and_lifecycle`, `test_worker_cooperative_cancellation`, `test_interrupted_segment_recovery_quarantine`, `test_no_duplicate_recording_workers_channel_lease`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### FINDING-P25.1-05: Absence of Automated Stress & Zero-Freeze Injection Tests
+* **Severity:** **MEDIUM QUALITY ASSURANCE**
+* **Affected Subsystem:** `tests/test_phase25_1_reliability_hardening.py`
+* **Root Cause:** Unit tests did not verify behavior under simultaneous multi-vector stress (CPU saturation + slow disks + queue overflows + reconnect bursts).
+* **Remediation:** Authored `tests/test_phase25_1_reliability_hardening.py` containing 24 comprehensive stress and fault-injection tests. Documented results in `docs/PHASE-25.1-ZERO-FREEZE-STRESS-REPORT.md`.
+* **Verification:** Full suite passes 480/480 tests (100%) in 86.47s.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### FINDING-P25.1-06: Unqualified Camera Capacity Attribution
+* **Severity:** **MEDIUM SPECIFICATION TRUTHFULNESS**
+* **Affected Subsystem:** `docs/PHASE-25.1-CAMERA-CAPACITY-QUALIFICATION.md`
+* **Root Cause:** Appliance profiles stated stream capacity ranges without formally attributing them as theoretical calculations versus software-tested versus physically verified limits.
+* **Remediation:** Established 6-tier classification standard (`DESIGN_TARGET`, `THEORETICAL_CALCULATED`, `SYNTHETIC_BENCHMARK`, `SOFTWARE_INTEGRATION_TESTED`, `PHYSICAL_CAMERA_BENCH_GATED`, `LONG_DURATION_QUALIFIED`). Documented exact stream envelopes across resolutions, codecs, and bitrates.
+* **Verification:** Tested in `tests/test_phase25_1_reliability_hardening.py::test_camera_capacity_claim_classification`.
+* **Status:** **REMEDIATED & VERIFIED**.

@@ -185,7 +185,7 @@ class AdaptiveResourceManager:
             return actions
 
         # Stage 1: Critical Emergency (Severe RAM >92% or CPU >95% or is_emergency=True)
-        if (snapshot.is_emergency or snapshot.ram_percent >= self.emergency_ram_threshold) and not self.is_degraded:
+        if (snapshot.is_emergency or snapshot.ram_percent >= self.emergency_ram_threshold) and self.operating_state != ResourceOperatingState.CRITICAL:
             self._last_adaptation_time = now
             self.is_degraded = True
             self.operating_state = ResourceOperatingState.CRITICAL
@@ -225,16 +225,51 @@ class AdaptiveResourceManager:
                 state=self.operating_state.value,
             )
 
-        # Stage 2: Elevated Resource Pressure (Warning RAM >85% or CPU >88%)
-        elif snapshot.is_under_pressure and not self.is_degraded:
-            self.operating_state = ResourceOperatingState.RESOURCE_PRESSURE
-            self._consecutive_clean_cycles = 0
+        # Stage 2: Recovery from CRITICAL
+        elif self.operating_state == ResourceOperatingState.CRITICAL:
+            # Full recovery if deeply clean
+            if snapshot.ram_percent < 65.0 and snapshot.cpu_percent < 50.0:
+                self._last_adaptation_time = now
+                self.is_degraded = False
+                self.operating_state = ResourceOperatingState.NORMAL
 
-        # Stage 3: Recovery Transition (Pressure cleared: RAM <70%, CPU <65%)
-        elif self.is_degraded and snapshot.ram_percent < 70.0 and snapshot.cpu_percent < 65.0:
+                old_fps = self.current_fps
+                self.current_fps = self.base_tier.target_fps
+                old_res = self.current_resolution
+                self.current_resolution = self.base_tier.target_resolution
+
+                act_restore = AdaptationAction(
+                    timestamp=now_iso,
+                    action_type="RESTORE_NORMAL",
+                    reason="System resource pressure cleared. Restored baseline tier parameters.",
+                    previous_value=f"{old_fps}fps @ {old_res[0]}x{old_res[1]}",
+                    new_value=f"{self.current_fps}fps @ {self.current_resolution[0]}x{self.current_resolution[1]}",
+                )
+                actions.append(act_restore)
+                self.adaptation_history.append(act_restore)
+                logger.info("adaptive_manager.baseline_restored", fps=self.current_fps, state="normal")
+
+            # Intermediate step recovery if in recovery band (65% <= RAM < 75% or 50% <= CPU < 70%)
+            elif snapshot.ram_percent < 75.0 and snapshot.cpu_percent < 70.0:
+                self._last_adaptation_time = now
+                self.operating_state = ResourceOperatingState.RECOVERY
+
+                old_fps = self.current_fps
+                self.current_fps = max(old_fps, (self.base_tier.target_fps * 2) // 3)
+                act_step = AdaptationAction(
+                    timestamp=now_iso,
+                    action_type="RESTORE_STEP",
+                    reason="Pressure subsided below emergency levels. Step-wise recovery engaged.",
+                    previous_value=old_fps,
+                    new_value=self.current_fps,
+                )
+                actions.append(act_step)
+                self.adaptation_history.append(act_step)
+                logger.info("adaptive_manager.step_recovery_engaged", fps=self.current_fps, state="recovery")
+
+        # Stage 3: Recovery Phase from RECOVERY -> NORMAL (Full baseline restoration)
+        elif self.operating_state == ResourceOperatingState.RECOVERY and snapshot.ram_percent < 70.0 and snapshot.cpu_percent < 65.0:
             self._consecutive_clean_cycles += 1
-
-            # Hysteresis check: Require clean state for consecutive evaluations before full restoration
             self._last_adaptation_time = now
             self.is_degraded = False
             self.operating_state = ResourceOperatingState.NORMAL
@@ -260,9 +295,20 @@ class AdaptiveResourceManager:
                 resolution=self.current_resolution,
                 state=self.operating_state.value,
             )
+
+        # Stage 4: Elevated Resource Pressure (Warning RAM >85% or CPU >88%)
+        elif (snapshot.is_under_pressure or snapshot.ram_percent >= self.warning_ram_threshold or snapshot.cpu_percent >= self.warning_cpu_threshold) and not self.is_degraded:
+            self.operating_state = ResourceOperatingState.RESOURCE_PRESSURE
+            self._consecutive_clean_cycles = 0
+
+        # Stage 5: Normal Operation with Hysteresis Buffer (Avoid Flapping)
         else:
-            if not self.is_degraded and not snapshot.is_under_pressure:
-                self.operating_state = ResourceOperatingState.NORMAL
+            if not self.is_degraded:
+                # Require metrics to drop below threshold minus 5.0% hysteresis margin to return to NORMAL
+                ram_clear = snapshot.ram_percent < (self.warning_ram_threshold - 5.0)
+                cpu_clear = snapshot.cpu_percent < (self.warning_cpu_threshold - 5.0)
+                if ram_clear and cpu_clear:
+                    self.operating_state = ResourceOperatingState.NORMAL
 
         return actions
 

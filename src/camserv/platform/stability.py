@@ -13,6 +13,8 @@ Key Invariants:
 3. All inter-subsystem queues are strictly bounded with documented capacity & overflow policies.
 4. AI crashes, timeouts, and restarts are isolated and never crash or pause core recording.
 5. Camera reconnect storms are mitigated via exponential backoff with randomized jitter.
+6. Recording ingestion never silently drops frames: explicit discontinuity metadata is recorded.
+7. Hung workers are detected via heartbeats and isolated to prevent duplicate recording workers.
 """
 
 from __future__ import annotations
@@ -24,8 +26,10 @@ import math
 import random
 import threading
 import time
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Callable, Generic, TypeVar
 
 import structlog
@@ -33,6 +37,15 @@ import structlog
 logger = structlog.get_logger(__name__)
 
 T = TypeVar("T")
+
+
+class PipelineType(str, enum.Enum):
+    """Discrete processing pipelines in CAMserv."""
+
+    RECORDING_INGEST = "recording_ingest"        # Camera RTSP ingest, packet parsing, hash computation
+    LIVE_PREVIEW = "live_preview"                # Operator UI display stream (DROP_OLDEST permitted)
+    AI_ANALYTICS = "ai_analytics"                # Object detection, classification, tracking
+    STORAGE_WRITER = "storage_writer"            # Non-volatile disk write and SQLite index commit
 
 
 class QueueOverflowPolicy(str, enum.Enum):
@@ -53,6 +66,214 @@ class ServicePriority(str, enum.Enum):
     UI_INTERACTIVE = "ui_interactive"            # Operator interface: Rendering, search, forensic export
 
 
+class WorkerLifecycleState(str, enum.Enum):
+    """Lifecycle states of background surveillance worker processes and threads."""
+
+    STARTING = "starting"
+    RUNNING = "running"
+    DEGRADED = "degraded"
+    HUNG = "hung"
+    TERMINATING = "terminating"
+    TERMINATED = "terminated"
+    RECOVERED = "recovered"
+
+
+@dataclass(slots=True)
+class DiscontinuityEvent:
+    """Documented evidence of a gap or discontinuity in an ingested surveillance stream."""
+
+    camera_id: str
+    stream_id: str
+    segment_id: str | None
+    gap_start_utc: str
+    gap_end_utc: str
+    gap_duration_sec: float
+    lost_frames_estimated: int
+    reason: str
+    detected_at_utc: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "camera_id": self.camera_id,
+            "stream_id": self.stream_id,
+            "segment_id": self.segment_id,
+            "gap_start_utc": self.gap_start_utc,
+            "gap_end_utc": self.gap_end_utc,
+            "gap_duration_sec": round(self.gap_duration_sec, 3),
+            "lost_frames_estimated": self.lost_frames_estimated,
+            "reason": self.reason,
+            "detected_at_utc": self.detected_at_utc,
+        }
+
+
+@dataclass(slots=True)
+class RecordingContinuityRecord:
+    """Historical continuity ledger entry for an active camera stream segment."""
+
+    camera_id: str
+    stream_id: str
+    segment_id: str
+    start_timestamp_utc: str
+    end_timestamp_utc: str | None = None
+    expected_frames: int = 0
+    observed_frames: int = 0
+    discontinuities: list[DiscontinuityEvent] = field(default_factory=list)
+    reconnect_events: int = 0
+    storage_write_errors: int = 0
+    is_finalized: bool = False
+    integrity_verified: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        continuity_ratio = round(self.observed_frames / max(1, self.expected_frames), 3) if self.expected_frames > 0 else 1.0
+        return {
+            "camera_id": self.camera_id,
+            "stream_id": self.stream_id,
+            "segment_id": self.segment_id,
+            "start_timestamp_utc": self.start_timestamp_utc,
+            "end_timestamp_utc": self.end_timestamp_utc,
+            "expected_frames": self.expected_frames,
+            "observed_frames": self.observed_frames,
+            "continuity_ratio": continuity_ratio,
+            "discontinuity_count": len(self.discontinuities),
+            "reconnect_events": self.reconnect_events,
+            "storage_write_errors": self.storage_write_errors,
+            "is_finalized": self.is_finalized,
+            "integrity_verified": self.integrity_verified,
+        }
+
+
+class RecordingContinuityLedger:
+    """
+    Central, thread-safe recording continuity ledger.
+    Tracks frame sequence numbers, presentation timestamps (PTS), and detected gaps
+    without inventing or fabricating missing frame information.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._records: dict[str, RecordingContinuityRecord] = {}
+        self._last_frame_timestamps: dict[str, float] = {}
+        self._expected_fps: dict[str, float] = {}
+
+    def start_segment(
+        self,
+        camera_id: str,
+        stream_id: str,
+        segment_id: str,
+        expected_fps: float = 30.0,
+    ) -> RecordingContinuityRecord:
+        key = f"{camera_id}:{segment_id}"
+        with self._lock:
+            rec = RecordingContinuityRecord(
+                camera_id=camera_id,
+                stream_id=stream_id,
+                segment_id=segment_id,
+                start_timestamp_utc=datetime.now(timezone.utc).isoformat(),
+            )
+            self._records[key] = rec
+            self._expected_fps[key] = expected_fps
+            return rec
+
+    def record_frame(
+        self,
+        camera_id: str,
+        segment_id: str,
+        frame_timestamp: float | None = None,
+        frame_seq: int | None = None,
+    ) -> None:
+        key = f"{camera_id}:{segment_id}"
+        now = time.time()
+        ts = frame_timestamp if frame_timestamp is not None else now
+        with self._lock:
+            rec = self._records.get(key)
+            if not rec:
+                return
+
+            rec.observed_frames += 1
+            fps = self._expected_fps.get(key, 30.0)
+            expected_interval = 1.0 / max(1.0, fps)
+
+            # Check timestamp discontinuity
+            if key in self._last_frame_timestamps:
+                last_ts = self._last_frame_timestamps[key]
+                delta = ts - last_ts
+                # If gap is greater than 3 frames (e.g. > 100ms for 30fps)
+                if delta > (expected_interval * 3.5):
+                    lost_est = max(1, int(round((delta - expected_interval) / expected_interval)))
+                    gap_event = DiscontinuityEvent(
+                        camera_id=camera_id,
+                        stream_id=rec.stream_id,
+                        segment_id=segment_id,
+                        gap_start_utc=datetime.fromtimestamp(last_ts, timezone.utc).isoformat(),
+                        gap_end_utc=datetime.fromtimestamp(ts, timezone.utc).isoformat(),
+                        gap_duration_sec=delta,
+                        lost_frames_estimated=lost_est,
+                        reason="TIMESTAMP_JUMP_NETWORK_OR_BUFFER_STALL",
+                    )
+                    rec.discontinuities.append(gap_event)
+                    logger.warning(
+                        "recording_continuity.gap_detected",
+                        camera_id=camera_id,
+                        segment_id=segment_id,
+                        gap_sec=round(delta, 3),
+                        lost_est=lost_est,
+                    )
+
+            self._last_frame_timestamps[key] = ts
+
+    def record_storage_error(self, camera_id: str, segment_id: str, error_reason: str) -> None:
+        key = f"{camera_id}:{segment_id}"
+        with self._lock:
+            rec = self._records.get(key)
+            if rec:
+                rec.storage_write_errors += 1
+                rec.discontinuities.append(
+                    DiscontinuityEvent(
+                        camera_id=camera_id,
+                        stream_id=rec.stream_id,
+                        segment_id=segment_id,
+                        gap_start_utc=datetime.now(timezone.utc).isoformat(),
+                        gap_end_utc=datetime.now(timezone.utc).isoformat(),
+                        gap_duration_sec=0.0,
+                        lost_frames_estimated=0,
+                        reason=f"STORAGE_WRITE_ERROR: {error_reason}",
+                    )
+                )
+
+    def record_reconnect(self, camera_id: str, segment_id: str) -> None:
+        key = f"{camera_id}:{segment_id}"
+        with self._lock:
+            rec = self._records.get(key)
+            if rec:
+                rec.reconnect_events += 1
+
+    def finalize_segment(
+        self,
+        camera_id: str,
+        segment_id: str,
+        expected_frames: int | None = None,
+        integrity_verified: bool = True,
+    ) -> RecordingContinuityRecord | None:
+        key = f"{camera_id}:{segment_id}"
+        with self._lock:
+            rec = self._records.get(key)
+            if not rec:
+                return None
+            rec.end_timestamp_utc = datetime.now(timezone.utc).isoformat()
+            if expected_frames is not None:
+                rec.expected_frames = expected_frames
+            else:
+                rec.expected_frames = rec.observed_frames
+            rec.is_finalized = True
+            rec.integrity_verified = integrity_verified
+            return rec
+
+    def get_record(self, camera_id: str, segment_id: str) -> RecordingContinuityRecord | None:
+        key = f"{camera_id}:{segment_id}"
+        with self._lock:
+            return self._records.get(key)
+
+
 @dataclass(slots=True)
 class QueueTelemetry:
     """Real-time observability metrics for a bounded pipeline queue."""
@@ -60,12 +281,14 @@ class QueueTelemetry:
     queue_name: str
     capacity: int
     current_size: int
+    pipeline_type: str = "ai_analytics"
     total_enqueued: int = 0
     total_dequeued: int = 0
     total_dropped: int = 0
     overflow_events: int = 0
     high_watermark: int = 0
     max_latency_ms: float = 0.0
+    is_disk_full: bool = False
 
     @property
     def utilization_percent(self) -> float:
@@ -87,6 +310,10 @@ class BoundedPipelineQueue(Generic[T]):
         maxsize: int = 120,
         policy: QueueOverflowPolicy = QueueOverflowPolicy.DROP_OLDEST,
         priority: ServicePriority = ServicePriority.OPTIONAL_AI_ANALYSIS,
+        pipeline_type: PipelineType = PipelineType.AI_ANALYTICS,
+        continuity_ledger: RecordingContinuityLedger | None = None,
+        camera_id: str | None = None,
+        segment_id: str | None = None,
     ) -> None:
         if maxsize <= 0:
             raise ValueError(f"Queue capacity must be positive, got {maxsize}")
@@ -94,6 +321,10 @@ class BoundedPipelineQueue(Generic[T]):
         self.maxsize = maxsize
         self.policy = policy
         self.priority = priority
+        self.pipeline_type = pipeline_type
+        self.continuity_ledger = continuity_ledger
+        self.camera_id = camera_id
+        self.segment_id = segment_id
 
         self._lock = threading.Lock()
         self._not_empty = threading.Condition(self._lock)
@@ -107,6 +338,14 @@ class BoundedPipelineQueue(Generic[T]):
         self.overflow_events = 0
         self.high_watermark = 0
         self.max_latency_ms = 0.0
+        self.is_disk_full = False
+
+    def set_disk_full(self, status: bool) -> None:
+        """Set or clear disk full emergency state."""
+        with self._lock:
+            self.is_disk_full = status
+            if status:
+                logger.error("bounded_queue.disk_full_engaged", queue=self.name)
 
     def put(self, item: T, timeout_sec: float | None = None) -> bool:
         """
@@ -115,6 +354,15 @@ class BoundedPipelineQueue(Generic[T]):
         """
         now = time.time()
         with self._lock:
+            # If disk is completely full for storage writer, reject immediately without deadlocking
+            if self.is_disk_full and self.pipeline_type == PipelineType.STORAGE_WRITER:
+                self.total_dropped += 1
+                if self.continuity_ledger and self.camera_id and self.segment_id:
+                    self.continuity_ledger.record_storage_error(
+                        self.camera_id, self.segment_id, "DISK_FULL_EMERGENCY_REJECTION"
+                    )
+                return False
+
             # Check if queue has space
             if len(self._deque) < self.maxsize:
                 self._deque.append((item, now))
@@ -149,16 +397,28 @@ class BoundedPipelineQueue(Generic[T]):
                 return False
 
             elif self.policy == QueueOverflowPolicy.APPLY_BACKPRESSURE:
-                deadline = (now + timeout_sec) if timeout_sec is not None else None
+                # Ingestion queues must not block indefinitely; cap wait at timeout_sec or 0.5s
+                wait_limit = timeout_sec if timeout_sec is not None else 0.5
+                deadline = now + wait_limit
+
                 while len(self._deque) >= self.maxsize:
-                    if deadline is not None:
-                        remaining = deadline - time.time()
-                        if remaining <= 0:
-                            self.total_dropped += 1
-                            return False
-                        self._not_full.wait(remaining)
-                    else:
-                        self._not_full.wait(0.5)
+                    remaining = deadline - time.time()
+                    if remaining <= 0:
+                        self.total_dropped += 1
+                        if self.continuity_ledger and self.camera_id and self.segment_id:
+                            self.continuity_ledger.record_storage_error(
+                                self.camera_id,
+                                self.segment_id,
+                                f"QUEUE_BACKPRESSURE_TIMEOUT_{wait_limit:.2f}s",
+                            )
+                        logger.warning(
+                            "bounded_queue.backpressure_timeout",
+                            queue=self.name,
+                            timeout_sec=wait_limit,
+                            dropped=self.total_dropped,
+                        )
+                        return False
+                    self._not_full.wait(remaining)
 
                 self._deque.append((item, now))
                 self.total_enqueued += 1
@@ -193,12 +453,14 @@ class BoundedPipelineQueue(Generic[T]):
                 queue_name=self.name,
                 capacity=self.maxsize,
                 current_size=len(self._deque),
+                pipeline_type=self.pipeline_type.value,
                 total_enqueued=self.total_enqueued,
                 total_dequeued=self.total_dequeued,
                 total_dropped=self.total_dropped,
                 overflow_events=self.overflow_events,
                 high_watermark=self.high_watermark,
                 max_latency_ms=round(self.max_latency_ms, 2),
+                is_disk_full=self.is_disk_full,
             )
 
     def clear(self) -> int:
@@ -228,21 +490,111 @@ def calculate_backoff_with_jitter(
     return round(final_delay, 3)
 
 
+class CancellationToken:
+    """Thread-safe cooperative cancellation token."""
+
+    def __init__(self) -> None:
+        self._cancelled = threading.Event()
+
+    def cancel(self) -> None:
+        self._cancelled.set()
+
+    @property
+    def is_cancelled(self) -> bool:
+        return self._cancelled.is_set()
+
+
 class WorkerCrashSupervisor:
     """
     Monitors background workers (AI inference, camera RTSP decoders, flusher).
-    Provides crash isolation: ensures that an exception or death of an optional AI
-    worker never halts core video recording or freezes the UI.
+    Provides crash isolation, heartbeat watchdog monitoring, anti-duplicate lease fencing,
+    and safe segment recovery.
     """
 
-    def __init__(self, name: str, max_restarts: int = 5, backoff_base_sec: float = 1.0) -> None:
+    # Global lease registry to prevent duplicate workers for the same camera channel
+    _ACTIVE_CHANNEL_LEASES: dict[str, str] = {}
+    _LEASE_LOCK = threading.Lock()
+
+    def __init__(
+        self,
+        name: str,
+        max_restarts: int = 5,
+        backoff_base_sec: float = 1.0,
+        heartbeat_timeout_sec: float = 10.0,
+        channel_id: str | None = None,
+    ) -> None:
         self.name = name
         self.max_restarts = max_restarts
         self.backoff_base_sec = backoff_base_sec
+        self.heartbeat_timeout_sec = heartbeat_timeout_sec
+        self.channel_id = channel_id
+
         self.restart_count = 0
         self.crash_history: list[dict[str, Any]] = []
         self.is_alive = True
         self.is_fenced = False
+        self.state = WorkerLifecycleState.STARTING
+        self.last_heartbeat_timestamp = time.time()
+        self.lease_token: str | None = None
+
+        if self.channel_id:
+            self.acquire_channel_lease()
+
+    def acquire_channel_lease(self) -> str | None:
+        """Acquire atomic exclusive lease for this worker's camera channel."""
+        if not self.channel_id:
+            return None
+        with self._LEASE_LOCK:
+            existing = self._ACTIVE_CHANNEL_LEASES.get(self.channel_id)
+            if existing and existing != self.lease_token:
+                logger.warning(
+                    "worker_supervisor.lease_collision_prevented",
+                    channel=self.channel_id,
+                    existing_lease=existing,
+                )
+                self.is_fenced = True
+                self.state = WorkerLifecycleState.TERMINATED
+                return None
+            token = f"lease_{self.channel_id}_{uuid.uuid4().hex[:8]}"
+            self.lease_token = token
+            self._ACTIVE_CHANNEL_LEASES[self.channel_id] = token
+            return token
+
+    def revoke_channel_lease(self) -> None:
+        """Release atomic lease upon worker termination or restart fencing."""
+        if not self.channel_id or not self.lease_token:
+            return
+        with self._LEASE_LOCK:
+            if self._ACTIVE_CHANNEL_LEASES.get(self.channel_id) == self.lease_token:
+                self._ACTIVE_CHANNEL_LEASES.pop(self.channel_id, None)
+            self.lease_token = None
+
+    def record_heartbeat(self) -> None:
+        """Record live worker heartbeat."""
+        self.last_heartbeat_timestamp = time.time()
+        if self.state in (WorkerLifecycleState.STARTING, WorkerLifecycleState.DEGRADED):
+            self.state = WorkerLifecycleState.RUNNING
+
+    def check_hung(self, now: float | None = None) -> bool:
+        """
+        Check if worker has missed heartbeat beyond threshold.
+        Returns True if worker is detected as HUNG.
+        """
+        current_time = now if now is not None else time.time()
+        elapsed = current_time - self.last_heartbeat_timestamp
+        if elapsed > self.heartbeat_timeout_sec:
+            if self.state != WorkerLifecycleState.HUNG and self.state != WorkerLifecycleState.TERMINATED:
+                self.state = WorkerLifecycleState.HUNG
+                logger.error(
+                    "worker_supervisor.worker_hung_detected",
+                    worker=self.name,
+                    elapsed_sec=round(elapsed, 2),
+                    timeout_sec=self.heartbeat_timeout_sec,
+                )
+            return True
+        elif elapsed > (self.heartbeat_timeout_sec * 0.5):
+            self.state = WorkerLifecycleState.DEGRADED
+        return False
 
     def record_crash(self, exception: Exception | str) -> float:
         """
@@ -252,6 +604,7 @@ class WorkerCrashSupervisor:
         now_iso = datetime.now(timezone.utc).isoformat()
         self.restart_count += 1
         err_msg = str(exception)
+        self.state = WorkerLifecycleState.TERMINATING
 
         self.crash_history.append({
             "restart_attempt": self.restart_count,
@@ -262,6 +615,8 @@ class WorkerCrashSupervisor:
         if self.restart_count > self.max_restarts:
             self.is_fenced = True
             self.is_alive = False
+            self.state = WorkerLifecycleState.TERMINATED
+            self.revoke_channel_lease()
             logger.error(
                 "worker_supervisor.worker_fenced_exceeded_restarts",
                 worker=self.name,
@@ -280,11 +635,50 @@ class WorkerCrashSupervisor:
         )
         return delay
 
+    def terminate_worker(self) -> None:
+        """Controlled worker termination."""
+        self.state = WorkerLifecycleState.TERMINATING
+        self.revoke_channel_lease()
+        self.is_alive = False
+        self.state = WorkerLifecycleState.TERMINATED
+
+    def quarantine_partial_segment(
+        self,
+        part_path: Path | str,
+        reason: str = "WORKER_HUNG_RECOVERY",
+    ) -> Path | None:
+        """
+        Safely recover and quarantine an in-flight .part segment without data loss.
+        Renames .part to .recovered_partial.mp4 and updates state to RECOVERED.
+        """
+        p = Path(part_path)
+        if not p.exists() or p.stat().st_size == 0:
+            return None
+
+        recovered_name = p.stem.replace(".part", "") + ".recovered_partial.mp4"
+        recovered_path = p.parent / recovered_name
+        try:
+            p.rename(recovered_path)
+            self.state = WorkerLifecycleState.RECOVERED
+            logger.info(
+                "worker_supervisor.segment_recovered_partial",
+                original=str(p),
+                recovered=str(recovered_path),
+                size_bytes=recovered_path.stat().st_size,
+                reason=reason,
+            )
+            return recovered_path
+        except Exception as exc:
+            logger.error("worker_supervisor.recovery_rename_failed", error=str(exc))
+            return None
+
     def reset_clean(self) -> None:
-        """Reset restart count after a period of stable execution."""
+        """Reset restart count and restore clean state after a period of stability."""
         self.restart_count = 0
         self.is_fenced = False
         self.is_alive = True
+        self.state = WorkerLifecycleState.RUNNING
+        self.last_heartbeat_timestamp = time.time()
 
 
 class NonBlockingExecutor:
@@ -324,6 +718,46 @@ class NonBlockingExecutor:
                 False,
                 fallback_value,
                 f"Operation timed out after {timeout_sec:.2f} seconds (Non-blocking guard engaged).",
+            )
+
+        if exc_holder[0] is not None:
+            return False, fallback_value, str(exc_holder[0])
+
+        return True, result[0], None
+
+    @staticmethod
+    def execute_with_cancellation(
+        task_fn: Callable[[CancellationToken], T],
+        timeout_sec: float = 3.0,
+        fallback_value: T | None = None,
+    ) -> tuple[bool, T | None, str | None]:
+        """
+        Execute task_fn passing a CancellationToken with hard timeout enforcement.
+        Cancels the token upon timeout to prevent zombie execution.
+        """
+        token = CancellationToken()
+        result: list[T | None] = [fallback_value]
+        exc_holder: list[Exception | None] = [None]
+        completed = threading.Event()
+
+        def _target() -> None:
+            try:
+                result[0] = task_fn(token)
+            except Exception as e:
+                exc_holder[0] = e
+            finally:
+                completed.set()
+
+        t = threading.Thread(target=_target, daemon=True)
+        t.start()
+        is_finished = completed.wait(timeout_sec)
+
+        if not is_finished:
+            token.cancel()
+            return (
+                False,
+                fallback_value,
+                f"Operation timed out after {timeout_sec:.2f} seconds; cancellation token triggered.",
             )
 
         if exc_holder[0] is not None:
