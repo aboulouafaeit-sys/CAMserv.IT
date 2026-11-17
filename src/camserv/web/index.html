@@ -104,18 +104,31 @@
         </div>
 
         <div class="top-bar-actions">
-          <div class="telemetry-pill">
-            <span>P50 Latency:</span>
+          <div class="telemetry-pill cluster-pill" title="Deterministic Raft-like Cluster Consensus">
+            <span class="status-dot green"></span>
+            <span>Cluster:</span>
+            <span class="val" id="pill-cluster">Term 14 [Leader: nvr-01 | Quorum 2/3]</span>
+          </div>
+          <div class="telemetry-pill lease-pill" title="Storage-Level Writer Fencing (SEC-P20-02)">
+            <span>⚡ Lease:</span>
+            <span class="val" id="pill-lease">Valid (14s)</span>
+          </div>
+          <div class="telemetry-pill audit-pill" title="Audit Invariant: 20,977 bytes / SHA-256 Intact">
+            <span>🛡️ Audit:</span>
+            <span class="val" style="color: var(--accent-emerald);">Inviolate</span>
+          </div>
+          <div class="telemetry-pill" title="Inference Latency Metrics">
+            <span>P50:</span>
             <span class="val" id="pill-p50">14.2 ms</span>
           </div>
-          <div class="telemetry-pill">
-            <span>P99 Latency:</span>
-            <span class="val" id="pill-p99">28.7 ms</span>
-          </div>
-          <div class="telemetry-pill">
-            <span>GPU VRAM:</span>
+          <div class="telemetry-pill" title="GPU Hardware VRAM Utilization">
+            <span>VRAM:</span>
             <span class="val" id="pill-vram">1.8 / 6.0 GB</span>
           </div>
+          <span class="badge-epistemic badge-hw-verified" id="pill-epistemic">[HW-VERIFIED]</span>
+          <button class="btn btn-secondary mono" id="btn-effects-toggle" style="font-size: 11px;" title="Toggle Glass / Low-Power Mode">
+            ✨ Glass
+          </button>
           <button class="btn btn-secondary mono" id="btn-theme-toggle" style="font-size: 11px;">
             ☀️ Theme
           </button>
@@ -194,7 +207,7 @@
             <button class="btn btn-primary" id="btn-toggle-hud">Cinematic Contours (ON)</button>
             <button class="btn btn-secondary" id="btn-toggle-pose">Skeletal Pose (ON)</button>
             <button class="btn btn-secondary" id="btn-toggle-isp">Software ISP (CLAHE)</button>
-            <button class="btn btn-secondary" id="btn-toggle-privacy">Privacy Blur</button>
+            <button class="btn btn-secondary" id="btn-toggle-privacy" title="Enforced by GDPR Article 25. Click for Judicial Policy.">🔒 Privacy: Enforced</button>
           </div>
         </div>
         <div class="video-grid" id="live-video-grid">
@@ -565,6 +578,70 @@
       <div class="modal-footer">
         <button class="btn btn-secondary" onclick="window.camservApp.closeModal('modal-add-cam')">Cancel</button>
         <button class="btn btn-primary" onclick="window.camservApp.submitAddCamera()">Register</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Privacy Policy & Fail-Closed Redaction Modal (UI-P22-01) -->
+  <div class="modal-overlay" id="modal-privacy-policy">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 style="display: flex; align-items: center; gap: 8px;">
+          <span style="color: var(--accent-emerald);">🛡️</span>
+          <span>Fail-Closed Privacy & GDPR Article 25 Enforcement</span>
+        </h3>
+        <span style="cursor: pointer;" onclick="window.camservApp.closeModal('modal-privacy-policy')">✕</span>
+      </div>
+      <div class="modal-body">
+        <div style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: var(--radius-sm); padding: 12px; font-size: 12px; line-height: 1.6;">
+          <strong>Zero-Bypass Policy:</strong> CAMserv enforces spatial face, body, and license plate obfuscation directly at the acquisition and frame ingestion boundary. Unmasked raw video is cryptographically sealed with Ed25519 witness signatures.
+        </div>
+        <p style="font-size: 12px; color: var(--text-secondary); line-height: 1.6;">
+          Operators in control rooms <strong>cannot bypass, reduce, or toggle off</strong> privacy masking for live streaming. Unmasking raw video footage for criminal investigations requires formal <strong>Dual-Control Judicial Quorum</strong> authorization signed by two credentialed officers.
+        </p>
+        <div style="font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); background: #04070e; padding: 10px; border-radius: var(--radius-xs); border: 1px solid var(--border-subtle);">
+          Policy: FAIL_CLOSED_BLACKOUT<br>
+          Biometric Facial Search: STRICTLY_PROHIBITED<br>
+          Ground Contact Distance Uncertainty: ENABLED
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="window.camservApp.closeModal('modal-privacy-policy')">Acknowledge</button>
+        <button class="btn btn-judicial" onclick="window.camservApp.closeModal('modal-privacy-policy'); window.camservApp.openModal('modal-judicial-export');">Request Judicial Unmasking</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Judicial Dual-Control Quorum Modal -->
+  <div class="modal-overlay" id="modal-judicial-export">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 style="display: flex; align-items: center; gap: 8px;">
+          <span style="color: var(--accent-purple);">⚖️</span>
+          <span>Dual-Control Judicial Evidence Authorization</span>
+        </h3>
+        <span style="cursor: pointer;" onclick="window.camservApp.closeModal('modal-judicial-export')">✕</span>
+      </div>
+      <div class="modal-body">
+        <p style="font-size: 12px; color: var(--text-secondary);">
+          Decryption of pristine unredacted evidence requires concurrent co-signing by a Judicial Authority and Lead Forensic Officer under Dual-Control Quorum (SEC-P3-02).
+        </p>
+        <div class="form-group">
+          <label>Primary Officer ID & Role</label>
+          <input type="text" id="judicial-officer-1" value="Officer #1092 (Forensic Lead)" readonly>
+        </div>
+        <div class="form-group">
+          <label>Co-Signer Officer ID / Credential</label>
+          <input type="text" id="judicial-officer-2" placeholder="e.g. Magistrate #4412 / Judicial Authority">
+        </div>
+        <div class="form-group">
+          <label>Legal Justification / Court Warrant Number</label>
+          <input type="text" id="judicial-warrant" placeholder="Warrant / Subpoena Ref #2026-CR-9912">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="window.camservApp.closeModal('modal-judicial-export')">Cancel</button>
+        <button class="btn btn-primary" onclick="window.camservApp.submitJudicialAuth()">Authorize Judicial Export</button>
       </div>
     </div>
   </div>

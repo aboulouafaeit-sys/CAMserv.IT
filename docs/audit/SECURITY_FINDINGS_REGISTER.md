@@ -4,15 +4,15 @@
 **Project:** CAMserv Advanced Security Intelligence Platform  
 **Target Repository:** `aboulouafaeit-sys/CAMserv.IT`  
 **Branch:** `main`  
-**Audited Commit Baseline:** `227a3eb`  
+**Audited Commit Baseline:** `1cecf14`  
 **Audit Team:** Independent Security, Red-Team & Digital Forensics Review Board  
-**Date:** November 16, 2026  
+**Date:** November 17, 2026  
 
 ---
 
 ## 1. Executive Summary & Severity Breakdown
 
-This register catalogs all security vulnerabilities, architectural weaknesses, reliability defects, and production-readiness gaps discovered across post-Phase 3, Phase 11, Phase 12, Phase 13, Phase 14, Phase 15, Phase 16, Phase 18, and Phase 19 audits. Findings were independently discovered through static code analysis, architectural threat modeling, hardware testing, and reproduced via deterministic automated test suites.
+This register catalogs all security vulnerabilities, architectural weaknesses, reliability defects, and production-readiness gaps discovered across post-Phase 3, Phase 11, Phase 12, Phase 13, Phase 14, Phase 15, Phase 16, Phase 18, Phase 19, Phase 20, and Phase 21 audits. Findings were independently discovered through static code analysis, architectural threat modeling, hardware testing, and reproduced via deterministic automated test suites.
 
 | Severity | Total Discovered | Resolved / Remediated | Unresolved / Limitations |
 | :--- | :---: | :---: | :---: |
@@ -620,3 +620,29 @@ This register catalogs all security vulnerabilities, architectural weaknesses, r
 * **Remediation:** Added `issue_storage_lease()`. Verifies active leader role and strict quorum before issuing leases.
 * **Verification:** Tested in `tests/test_pre_lts_phase20_qualification.py::test_minority_partition_cannot_issue_storage_lease`.
 * **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+## 7. Phase 21 Physical Hardware Qualification Gates (v1.0.0-LTS Promotion Gates)
+
+The software foundation has completed 100% of functional and security remediations (`0.10.0` Pre-LTS Qualification). Full commercial promotion to `v1.0.0-LTS` is gated on the following four physical operational boundaries:
+
+### GATE-HW-01: Physical Rockchip RK3588 Edge Appliance Bench Test
+* **Classification:** **HARDWARE / OPERATIONAL LIMITATION** (Physical Device Required)
+* **Required Scope:** Flash custom Debian 13 arm64 image onto physical Rockchip RK3588 SBC; verify Rockchip MPP hardware decoder and RKNN tri-core NPU runtime.
+* **Status:** **BLOCKED_BY_ENVIRONMENT** (Documented in [docs/PHASE-21-RK3588-DEPLOYMENT-RUNBOOK.md](file:///C:/Users/MPront/Documents/CAMserv/docs/PHASE-21-RK3588-DEPLOYMENT-RUNBOOK.md)).
+
+### GATE-HW-02: Physical Laboratory Multi-Vendor PoE Camera Ingestion Matrix
+* **Classification:** **HARDWARE / OPERATIONAL LIMITATION** (Physical Infrastructure Required)
+* **Required Scope:** Direct bench ingestion against physical Axis, Hikvision, Dahua, and Hanwha cameras over physical 802.3at PoE switch.
+* **Status:** **BLOCKED_BY_ENVIRONMENT** (Documented in [docs/PHASE-21-PHYSICAL-CAMERA-TEST-PLAN.md](file:///C:/Users/MPront/Documents/CAMserv/docs/PHASE-21-PHYSICAL-CAMERA-TEST-PLAN.md)).
+
+### GATE-HW-03: 72-Hour Continuous Environmental Thermal Soak Test (45°C)
+* **Classification:** **HARDWARE / OPERATIONAL LIMITATION** (Environmental Chamber Required)
+* **Required Scope:** 72-hour continuous 16-channel ingestion in fanless enclosure inside calibrated thermal chamber at 45°C ambient; peak SoC $\le 85^\circ\text{C}$; memory drift $\le 5\text{ MB}$.
+* **Status:** **BLOCKED_BY_ENVIRONMENT** (Documented in [docs/PHASE-21-THERMAL-SOAK-PROTOCOL.md](file:///C:/Users/MPront/Documents/CAMserv/docs/PHASE-21-THERMAL-SOAK-PROTOCOL.md)).
+
+### GATE-HW-04: Physical AC Power-Cut & Recovery Resilience (50 Cycles)
+* **Classification:** **HARDWARE / OPERATIONAL LIMITATION** (Relay Actuator Required)
+* **Required Scope:** 50 consecutive unexpected AC power drops via external relay during multi-channel recording; verify SQLite WAL replay and `.part` quarantine (`SEC-P20-02`).
+* **Status:** **BLOCKED_BY_ENVIRONMENT** (Documented in [docs/PHASE-21-POWER-LOSS-RECOVERY-PROTOCOL.md](file:///C:/Users/MPront/Documents/CAMserv/docs/PHASE-21-POWER-LOSS-RECOVERY-PROTOCOL.md)).

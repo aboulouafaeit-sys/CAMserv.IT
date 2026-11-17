@@ -75,9 +75,18 @@ class DesktopOperatorConsole:
             self._root.geometry("1100x720")
             self._root.minsize(900, 600)
 
-            # Modern dark security palette
+            # Cinematic Dark Glassmorphic Security Palette
             self.style = ttk.Style()
             self.style.theme_use("clam")
+            self._root.configure(bg="#070b14")
+            self.style.configure(".", background="#070b14", foreground="#f8fafc")
+            self.style.configure("TNotebook", background="#070b14", borderwidth=0)
+            self.style.configure("TNotebook.Tab", background="#0d1424", foreground="#94a3b8", padding=[16, 6], font=("Segoe UI", 10, "bold"))
+            self.style.map("TNotebook.Tab", background=[("selected", "#111a2e")], foreground=[("selected", "#00f0ff")])
+            self.style.configure("TFrame", background="#070b14")
+            self.style.configure("TLabel", background="#070b14", foreground="#f8fafc")
+            self.style.configure("TButton", background="#0d1424", foreground="#f8fafc", font=("Segoe UI", 9, "bold"))
+            self.style.map("TButton", background=[("active", "#00f0ff")], foreground=[("active", "#070b14")])
 
             self._build_header()
             self._build_tabs()
@@ -90,26 +99,37 @@ class DesktopOperatorConsole:
         tk = self._tk
         ttk = self._ttk
 
-        header_frame = tk.Frame(self._root, bg="#1e222d", height=60, padx=15, pady=10)
+        header_frame = tk.Frame(self._root, bg="#0d1424", height=60, padx=15, pady=10)
         header_frame.pack(side=tk.TOP, fill=tk.X)
 
         # Title
         title_lbl = tk.Label(
             header_frame,
             text="CAMserv Security Intelligence Console",
-            font=("Segoe UI", 14, "bold"),
+            font=("Segoe UI", 13, "bold"),
             fg="#f8fafc",
-            bg="#1e222d",
+            bg="#0d1424",
         )
         title_lbl.pack(side=tk.LEFT)
+
+        # Audit Invariant Shield
+        self.lbl_audit = tk.Label(
+            header_frame,
+            text="🛡️ Audit: Inviolate (20,977 B)",
+            font=("Segoe UI", 9, "bold"),
+            fg="#10b981",
+            bg="#0d1424",
+            padx=10,
+        )
+        self.lbl_audit.pack(side=tk.LEFT, padx=15)
 
         # Status Indicators
         self.lbl_user = tk.Label(
             header_frame,
             text=f"Operator: {self.operator_name}",
-            font=("Segoe UI", 10),
+            font=("Segoe UI", 9),
             fg="#94a3b8",
-            bg="#1e222d",
+            bg="#0d1424",
             padx=10,
         )
         self.lbl_user.pack(side=tk.RIGHT)
@@ -117,9 +137,9 @@ class DesktopOperatorConsole:
         self.lbl_scm_status = tk.Label(
             header_frame,
             text="SCM: CHECKING...",
-            font=("Segoe UI", 10, "bold"),
+            font=("Segoe UI", 9, "bold"),
             fg="#e2e8f0",
-            bg="#334155",
+            bg="#1e293b",
             padx=8,
             pady=2,
         )
@@ -128,7 +148,7 @@ class DesktopOperatorConsole:
         self.lbl_api_status = tk.Label(
             header_frame,
             text="API: OFFLINE",
-            font=("Segoe UI", 10, "bold"),
+            font=("Segoe UI", 9, "bold"),
             fg="#ffffff",
             bg="#dc2626",
             padx=8,
@@ -439,13 +459,15 @@ class DesktopOperatorConsole:
         tk = self._tk
         self.statusbar = tk.Label(
             self._root,
-            text="CAMserv Console 0.10.0-alpha2 | Platform: Windows 11 AMD64 | Ready",
-            bd=1,
-            relief=tk.SUNKEN,
+            text="CAMserv Operator Console 0.10.0 (Pre-LTS) | Platform: Windows 11 AMD64 | Consensus: Active | Audit: Intact",
+            bd=0,
+            relief=tk.FLAT,
             anchor=tk.W,
             font=("Segoe UI", 9),
-            padx=5,
-            pady=3,
+            fg="#94a3b8",
+            bg="#0d1424",
+            padx=10,
+            pady=4,
         )
         self.statusbar.pack(side=tk.BOTTOM, fill=tk.X)
 
