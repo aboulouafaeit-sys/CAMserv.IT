@@ -8,7 +8,9 @@ Local-First Zero-Trust Identity, Authentication, Authorization & Account Protect
 from camserv.security.identity.audit import (
     GENESIS_HASH,
     AuditCheckpoint,
+    CheckpointCorruptedError,
     CheckpointSequenceRegressionError,
+    CheckpointStoreMissingError,
     ExternalCheckpointStore,
     TamperEvidentSecurityAudit,
 )
@@ -26,6 +28,7 @@ from camserv.security.identity.bootstrap import (
     BootstrapTokenExpiredError,
     InvalidBootstrapTokenError,
     LocalAdministratorBootstrap,
+    secure_zero_memory,
 )
 from camserv.security.identity.emergency import (
     PERMITTED_LOCKDOWN_ACTIONS,
@@ -75,6 +78,7 @@ from camserv.security.identity.sentinel import (
     CAMservSentinelIdentity,
     SentinelConfig,
     SentinelMitigation,
+    resolve_client_ip,
 )
 from camserv.security.identity.session import (
     SessionError,
@@ -112,6 +116,7 @@ __all__ = [
     "DurableIdentityStore",
     # Bootstrap
     "LocalAdministratorBootstrap",
+    "secure_zero_memory",
     "BootstrapError",
     "BootstrapAlreadyCompletedError",
     "InvalidBootstrapTokenError",
@@ -143,11 +148,14 @@ __all__ = [
     "CAMservSentinelIdentity",
     "SentinelConfig",
     "SentinelMitigation",
+    "resolve_client_ip",
     # Audit
     "TamperEvidentSecurityAudit",
     "AuditCheckpoint",
     "ExternalCheckpointStore",
     "CheckpointSequenceRegressionError",
+    "CheckpointStoreMissingError",
+    "CheckpointCorruptedError",
     "GENESIS_HASH",
     # Secrets
     "CameraCredentialProtection",

@@ -40,6 +40,18 @@ class CheckpointSequenceRegressionError(ValueError):
     pass
 
 
+class CheckpointStoreMissingError(RuntimeError):
+    """Raised when external checkpoint store is missing while identity ledger contains historical records."""
+
+    pass
+
+
+class CheckpointCorruptedError(RuntimeError):
+    """Raised when external checkpoint store file is corrupted, malformed, or tampered."""
+
+    pass
+
+
 @dataclass(slots=True)
 class AuditCheckpoint:
     """Signed external checkpoint anchoring the security audit hash-chain head."""
@@ -132,16 +144,26 @@ class ExternalCheckpointStore:
             try:
                 content = self.store_path.read_text(encoding="utf-8").strip()
                 if not content:
-                    return []
+                    raise CheckpointCorruptedError(
+                        f"External checkpoint store at '{self.store_path}' is empty or truncated"
+                    )
                 raw_list = json.loads(content)
+                if not isinstance(raw_list, list):
+                    raise CheckpointCorruptedError(
+                        f"External checkpoint store at '{self.store_path}' root must be a JSON array"
+                    )
                 return [AuditCheckpoint.from_dict(item) for item in raw_list]
             except Exception as exc:
+                if isinstance(exc, CheckpointCorruptedError):
+                    raise
                 logger.error(
                     "external_checkpoint_store.read_error",
                     path=str(self.store_path),
                     error=str(exc),
                 )
-                return []
+                raise CheckpointCorruptedError(
+                    f"External checkpoint store at '{self.store_path}' could not be parsed: {exc}"
+                ) from exc
 
     def verify_store_monotonicity(self) -> tuple[bool, str | None]:
         """Verify that all externally held checkpoints have non-decreasing sequence numbers."""
@@ -332,10 +354,24 @@ class TamperEvidentSecurityAudit:
         signing_key: bytes | None = None,
         public_key: Ed25519PublicKey | None = None,
     ) -> tuple[bool, str | None]:
-        """Verify the current database against the latest checkpoint held in the external store."""
+        """Verify the current database against the latest checkpoint held in the external store.
+
+        Detects missing/deleted checkpoint stores, rollback attacks, and divergent chains.
+        """
+        with self.store._lock:
+            cursor = self.store._conn.execute("SELECT COUNT(*) AS count FROM security_events")
+            row = cursor.fetchone()
+            db_count = row["count"] if row else 0
+
         latest = external_store.get_latest_checkpoint()
         if latest is None:
+            if db_count > 0:
+                raise CheckpointStoreMissingError(
+                    f"External checkpoint store at '{external_store.store_path}' is missing or empty, "
+                    f"but database contains {db_count} audit events. Potential state tampering or checkpoint deletion attack!"
+                )
             return (True, None)
+
         return self.verify_against_checkpoint(latest, signing_key=signing_key, public_key=public_key)
 
     def export_jsonl(self, export_path: str | Path) -> int:

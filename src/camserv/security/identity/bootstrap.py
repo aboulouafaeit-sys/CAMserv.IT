@@ -61,6 +61,14 @@ class BootstrapTokenExpiredError(BootstrapError):
     """Raised when the bootstrap token has expired."""
 
 
+def secure_zero_memory(buf: bytearray) -> None:
+    """Securely wipe sensitive memory buffer in place using ctypes.memset."""
+    import ctypes
+    if not buf:
+        return
+    ctypes.memset((ctypes.c_char * len(buf)).from_buffer(buf), 0, len(buf))
+
+
 class LocalAdministratorBootstrap:
     """Manages the one-time, time-limited bootstrap for the primary local administrator."""
 
@@ -75,6 +83,17 @@ class LocalAdministratorBootstrap:
         self.hasher = hasher or Argon2idPasswordHasher()
         self.totp_manager = totp_manager or TOTPManager()
         self.token_path = Path(token_path)
+
+    def _verify_path_integrity(self, path: Path) -> None:
+        """Verify that a path is not a symlink, directory junction, or NTFS reparse point."""
+        if path.is_symlink() or os.path.islink(path):
+            raise BootstrapError(f"Symlink or reparse point detected at path: {path}")
+        if hasattr(os, "lstat") and path.exists():
+            st = os.lstat(str(path))
+            file_attrs = getattr(st, "st_file_attributes", 0)
+            # In Windows NTFS, FILE_ATTRIBUTE_REPARSE_POINT = 0x0400
+            if file_attrs & 0x400:
+                raise BootstrapError(f"Directory junction or reparse point detected at path: {path}")
 
     def is_bootstrap_needed(self) -> bool:
         """Check whether initial administrator bootstrap is required."""
@@ -101,11 +120,26 @@ class LocalAdministratorBootstrap:
         # Save to database
         self.store.store_bootstrap_token(token_hash, expires_at_iso)
 
-        # Security check: defeat symlink / junction / reparse point attacks
-        if self.token_path.is_symlink() or os.path.islink(self.token_path):
-            raise BootstrapError("Symlink or reparse point detected at bootstrap token path")
-
+        # Ensure parent directory exists and verify its integrity
         self.token_path.parent.mkdir(parents=True, exist_ok=True)
+        self._verify_path_integrity(self.token_path.parent)
+
+        # Pre-harden parent directory on Windows so child files inherit restrictive DACLs from creation
+        import sys
+        if sys.platform == "win32":
+            try:
+                import subprocess
+                u = os.environ.get("USERNAME", "SYSTEM")
+                subprocess.run(
+                    ["icacls", str(self.token_path.parent), "/inheritance:r", "/grant:r", f"{u}:(OI)(CI)F", "/grant:r", "SYSTEM:(OI)(CI)F"],
+                    capture_output=True,
+                    timeout=5.0,
+                )
+            except Exception as exc:
+                logger.warning("bootstrap.parent_dacl_hardening_warning", error=str(exc))
+
+        # Security check: defeat symlink / junction / reparse point attacks on token target
+        self._verify_path_integrity(self.token_path)
 
         # Defeat pre-created target substitution attacks
         if self.token_path.exists():
@@ -120,7 +154,6 @@ class LocalAdministratorBootstrap:
         os.close(fd)  # Created as 0-byte file; permissions applied BEFORE writing sensitive content
 
         # Step 2: Apply OS access controls BEFORE writing secret token
-        import sys
         if sys.platform == "win32":
             try:
                 import subprocess
@@ -220,8 +253,11 @@ class LocalAdministratorBootstrap:
         except ValueError:
             raise InvalidBootstrapTokenError("Malformed bootstrap token expiration metadata")
 
-        # Verify token in constant time
-        candidate_hash = hashlib.sha256(bootstrap_token.strip().encode("utf-8")).hexdigest()
+        # Verify token in constant time and zero memory buffer
+        token_raw_bytes = bytearray(bootstrap_token.strip().encode("utf-8"))
+        candidate_hash = hashlib.sha256(token_raw_bytes).hexdigest()
+        secure_zero_memory(token_raw_bytes)
+
         if not hmac.compare_digest(candidate_hash, token_data["token_hash"]):
             self.store.record_security_event(
                 SecurityEvent(

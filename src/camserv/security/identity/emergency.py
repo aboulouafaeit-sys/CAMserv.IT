@@ -9,6 +9,8 @@ surveillance recording, RTSP ingestion, and cryptographic evidence hashing.
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import threading
 import uuid
@@ -22,6 +24,8 @@ from camserv.security.identity.models import SecurityEvent, SecurityEventSeverit
 from camserv.security.identity.store import DurableIdentityStore
 
 logger = structlog.get_logger(__name__)
+
+DEFAULT_LATCH_SECRET: bytes = b"camserv-appliance-durable-lockdown-latch-key-v1"
 
 
 # Actions allowed even under full emergency lockdown
@@ -54,9 +58,46 @@ class EmergencyLockdownManager:
         # Restore durable lockdown state across process restarts
         self._restore_latch_state()
 
+    def _compute_latch_signature(self, data: dict[str, Any]) -> str:
+        """Compute HMAC-SHA256 signature for lockdown recovery latch data."""
+        payload = f"{data.get('status')}:{data.get('initiated_by')}:{data.get('reason')}:{data.get('declared_at_utc')}"
+        return hmac.new(DEFAULT_LATCH_SECRET, payload.encode("utf-8"), hashlib.sha256).hexdigest()
+
     def _restore_latch_state(self) -> None:
-        """Inspect durable recovery latch file to survive application crashes or restarts."""
+        """Inspect durable recovery latch file to survive application crashes or restarts.
+
+        Cross-checks SQLite security audit log to defeat deleted-latch tampering attacks.
+        """
         if not self.latch_path.exists():
+            # Cross-check SQLite database to detect deleted latch attack!
+            try:
+                with self.store._lock:
+                    cursor = self.store._conn.execute(
+                        "SELECT event_type, details FROM security_events "
+                        "WHERE event_type IN ('EMERGENCY_LOCKDOWN_DECLARED', 'EMERGENCY_LOCKDOWN_LIFTED') "
+                        "ORDER BY rowid DESC LIMIT 1"
+                    )
+                    row = cursor.fetchone()
+                    if row and row["event_type"] == "EMERGENCY_LOCKDOWN_DECLARED":
+                        # Database recorded active lockdown, but latch was deleted! Fail closed!
+                        self._is_active = True
+                        details = json.loads(row["details"]) if row["details"] else {}
+                        self._lockdown_details = {
+                            "status": "LOCKDOWN_ACTIVE",
+                            "initiated_by": "restored_from_db_history",
+                            "reason": f"Active lockdown restored: deleted latch detected. {details.get('reason', '')}",
+                            "declared_at_utc": datetime.now(timezone.utc).isoformat(),
+                        }
+                        self._lockdown_details["latch_signature"] = self._compute_latch_signature(self._lockdown_details)
+                        # Re-persist latch
+                        try:
+                            self.latch_path.parent.mkdir(parents=True, exist_ok=True)
+                            self.latch_path.write_text(json.dumps(self._lockdown_details, indent=2), encoding="utf-8")
+                        except Exception:
+                            pass
+                        logger.critical("emergency_lockdown.boot_fail_closed_missing_latch_restored_from_db")
+            except Exception as exc:
+                logger.error("emergency_lockdown.db_cross_check_error", error=str(exc))
             return
 
         try:
@@ -73,6 +114,19 @@ class EmergencyLockdownManager:
                 return
 
             data = json.loads(content)
+            # Verify cryptographic HMAC signature on the latch
+            stored_sig = data.get("latch_signature")
+            expected_sig = self._compute_latch_signature(data)
+            if not stored_sig or not hmac.compare_digest(stored_sig, expected_sig):
+                self._is_active = True
+                self._lockdown_details = {
+                    "status": "LOCKDOWN_FAIL_CLOSED_CORRUPTED_LATCH",
+                    "reason": "Tampered recovery latch file detected on boot: invalid signature",
+                    "declared_at_utc": datetime.now(timezone.utc).isoformat(),
+                }
+                logger.critical("emergency_lockdown.boot_fail_closed_tampered_latch_signature")
+                return
+
             if data.get("status") == "LOCKDOWN_ACTIVE":
                 self._is_active = True
                 self._lockdown_details = data
@@ -81,6 +135,14 @@ class EmergencyLockdownManager:
                     initiated_by=data.get("initiated_by"),
                     reason=data.get("reason"),
                 )
+            else:
+                self._is_active = True
+                self._lockdown_details = {
+                    "status": "LOCKDOWN_FAIL_CLOSED_CORRUPTED_LATCH",
+                    "reason": f"Abnormal latch status '{data.get('status')}' in latch file",
+                    "declared_at_utc": datetime.now(timezone.utc).isoformat(),
+                }
+                logger.critical("emergency_lockdown.boot_fail_closed_abnormal_status")
         except Exception as exc:
             # Crucial Security Invariant: Fail closed on corrupt latch file
             self._is_active = True
@@ -113,6 +175,7 @@ class EmergencyLockdownManager:
                 "reason": reason,
                 "declared_at_utc": now,
             }
+            self._lockdown_details["latch_signature"] = self._compute_latch_signature(self._lockdown_details)
 
             # Atomically persist durable recovery latch file
             try:
@@ -188,6 +251,22 @@ class EmergencyLockdownManager:
                 )
                 if not is_admin:
                     raise PermissionError(f"User '{lifted_by}' is not authorized to lift emergency lockdown")
+            else:
+                # Fallback check against identity store for authenticated admin credentials
+                user = None
+                try:
+                    user = self.store.get_user_by_username(lifted_by) or self.store.get_user_by_id(lifted_by)
+                except Exception:
+                    pass
+                if user is not None:
+                    is_admin = bool(user.is_administrator or getattr(user.role, "value", str(user.role)) == "admin")
+                    if not is_admin:
+                        raise PermissionError(f"User '{lifted_by}' is not authorized to lift emergency lockdown")
+                else:
+                    if lifted_by not in ("admin", "system"):
+                        raise PermissionError(
+                            f"User '{lifted_by}' is not authorized to lift emergency lockdown: admin authorization required"
+                        )
 
             self._is_active = False
             self._lockdown_details = {}

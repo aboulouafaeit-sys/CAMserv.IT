@@ -522,4 +522,87 @@ Every finding in this register was evaluated against actual source code, physica
 * **Verification:** Formally documented in `docs/PHASE-26.2-NIST-AAL-ALIGNMENT.md`.
 * **Status:** **REMEDIATED & VERIFIED**.
 
+---
+
+## 10. Phase 26.3 Findings: Local Trust Boundary Closure & Adversarial Assurance
+
+### FINDING-P26.3-01: Silent Genesis Re-initialization upon Checkpoint Store Deletion
+* **Severity:** **HIGH FORENSIC IMMUTABILITY**
+* **Affected Subsystem:** `camserv.security.identity.audit` (`TamperEvidentSecurityAudit`)
+* **Root Cause:** If `trust_anchor.json` was deleted while `identity.db` had historical events, `verify_against_external_store()` returned `(True, None)`, allowing silent re-initialization of genesis checkpoints over existing deployments.
+* **Remediation:** Added `CheckpointStoreMissingError` if `latest is None` and database has `count > 0` records. Added `CheckpointCorruptedError` on empty, malformed, or non-array stores.
+* **Verification:** Tested in `tests/test_phase26_3_adversarial.py::TestDomainAExternalCheckpointRollback::test_checkpoint_store_deletion_fails_closed`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### FINDING-P26.3-02: Mathematical Limitation of Local Hash Chains Against Full Filesystem Snapshot Restore
+* **Severity:** **MEDIUM ARCHITECTURAL TRANSPARENCY**
+* **Affected Subsystem:** `camserv.security.identity.audit`
+* **Root Cause:** Theorem 1 proves that a local hash chain cannot mathematically detect an attacker with host root restoring both `identity.db` and `trust_anchor.json` from a coordinated snapshot without an independent hardware/external trust anchor.
+* **Remediation:** Formally published Theorem 1 (Local State Rollback Indistinguishability) in `docs/PHASE-26.3-EXTERNAL-CHECKPOINT-ROLLBACK-TESTS.md` and mandated TPM 2.0 monotonic NVRAM or offsite syslog for enterprise rollback prevention.
+* **Verification:** Documented in `docs/PHASE-26.3-EXTERNAL-CHECKPOINT-ROLLBACK-TESTS.md`.
+* **Status:** **FORMALIZED & VERIFIED**.
+
+---
+
+### FINDING-P26.3-03: Windows Kernel Handle Retention Bypassing Post-Creation DACL Stripping
+* **Severity:** **HIGH LOCAL PRIVILEGE ESCALATION (WINDOWS)**
+* **Affected Subsystem:** `camserv.security.identity.bootstrap`
+* **Root Cause:** Windows NT object manager retains opened file handles across subsequent `icacls` DACL changes. If an unprivileged user process opened a read handle before `icacls` executed on `.bootstrap_token`, it retained the handle and could read newly written token data.
+* **Remediation:** Pre-hardened the parent directory (`data/`) using `icacls /inheritance:r /grant %USERNAME%:(OI)(CI)F /grant SYSTEM:(OI)(CI)F` before creating the token file, ensuring child files inherit restricted permissions from the instant of creation.
+* **Verification:** Tested in `tests/test_phase26_3_adversarial.py::TestDomainBBootstrapSecurity::test_bootstrap_parent_directory_pre_hardening`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### FINDING-P26.3-04: Volatile Heap Memory Remanence of Cleartext Bootstrap Secrets
+* **Severity:** **MEDIUM VOLATILE MEMORY HYGIENE**
+* **Affected Subsystem:** `camserv.security.identity.bootstrap`
+* **Root Cause:** Cleartext token strings remained in Python's garbage-collected heap after bootstrap completion, susceptible to memory scraping or crash dump exfiltration.
+* **Remediation:** Implemented `secure_zero_memory()` utilizing `ctypes.memset` over mutable `bytearray` buffers to overwrite secrets with zeros immediately upon consumption. Documented flash wear-leveling boundaries.
+* **Verification:** Tested in `tests/test_phase26_3_adversarial.py::TestDomainBBootstrapSecurity::test_secure_zero_memory_ctypes`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### FINDING-P26.3-05: Emergency Lockdown Latch Tampering & Deleted-Latch Reboot Evasion
+* **Severity:** **CRITICAL THREAT CONTAINMENT**
+* **Affected Subsystem:** `camserv.security.identity.emergency`
+* **Root Cause:** `.emergency_lockdown.latch` lacked cryptographic signature integrity. An attacker with filesystem access could modify status or delete the latch file before a reboot to evade active lockdown without administrative credentials.
+* **Remediation:** Embedded an HMAC-SHA256 signature (`latch_signature`) inside the latch file, verified on startup. Added SQLite security event log cross-checking to detect latch deletion and fail closed (`LOCKDOWN_FAIL_CLOSED_CORRUPTED_LATCH`).
+* **Verification:** Tested in `tests/test_phase26_3_adversarial.py::TestDomainCEmergencyLockdownAssurance::test_lockdown_hmac_signature_tampering_fails_closed` and `test_lockdown_deleted_latch_reconciled_from_database`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### FINDING-P26.3-06: Unauthenticated & Unprivileged Emergency Lockdown Termination
+* **Severity:** **HIGH INCIDENT RESPONSE INTEGRITY**
+* **Affected Subsystem:** `camserv.security.identity.emergency`
+* **Root Cause:** `lift_lockdown()` permitted calls where `authorizing_admin` was `None`, potentially allowing unauthenticated or non-admin callers to lift lockdown.
+* **Remediation:** Enforced strict validation requiring verified administrator credentials, checking `is_administrator` or `IdentityRole.ADMIN` and rejecting unauthenticated calls with `PermissionError`.
+* **Verification:** Tested in `tests/test_phase26_3_adversarial.py::TestDomainCEmergencyLockdownAssurance::test_lockdown_unauthorized_lift_rejected`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### FINDING-P26.3-07: Untrusted Reverse-Proxy HTTP Header Spoofing Evading Sentinel Mitigations
+* **Severity:** **HIGH NETWORK IDENTITY SPOOFING**
+* **Affected Subsystem:** `camserv.security.identity.sentinel`
+* **Root Cause:** Extracting client IP addresses from `X-Forwarded-For` or `X-Real-IP` in local-first deployments without verifying upstream proxy trust allowed attackers to spoof client IPs and bypass rate limits or Sentinel IP bans.
+* **Remediation:** Engineered `resolve_client_ip()` strictly ignoring client-supplied forwarding headers unless the direct socket IP is an explicitly configured member of `trusted_proxies`.
+* **Verification:** Tested in `tests/test_phase26_3_adversarial.py::TestDomainDSentinelSessionSecurity::test_proxy_header_spoofing_prevented_without_trusted_proxy`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### FINDING-P26.3-08: Surveillance Recording Degradation Under Identity Subsystem Faults
+* **Severity:** **CRITICAL SURVEILLANCE CONTINUITY**
+* **Affected Subsystem:** `camserv.platform.stability`
+* **Root Cause:** Identity database locks, latch corruption, or auth storms could cascade into ingestion thread contention if shared locking or synchronous database writes existed in video paths.
+* **Remediation:** Enforced complete memory and thread decoupling between video ingestion queues (`BoundedPipelineQueue`) and identity stores, with `PERMITTED_LOCKDOWN_ACTIONS` whitelisting pipeline operations.
+* **Verification:** Tested in `tests/test_phase26_3_adversarial.py::TestDomainFGPipelineIsolationRegression::test_pipeline_zero_frame_loss_under_compound_failures`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+
 

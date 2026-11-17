@@ -30,6 +30,33 @@ from camserv.security.identity.store import DurableIdentityStore
 logger = structlog.get_logger(__name__)
 
 
+def resolve_client_ip(
+    direct_socket_ip: str,
+    headers: dict[str, str] | None = None,
+    trusted_proxies: set[str] | None = None,
+) -> str:
+    """Resolve true client IP with strict reverse-proxy anti-spoofing defense.
+
+    In local-first zero-trust deployments, untrusted client-supplied headers
+    (X-Forwarded-For, X-Real-IP, Client-IP) are strictly ignored unless the direct
+    connecting socket IP is explicitly a member of trusted_proxies.
+    """
+    if not headers or not trusted_proxies or direct_socket_ip not in trusted_proxies:
+        return direct_socket_ip
+
+    # Look up headers case-insensitively
+    headers_lower = {k.lower(): v for k, v in headers.items()}
+    for h in ("x-forwarded-for", "x-real-ip", "client-ip"):
+        if h in headers_lower:
+            val = headers_lower[h].strip()
+            if val:
+                client_ip = val.split(",")[0].strip()
+                if client_ip:
+                    return client_ip
+
+    return direct_socket_ip
+
+
 @dataclass(slots=True)
 class SentinelConfig:
     """Detection and mitigation thresholds."""
