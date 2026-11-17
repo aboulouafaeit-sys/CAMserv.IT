@@ -1,9 +1,9 @@
 # CAMserv Camera Compatibility Matrix
 
-**Document ID:** MATRIX-CAMERA-2026-002  
+**Document ID:** MATRIX-CAMERA-2026-003  
 **Classification:** Hardware Verification & Compatibility Registry  
-**Version:** 1.4.0 (Phase 20 Pre-LTS Final Qualification)  
-**Date:** November 16, 2026  
+**Version:** 1.5.0 (Phase 21 Physical Lab Handoff)  
+**Date:** November 17, 2026  
 
 ---
 
@@ -13,7 +13,7 @@ CAMserv adheres to an uncompromising standard of technical honesty. Universal co
 
 1. **Certified Hardware (Bench Tested):** Physical device tested in laboratory conditions with real RTSP/ONVIF streams; all advertised features verified.
 2. **Software Protocol Tested:** Verified using synthetic RTSP streams and simulated ONVIF WS-Discovery endpoints in automated CI test environments.
-3. **Compatible by Specification:** Verified against standard RFC 2326 (RTSP) and ONVIF Profile S/T/G specifications, but awaiting physical laboratory certification.
+3. **Compatible by Specification:** Verified against standard RFC 2326 (RTSP) and ONVIF Profile S/T/G specifications, awaiting physical laboratory certification (`GATE-HW-02`).
 
 ---
 
@@ -30,16 +30,16 @@ CAMserv adheres to an uncompromising standard of technical honesty. Universal co
 
 ---
 
-## 3. Vendor Compatibility Profiles
+## 3. Vendor Compatibility Profiles & Physical Lab Handoff Status
 
-| Manufacturer | Tested Models / Series | Supported Topologies | Stream Stability Score | Verified Capabilities |
+| Manufacturer | Tested Models / Series | Supported Topologies | Stream Stability Score | Physical Lab Status (Phase 21) |
 | :--- | :--- | :---: | :---: | :--- |
-| **Hikvision** | DS-2CD2xx Series, NVR Interconnect | Topology A & C | 98.5% | H.264/H.265 RTSP, ONVIF WS-Discovery, PTZ Presets. |
-| **Dahua** | IPC-HFW / HDW Series | Topology A & C | 97.8% | H.264/H.265 RTSP, Profile S Discovery, Sub-stream pull. |
-| **Axis Communications**| M-Series, P-Series | Topology B & C | 99.2% | RTSPS over TLS, Profile S/T, Ultra-low handshake latency. |
-| **Hanwha Techwin** | Wisenet X & Q Series | Topology A & C | 98.0% | H.265 RTSP, ONVIF Profile S, Dynamic frame-rate scaling. |
-| **Generic ONVIF IP** | Standard WS-Discovery endpoints | Topology C | 95.0% | Profile S discovery, RTSP H.264 streaming. |
-| **Windows Optical Webcam (Host)** | Integrated Webcam / USB UVC | Direct Host Interface | 100.0% | `VERIFIED_ON_REAL_HARDWARE`. 640x480 RGB frame acquisition via DirectShow / Media Foundation. |
+| **Hikvision** | DS-2CD2xx Series, NVR Interconnect | Topology A & C | 98.5% (Simulated) | Spec & protocol validated; physical PoE bench test pending (`GATE-HW-02`). |
+| **Dahua Technology** | IPC-HFW / HDW Series | Topology A & C | 97.8% (Simulated) | Spec & protocol validated; physical PoE bench test pending (`GATE-HW-02`). |
+| **Axis Communications**| M-Series, P-Series | Topology B & C | 99.2% (Simulated) | Spec & protocol validated; physical PoE bench test pending (`GATE-HW-02`). |
+| **Hanwha Vision** | Wisenet X & Q Series | Topology A & C | 98.0% (Simulated) | Spec & protocol validated; physical PoE bench test pending (`GATE-HW-02`). |
+| **Generic ONVIF IP** | Standard WS-Discovery endpoints | Topology C | 95.0% (Simulated) | Profile S discovery, RTSP H.264 streaming. |
+| **Windows Optical Webcam (Host)** | Integrated Webcam / USB UVC | Direct Host Interface | 100.0% | **`VERIFIED_ON_REAL_HARDWARE`**. 640x480 RGB frame acquisition via DirectShow / Media Foundation. |
 | **Synthetic Feeds** | CI Test Harness Generator | All Topologies | 100.0% | Deterministic resolution, FPS, packet loss emulation. |
 
 ---
@@ -50,3 +50,4 @@ CAMserv adheres to an uncompromising standard of technical honesty. Universal co
 2. **Graceful Fallback:** If H.265 stream negotiation fails, the ingestion supervisor attempts H.264 fallback negotiation before raising an error.
 3. **Health Telemetry:** Every camera channel continuously reports uptime, FPS, packet loss, and reconnection counts to `/system/metrics`.
 4. **Fencing & Dual-Writer Protection:** Under multi-node cluster operations, camera ingestion is bound to a single active cluster node tagged with a monotonic `assignment_epoch` and enforced at the recording write path via `StorageLease`. If a partitioned node's lease expires or is revoked, frame ingestion is immediately halted (`FencedWriterError`) and any open uncommitted segment is automatically quarantined to `.quarantined.mp4`, preventing corrupt writes or split-brain overwrite of majority-committed forensic evidence.
+5. **Physical Test Protocol:** Refer to [docs/PHASE-21-PHYSICAL-CAMERA-TEST-PLAN.md](file:///C:/Users/MPront/Documents/CAMserv/docs/PHASE-21-PHYSICAL-CAMERA-TEST-PLAN.md) for bench procedures required to certify physical camera models for `v1.0.0-LTS`.

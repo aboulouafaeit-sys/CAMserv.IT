@@ -379,7 +379,7 @@ def test_forensic_quarantine_preserves_byte_for_byte_sha256(
         node_id="nvr-01",
         assignment_epoch=1,
         granted_at=time.time(),
-        lease_duration_sec=0.1,  # Short lease
+        lease_duration_sec=0.4,
     )
     engine.grant_storage_lease(lease)
     engine.start_recording("cam-secure", recording_type="continuous")
@@ -387,7 +387,8 @@ def test_forensic_quarantine_preserves_byte_for_byte_sha256(
     engine.ingest_frame("cam-secure", frame)
 
     # Let lease expire
-    time.sleep(0.15)
+    while lease.is_valid:
+        time.sleep(0.05)
     assert not lease.is_valid
 
     # Stop recording triggers finalization -> quarantined due to expired lease
@@ -421,12 +422,13 @@ def test_privileged_quarantine_restoration_lifecycle(
         node_id="nvr-01",
         assignment_epoch=1,
         granted_at=time.time(),
-        lease_duration_sec=0.05,
+        lease_duration_sec=0.4,
     )
     engine.grant_storage_lease(lease)
     engine.start_recording("cam-restore", recording_type="continuous")
     engine.ingest_frame("cam-restore", np.zeros((480, 640, 3), dtype=np.uint8))
-    time.sleep(0.1)
+    while lease.is_valid:
+        time.sleep(0.05)
     engine.stop_recording("cam-restore")
 
     quarantined = engine.get_quarantined_segments("cam-restore")
