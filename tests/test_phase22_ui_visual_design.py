@@ -229,14 +229,20 @@ def test_epistemic_badges_present() -> None:
     """Epistemic badges must distinguish real hardware from simulated synthetic feeds."""
     css_path = PROJECT_ROOT / "src" / "camserv" / "web" / "styles.css"
     js_path = PROJECT_ROOT / "src" / "camserv" / "web" / "app.js"
+    html_path = PROJECT_ROOT / "src" / "camserv" / "web" / "index.html"
 
     css_text = css_path.read_text(encoding="utf-8")
     js_text = js_path.read_text(encoding="utf-8")
+    html_text = html_path.read_text(encoding="utf-8")
 
     assert ".badge-hw-verified" in css_text
     assert ".badge-simulated" in css_text
     assert "[HW-VERIFIED]" in js_text
     assert "[SIMULATED]" in js_text
+
+    # Initial static HTML must be truthful: never assume HW-VERIFIED before API confirmation
+    assert "[CONNECTING...]" in html_text
+    assert '<span class="badge-epistemic badge-simulated" id="pill-epistemic"' in html_text
 
 
 # ==============================================================================

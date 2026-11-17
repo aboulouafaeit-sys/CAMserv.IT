@@ -42,3 +42,4 @@ This inventory catalogs every operational screen in the Web Command & Control Co
 | **2** | `tab_timeline` | Recordings & Forensics | Local timeline playback and offline cryptographic evidence verification | Monospace SHA-256 displays, evidence integrity status indicators, and export triggers |
 | **3** | `tab_alerts` | Alerts & Incidents | SCM alarm dispatch and local incident queue | High-visibility amber/crimson alarm cards with one-click verification |
 | **4** | `tab_system` | System Diagnostics & SCM | Service Control Manager status, CPU/RAM telemetry, DirectShow prober | Windows 11 Fluent-inspired dark panels with real-time service heartbeat indicator |
+| **5** | `tab_cluster` | Enterprise Cluster | Enterprise cluster federation, quorum state, witness synchronization, and node quarantine (`_build_cluster_tab()`) | Translucent dark cluster treeview, role status pills (LEADER/FOLLOWER/STANDBY), and failover quarantine controls |
