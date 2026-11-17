@@ -76,6 +76,41 @@ class SegmentState(str, enum.Enum):
     QUARANTINED = "quarantined"            # Fenced or aborted write isolated for inspection
     CORRUPTED = "corrupted"                # Failed cryptographic integrity check
     PURGED = "purged"                      # Safely deleted per authorized retention policy
+    RECOVERED_PARTIAL = "recovered_partial"# Recovered unfinalized fragment post-crash (NEVER finalized)
+
+
+class TelemetrySource(str, enum.Enum):
+    """Authoritative source for hardware and storage telemetry."""
+
+    PHYSICAL_OS = "physical_os"
+    OS_FSYNC_PROBE = "os_fsync_probe"
+    OS_SHUTIL_DISK_USAGE = "os_shutil_disk_usage"
+    WMI_MSFT_PHYSICALDISK = "wmi_msft_physicaldisk"
+    LINUX_SYSFS = "linux_sysfs"
+    SMARTCTL = "smartctl"
+    UNAVAILABLE = "unavailable"
+
+
+class HardwareAvailabilityState(str, enum.Enum):
+    """Operational availability state of a hardware sensor or subsystem."""
+
+    AVAILABLE = "available"
+    UNAVAILABLE = "unavailable"
+    DEGRADED = "degraded"
+    UNKNOWN = "unknown"
+
+
+@dataclass(slots=True)
+class HardwareTelemetryMetric:
+    """Attributed hardware telemetry field declaring genuine source and availability."""
+
+    metric_name: str
+    value: Any
+    source: TelemetrySource
+    timestamp_utc: str
+    availability: HardwareAvailabilityState
+    confidence: float = 1.0
+    details: str = ""
 
 
 @dataclass(slots=True)
@@ -105,6 +140,11 @@ class RecordingSegmentMetadata:
     event_ids: list[str] = field(default_factory=list)
     is_protected_evidence: bool = False
     preservation_hold_ids: list[str] = field(default_factory=list)
+    is_partial: bool = False
+    recovery_notes: str | None = None
+    keyframe_count: int = 0
+    has_keyframes: bool = False
+    source_part_path: str | None = None
     created_at: str = field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
@@ -135,6 +175,11 @@ class RecordingSegmentMetadata:
             "event_ids": list(self.event_ids),
             "is_protected_evidence": self.is_protected_evidence,
             "preservation_hold_ids": list(self.preservation_hold_ids),
+            "is_partial": self.is_partial,
+            "recovery_notes": self.recovery_notes,
+            "keyframe_count": self.keyframe_count,
+            "has_keyframes": self.has_keyframes,
+            "source_part_path": self.source_part_path,
             "created_at": self.created_at,
         }
 
@@ -167,6 +212,11 @@ class RecordingSegmentMetadata:
             event_ids=list(data.get("event_ids", [])),
             is_protected_evidence=bool(data.get("is_protected_evidence", False)),
             preservation_hold_ids=list(data.get("preservation_hold_ids", [])),
+            is_partial=bool(data.get("is_partial", False)),
+            recovery_notes=data.get("recovery_notes"),
+            keyframe_count=int(data.get("keyframe_count", 0)),
+            has_keyframes=bool(data.get("has_keyframes", False)),
+            source_part_path=data.get("source_part_path"),
             created_at=str(data.get("created_at", datetime.now(timezone.utc).isoformat())),
         )
 
@@ -183,15 +233,17 @@ class DiskHealthInfo:
     used_bytes: int
     temperature_c: float | None = None
     power_on_hours: int | None = None
-    reallocated_sectors: int = 0
-    pending_sectors: int = 0
-    uncorrectable_errors: int = 0
-    write_amplification_factor: float = 1.0
+    reallocated_sectors: int | None = None
+    pending_sectors: int | None = None
+    uncorrectable_errors: int | None = None
+    write_amplification_factor: float | None = None
     endurance_remaining_percent: float | None = None
     io_queue_depth: int = 0
     write_latency_ms: float = 0.0
     is_healthy: bool = True
     warnings: list[str] = field(default_factory=list)
+    metric_sources: dict[str, str] = field(default_factory=dict)
+    metric_availabilities: dict[str, str] = field(default_factory=dict)
 
     @property
     def used_percent(self) -> float:
@@ -256,3 +308,32 @@ class PreservationHold:
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
     expires_at: str | None = None         # None = indefinite until manually released
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize preservation hold to structured dictionary."""
+        return {
+            "hold_id": self.hold_id,
+            "target_id": self.target_id,
+            "target_type": self.target_type,
+            "reason": self.reason,
+            "authorized_by": self.authorized_by,
+            "hold_type": self.hold_type,
+            "active": self.active,
+            "created_at": self.created_at,
+            "expires_at": self.expires_at,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> PreservationHold:
+        """Deserialize structured dictionary into PreservationHold."""
+        return cls(
+            hold_id=str(data["hold_id"]),
+            target_id=str(data["target_id"]),
+            target_type=str(data.get("target_type", "segment")),
+            reason=str(data.get("reason", "")),
+            authorized_by=str(data.get("authorized_by", "")),
+            hold_type=str(data.get("hold_type", "incident")),
+            active=bool(data.get("active", True)),
+            created_at=str(data.get("created_at", datetime.now(timezone.utc).isoformat())),
+            expires_at=data.get("expires_at"),
+        )

@@ -11,14 +11,18 @@ from camserv.storage.isep.bitrate_analyzer import StreamBitrateAnalyzer
 from camserv.storage.isep.capacity_predictor import StorageCapacityPredictor
 from camserv.storage.isep.disk_health import DiskHealthMonitor
 from camserv.storage.isep.evidence_preservation import (
+    CourtroomBundleVerificationError,
     EvidencePreservationError,
     EvidencePreservationManager,
+    verify_courtroom_bundle,
 )
 from camserv.storage.isep.integrity_verifier import StorageIntegrityVerifier
 from camserv.storage.isep.intelligence_engine import StorageIntelligenceEngine
 from camserv.storage.isep.models import (
     CapacityForecast,
     DiskHealthInfo,
+    HardwareAvailabilityState,
+    HardwareTelemetryMetric,
     PreservationHold,
     RecordingCodec,
     RecordingSegmentMetadata,
@@ -28,6 +32,12 @@ from camserv.storage.isep.models import (
     StorageProfile,
     StorageTierType,
     StorageTopology,
+    TelemetrySource,
+)
+from camserv.storage.isep.preservation_store import (
+    PreservationStore,
+    PreservationStoreCorruptError,
+    PreservationStoreError,
 )
 from camserv.storage.isep.recovery_manager import StorageRecoveryManager
 from camserv.storage.isep.retention_engine import (
@@ -49,11 +59,17 @@ __all__ = [
     "CameraRetentionRule",
     "CapacityForecast",
     "CleanupAuditEntry",
+    "CourtroomBundleVerificationError",
     "DiskHealthInfo",
     "DiskHealthMonitor",
     "EvidencePreservationError",
     "EvidencePreservationManager",
+    "HardwareAvailabilityState",
+    "HardwareTelemetryMetric",
     "PreservationHold",
+    "PreservationStore",
+    "PreservationStoreCorruptError",
+    "PreservationStoreError",
     "RecordingCodec",
     "RecordingSegmentManager",
     "RecordingSegmentMetadata",
@@ -71,5 +87,7 @@ __all__ = [
     "StorageTierManager",
     "StorageTierType",
     "StorageTopology",
+    "TelemetrySource",
     "TransferVerificationError",
+    "verify_courtroom_bundle",
 ]

@@ -68,27 +68,35 @@ class RecordingSegmentWriter:
         self.tier = tier
         self.storage_pool_id = storage_pool_id
 
-        # Predictable file naming
+        # Predictable file naming with accurate media extension
         safe_cam = camera_id.replace("/", "_").replace("\\", "_")
         self.start_timestamp_utc = time.time()
         self.start_iso = datetime.now(timezone.utc).isoformat()
-        self.filename = f"{safe_cam}_{int(self.start_timestamp_utc)}_{segment_index:05d}.mp4"
+        if codec == RecordingCodec.NATIVE_PASS_THROUGH or codec == RecordingCodec.H264:
+            ext = ".h264"
+        elif codec == RecordingCodec.H265:
+            ext = ".h265"
+        else:
+            ext = ".mp4"
+        self.filename = f"{safe_cam}_{int(self.start_timestamp_utc)}_{segment_index:05d}{ext}"
         self.final_path = self.target_dir / self.filename
         self.part_path = self.target_dir / f"{self.filename}.part"
 
         self.hasher = hashlib.sha256()
         self.bytes_written = 0
         self.frames_written = 0
+        self.keyframe_count = 0
+        self.has_keyframes = False
         self.is_closed = False
         self.has_motion = False
         self.has_event = False
         self.event_ids: list[str] = []
 
-        self._raw_file = open(self.part_path, "wb")
+        self._raw_file: Any = None
         self._cv2_writer: Any = None
 
-        # If writing raw frames with cv2 available and codec not native pass-through
-        if _HAS_CV2 and codec != RecordingCodec.NATIVE_PASS_THROUGH:
+        # If writing raw frames with cv2 available and codec not raw elementary pass-through
+        if _HAS_CV2 and codec not in (RecordingCodec.NATIVE_PASS_THROUGH, RecordingCodec.H264, RecordingCodec.H265):
             fourcc = cv2.VideoWriter_fourcc(*"mp4v")
             self._cv2_writer = cv2.VideoWriter(
                 str(self.part_path),
@@ -98,6 +106,9 @@ class RecordingSegmentWriter:
             )
             if not self._cv2_writer.isOpened():
                 self._cv2_writer = None
+                self._raw_file = open(self.part_path, "wb")
+        else:
+            self._raw_file = open(self.part_path, "wb")
 
     def write_raw_packet(self, packet_bytes: bytes, is_keyframe: bool = False) -> None:
         """Write camera-native encoded stream packet directly to disk without transcoding."""
@@ -106,8 +117,13 @@ class RecordingSegmentWriter:
         if not packet_bytes:
             return
 
+        if is_keyframe:
+            self.keyframe_count += 1
+            self.has_keyframes = True
+
         self.hasher.update(packet_bytes)
-        self._raw_file.write(packet_bytes)
+        if self._raw_file is not None:
+            self._raw_file.write(packet_bytes)
         self.bytes_written += len(packet_bytes)
         self.frames_written += 1
 
@@ -213,6 +229,8 @@ class RecordingSegmentWriter:
                 has_motion=self.has_motion,
                 has_event=self.has_event,
                 event_ids=self.event_ids,
+                keyframe_count=self.keyframe_count,
+                has_keyframes=self.has_keyframes,
             )
             logger.info(
                 "isep.segment_finalized",
@@ -346,6 +364,7 @@ class RecordingSegmentManager:
                 rec_id = f"rec_recovered_{int(time.time())}"
                 seg_id = f"seg_recov_{part_file.stem}"
 
+                estimated_duration = max(0.001, round(file_size / (200.0 * 1024.0), 3))
                 meta = RecordingSegmentMetadata(
                     schema_version="2.0",
                     segment_id=seg_id,
@@ -354,7 +373,7 @@ class RecordingSegmentManager:
                     segment_index=0,
                     start_time_utc=datetime.fromtimestamp(created_time, timezone.utc).isoformat(),
                     end_time_utc=datetime.now(timezone.utc).isoformat(),
-                    duration_seconds=10.0,
+                    duration_seconds=estimated_duration,
                     file_path=str(final_path),
                     file_size_bytes=file_size,
                     sha256_hash=sha256_hash,
@@ -364,10 +383,13 @@ class RecordingSegmentManager:
                     bitrate_kbps=0.0,
                     tier=self.tier,
                     storage_pool_id=self.storage_pool_id,
-                    state=SegmentState.FINALIZED,
+                    state=SegmentState.RECOVERED_PARTIAL,
+                    is_partial=True,
+                    recovery_notes=f"Recovered unfinalized stream fragment post-crash from orphaned {part_file.name}",
+                    source_part_path=str(part_file),
                 )
                 recovered.append(meta)
-                logger.warning("isep.orphaned_part_recovered", path=str(final_path), size=file_size)
+                logger.warning("isep.orphaned_part_recovered_partial", path=str(final_path), size=file_size)
             except Exception as exc:
                 logger.error("isep.part_recovery_failed", file=str(part_file), error=str(exc))
 

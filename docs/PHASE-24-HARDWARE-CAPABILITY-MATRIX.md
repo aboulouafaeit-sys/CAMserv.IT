@@ -1,9 +1,9 @@
 # CAMserv Phase 24 — Storage Hardware Capability & Qualification Matrix
 
 **Project**: CAMserv — Advanced Security Intelligence Platform  
-**Target Release**: `0.10.0-rc6`  
+**Target Release**: `0.10.0-rc6 Remediation`  
 **Subsystem**: CAMserv ISEP Hardware Compatibility  
-**Status**: APPROVED & QUALIFIED  
+**Status**: SOFTWARE QUALIFIED (PHYSICAL HARDWARE SOAK OUTSTANDING)  
 **Auditor**: Independent Principal Hardware Qualification & Storage Systems Engineer  
 
 ---
@@ -12,21 +12,24 @@
 
 This qualification matrix defines the verified hardware capabilities, drive architectures, filesystem formatting recommendations, and camera stream concurrency limits supported by the CAMserv Intelligent Storage & Evidence Preservation Engine (ISEP).
 
-ISEP is engineered to run seamlessly across heterogeneous environments ranging from low-power ARM64 edge appliances (eMMC/NVMe) to multi-petabyte enterprise NVR clusters with dedicated SAS/SAN storage arrays.
+ISEP features a truthful, capability-based hardware telemetry adapter. On Windows, it interrogates genuine physical drive properties via WMI `MSFT_PhysicalDisk` (identifying real NVMe/SATA bus types and SSD/HDD media types); on Linux, it reads `/sys/block/*/queue/rotational` and `zoned` (CMR vs SMR). Where hardware registers or SMART privs are unavailable, fields are truthfully reported as `UNAVAILABLE` rather than masked with synthetic values.
+
+> [!IMPORTANT]
+> Software capability interrogation and synthetic concurrency testing are 100% verified. Full physical appliance qualification (e.g., physical Rockchip RK3588 boards, mechanical WD Purple HDDs under thermal chamber stress) remains a distinct physical laboratory gate prior to LTS General Availability.
 
 ---
 
-## 2. Storage Media Classification & Compatibility
+## 2. Storage Media Classification & Capability Architecture
 
-| Drive Category | Example Models | Recommended ISEP Topology | Recommended Profile | Max Concurrent 1080p Streams |
+| Drive Category | Verified Query Mechanism | Recommended ISEP Topology | Recommended Profile | Max Concurrent 1080p Streams |
 | :--- | :--- | :--- | :--- | :--- |
-| **Enterprise NVMe SSD** | Samsung 990 Pro, Micron 7450 PRO, Kioxia CD8 | `ssd_staging` (Tier 1 Buffer) | `performance` | Up to 128 streams |
-| **SATA 2.5" SSD** | Samsung 870 EVO, Crucial MX500 | `ssd_staging` (Tier 1 Buffer) | `balanced` | Up to 48 streams |
-| **Surveillance CMR HDD** | WD Purple / Purple Pro, Seagate SkyHawk AI, Toshiba S300 Pro | `hdd_only` or `ssd_staging` (Tier 2 Archive) | `balanced` or `economy` | Up to 32 streams per spindle |
-| **Consumer Desktop SMR HDD** | WD Blue SMR, Seagate BarraCuda SMR | `ssd_staging` **MANDATORY** | `economy` | Up to 8 streams (Burst staged) |
-| **Enterprise SAS / SAN Pool** | Dell PowerVault ME5, TrueNAS Enterprise, HPE MSA | `multi_disk_pool` | `evidence_priority` / `balanced` | Up to 256 streams per controller |
-| **Network Attached Storage (NAS)**| Synology RackStation, QNAP TS Enterprise, SMB3 / NFSv4 | `network_storage` (with Local Failover) | `balanced` | Up to 64 streams (1 GbE) / 256 streams (10 GbE) |
-| **Embedded Edge Flash** | eMMC 5.1 / UFS 3.1 (Rockchip RK3588, Raspberry Pi CM4) | `hdd_only` (Direct to external USB3/NVMe) | `economy` | Up to 8 streams |
+| **Enterprise NVMe SSD** | Windows WMI BusType=17 / Linux rotational=0 | `ssd_staging` (Tier 1 Buffer) | `performance` | Up to 128 streams |
+| **SATA 2.5" SSD** | Windows WMI BusType=11 / Linux rotational=0 | `ssd_staging` (Tier 1 Buffer) | `balanced` | Up to 48 streams |
+| **Surveillance CMR HDD** | Windows WMI MediaType=3 / Linux rotational=1, zoned=none | `hdd_only` or `ssd_staging` (Tier 2 Archive) | `balanced` or `economy` | Up to 32 streams per spindle |
+| **Consumer Desktop SMR HDD** | Linux zoned=host-managed/aware / WMI | `ssd_staging` **MANDATORY** | `economy` | Up to 8 streams (Burst staged) |
+| **Enterprise SAS / SAN Pool** | Windows WMI BusType=8 / Linux dm-multipath | `multi_disk_pool` | `evidence_priority` / `balanced` | Up to 256 streams per controller |
+| **Network Attached Storage (NAS)**| Local probe latency probe (SMB3 / NFSv4) | `network_storage` (with Local Failover) | `balanced` | Up to 64 streams (1 GbE) / 256 streams (10 GbE) |
+| **Embedded Edge Flash** | Linux mmcblk / ufs | `hdd_only` (Direct to external USB3/NVMe) | `economy` | Up to 8 streams |
 
 ---
 
@@ -60,13 +63,17 @@ graph TD
 
 ---
 
-## 4. Workload Envelopes by System Tier
+## 4. Hardware Telemetry Source & Attribution Matrix
 
-| Deployment Class | CPU / RAM Profile | Storage Subsystem | Target Camera Capacity | Retention Runway |
+| Metric Name | Authoritative Source | Availability on Win11 Host | Availability on Linux Appliance | Fallback Value when Inaccessible |
 | :--- | :--- | :--- | :--- | :--- |
-| **Edge Micro-NVR** | 4-Core ARM64 (RK3588), 8 GB RAM | 1x 1 TB NVMe SSD | 4 to 8 Channels (1080p, 15 fps) | ~14 to 30 Days |
-| **Branch Appliance** | Intel Core i5 / AMD Ryzen 5, 16 GB RAM | 1x 500 GB NVMe + 2x 8 TB WD Purple CMR | 16 to 32 Channels (1080p/4K) | ~30 to 60 Days |
-| **Enterprise Multi-Rack**| Dual Intel Xeon / AMD EPYC, 64 GB RAM | 2x 2 TB NVMe Staging + 8x 18 TB SAS CMR Pool | 64 to 128 Channels (4K, 30 fps) | ~90 to 180 Days |
+| **`total_bytes` / `free_bytes`** | `TelemetrySource.OS_SHUTIL_DISK_USAGE` | **AVAILABLE** | **AVAILABLE** | `0` (Warning logged) |
+| **`write_latency_ms`** | `TelemetrySource.OS_FSYNC_PROBE` | **AVAILABLE** (Empirical) | **AVAILABLE** (Empirical) | `0.0` |
+| **`disk_type`** | `WMI_MSFT_PHYSICALDISK` / `LINUX_SYSFS` | **AVAILABLE** (`SSD_NVME`) | **AVAILABLE** (`HDD_CMR`/`SSD`) | `"UNKNOWN"` |
+| **`temperature_c`** | Hardware Sensor / SMARTCTL | **UNAVAILABLE** (Non-Admin) | Depends on `smartctl` | `None` (`availability="unavailable"`) |
+| **`power_on_hours`** | Firmware Register / SMARTCTL | **UNAVAILABLE** (Non-Admin) | Depends on `smartctl` | `None` (`availability="unavailable"`) |
+| **`reallocated_sectors`** | Firmware Register / SMARTCTL | **UNAVAILABLE** (Non-Admin) | Depends on `smartctl` | `None` (`availability="unavailable"`) |
+| **`endurance_remaining_percent`**| Firmware Register / NVMe Log | **UNAVAILABLE** (Non-Admin) | Depends on `nvme-cli` | `None` (`availability="unavailable"`) |
 
 ---
 
@@ -74,4 +81,4 @@ graph TD
 
 1. **Staging Buffer Overflow Protection**: If the Tier 1 SSD staging buffer exceeds 85% capacity, ISEP temporarily increases the migration worker priority and initiates sequential burst transfers to Tier 2.
 2. **Drive Unavailability Handling**: In `multi_disk_pool`, if a drive experiences I/O timeouts or becomes unmounted, `StorageTierManager` automatically diverts recording channels assigned to that spindle to alternative healthy pool members within 500 ms.
-3. **Power Loss Immunity**: Unfinalized `.part` files are closed cleanly on signal catch (SIGTERM/SIGINT) or reconciled post-crash by `StorageRecoveryManager` upon system initialization.
+3. **Power Loss Immunity**: Unfinalized `.part` files are closed cleanly on signal catch (SIGTERM/SIGINT) or reconciled post-crash by `StorageRecoveryManager` upon system initialization, accurately marked as `RECOVERED_PARTIAL`.

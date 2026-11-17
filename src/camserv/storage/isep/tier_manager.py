@@ -18,6 +18,7 @@ from __future__ import annotations
 import hashlib
 import os
 import shutil
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -63,6 +64,7 @@ class StorageTierManager:
         self._init_default_pool()
 
         # In-flight transfer tracking: segment_id -> transfer_state
+        self._transfer_lock = threading.Lock()
         self._active_transfers: dict[str, dict[str, Any]] = {}
         self._failed_transfers: list[dict[str, Any]] = []
 
@@ -110,100 +112,120 @@ class StorageTierManager:
     ) -> RecordingSegmentMetadata:
         """
         Migrate a staged segment from SSD buffer to Warm HDD Archive.
-        Mandatory Verification Protocol:
+        Mandatory 8-Step Verification Protocol:
           1. Copy file to destination temporary path (.staging_transfer).
-          2. Compute complete destination SHA-256 hash.
-          3. Compare destination hash against known segment.sha256_hash.
-          4. Atomically commit destination file to final archive path.
-          5. Update segment metadata (file_path, tier, state).
-          6. ONLY THEN unlink staging source file.
-          7. If ANY step fails, staging source is strictly PRESERVED.
+          2. Flush file contents buffer.
+          3. Synchronous filesystem durability sync (os.fsync).
+          4. Compute and verify destination SHA-256 against segment.sha256_hash.
+          5. Atomically commit destination file to final archive path.
+          6. Construct updated segment metadata.
+          7. Verify destination availability and committed state on disk.
+          8. ONLY THEN authorize source deletion.
+          If ANY step fails, staging source is strictly PRESERVED.
         """
-        source_path = Path(segment.file_path).resolve()
-        if not source_path.exists():
-            raise FileNotFoundError(f"Staging source file not found: {source_path}")
+        with self._transfer_lock:
+            source_path = Path(segment.file_path).resolve()
+            if not source_path.exists():
+                raise FileNotFoundError(f"Staging source file not found: {source_path}")
 
-        dest_dir = (archive_path or self.primary_dir) / segment.camera_id
-        dest_dir.mkdir(parents=True, exist_ok=True)
-        dest_final_path = dest_dir / source_path.name
-        dest_temp_path = dest_dir / f"{source_path.name}.staging_transfer"
+            if segment.segment_id in self._active_transfers:
+                raise TransferVerificationError(f"Transfer for segment '{segment.segment_id}' is already active.")
 
-        self._active_transfers[segment.segment_id] = {
-            "source": str(source_path),
-            "dest": str(dest_final_path),
-            "started_at": time.time(),
-        }
+            dest_dir = (archive_path or self.primary_dir) / segment.camera_id
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            dest_final_path = dest_dir / source_path.name
+            dest_temp_path = dest_dir / f"{source_path.name}.staging_transfer"
 
-        try:
-            # Step 1: Copy chunks with synchronous flush
-            with open(source_path, "rb") as f_src, open(dest_temp_path, "wb") as f_dst:
-                while chunk := f_src.read(1024 * 1024):  # 1MB buffer
-                    f_dst.write(chunk)
-                f_dst.flush()
-                os.fsync(f_dst.fileno())
+            self._active_transfers[segment.segment_id] = {
+                "source": str(source_path),
+                "dest": str(dest_final_path),
+                "started_at": time.time(),
+            }
 
-            # Step 2: Compute destination hash
-            hasher = hashlib.sha256()
-            with open(dest_temp_path, "rb") as f_check:
-                while chunk := f_check.read(65536):
-                    hasher.update(chunk)
-            dest_sha256 = hasher.hexdigest()
+            try:
+                # Step 1: Write destination temporary file
+                with open(source_path, "rb") as f_src, open(dest_temp_path, "wb") as f_dst:
+                    while chunk := f_src.read(1024 * 1024):  # 1MB buffer
+                        f_dst.write(chunk)
+                    # Step 2: Flush file contents
+                    f_dst.flush()
+                    # Step 3: Perform filesystem durability synchronization
+                    os.fsync(f_dst.fileno())
 
-            # Step 3: Verify cryptographic equality
-            if dest_sha256 != segment.sha256_hash:
-                dest_temp_path.unlink(missing_ok=True)
-                raise TransferVerificationError(
-                    f"Integrity check failed during staging transfer of '{segment.segment_id}'. "
-                    f"Expected {segment.sha256_hash}, calculated {dest_sha256}."
+                # Step 4: Verify destination SHA-256
+                hasher = hashlib.sha256()
+                with open(dest_temp_path, "rb") as f_check:
+                    while chunk := f_check.read(65536):
+                        hasher.update(chunk)
+                dest_sha256 = hasher.hexdigest()
+
+                if dest_sha256 != segment.sha256_hash:
+                    dest_temp_path.unlink(missing_ok=True)
+                    raise TransferVerificationError(
+                        f"Integrity check failed during staging transfer of '{segment.segment_id}'. "
+                        f"Expected {segment.sha256_hash}, calculated {dest_sha256}."
+                    )
+
+                # Step 5: Atomically publish destination
+                dest_temp_path.replace(dest_final_path)
+
+                # Step 6: Construct updated metadata
+                updated_meta = RecordingSegmentMetadata(
+                    schema_version=segment.schema_version,
+                    segment_id=segment.segment_id,
+                    recording_id=segment.recording_id,
+                    camera_id=segment.camera_id,
+                    segment_index=segment.segment_index,
+                    start_time_utc=segment.start_time_utc,
+                    end_time_utc=segment.end_time_utc,
+                    duration_seconds=segment.duration_seconds,
+                    file_path=str(dest_final_path),
+                    file_size_bytes=dest_final_path.stat().st_size,
+                    sha256_hash=dest_sha256,
+                    codec=segment.codec,
+                    resolution=segment.resolution,
+                    fps=segment.fps,
+                    bitrate_kbps=segment.bitrate_kbps,
+                    tier=StorageTierType.WARM_ARCHIVE,
+                    storage_pool_id=segment.storage_pool_id,
+                    state=SegmentState.FINALIZED,
+                    has_motion=segment.has_motion,
+                    has_event=segment.has_event,
+                    event_ids=list(segment.event_ids),
+                    is_protected_evidence=segment.is_protected_evidence,
+                    preservation_hold_ids=list(segment.preservation_hold_ids),
+                    is_partial=segment.is_partial,
+                    recovery_notes=segment.recovery_notes,
+                    keyframe_count=segment.keyframe_count,
+                    has_keyframes=segment.has_keyframes,
                 )
 
-            # Step 4: Atomic commit at destination
-            dest_temp_path.replace(dest_final_path)
+                # Step 7: Verify destination availability and committed state on disk
+                if not dest_final_path.is_file() or dest_final_path.stat().st_size != segment.file_size_bytes:
+                    raise TransferVerificationError(
+                        f"Committed destination file verification failed for '{segment.segment_id}': "
+                        f"file missing or size discrepancy on disk."
+                    )
 
-            # Step 5: Update metadata
-            updated_meta = RecordingSegmentMetadata(
-                schema_version=segment.schema_version,
-                segment_id=segment.segment_id,
-                recording_id=segment.recording_id,
-                camera_id=segment.camera_id,
-                segment_index=segment.segment_index,
-                start_time_utc=segment.start_time_utc,
-                end_time_utc=segment.end_time_utc,
-                duration_seconds=segment.duration_seconds,
-                file_path=str(dest_final_path),
-                file_size_bytes=dest_final_path.stat().st_size,
-                sha256_hash=dest_sha256,
-                codec=segment.codec,
-                resolution=segment.resolution,
-                fps=segment.fps,
-                bitrate_kbps=segment.bitrate_kbps,
-                tier=StorageTierType.WARM_ARCHIVE,
-                storage_pool_id=segment.storage_pool_id,
-                state=SegmentState.FINALIZED,
-                has_motion=segment.has_motion,
-                has_event=segment.has_event,
-                event_ids=list(segment.event_ids),
-                is_protected_evidence=segment.is_protected_evidence,
-                preservation_hold_ids=list(segment.preservation_hold_ids),
-            )
+                # Step 8: Only then authorize source deletion
+                source_path.unlink()
 
-            # Step 6: Safe release of source staging file
-            source_path.unlink()
+                del self._active_transfers[segment.segment_id]
+                logger.info("isep.staging_transfer_verified", segment_id=segment.segment_id, path=str(dest_final_path))
+                return updated_meta
 
-            del self._active_transfers[segment.segment_id]
-            logger.info("isep.staging_transfer_verified", segment_id=segment.segment_id, path=str(dest_final_path))
-            return updated_meta
-
-        except Exception as exc:
-            dest_temp_path.unlink(missing_ok=True)
-            self._failed_transfers.append({
-                "segment_id": segment.segment_id,
-                "error": str(exc),
-                "timestamp": time.time(),
-                "source_preserved": source_path.exists(),
-            })
-            logger.error("isep.staging_transfer_failed_source_preserved", segment_id=segment.segment_id, error=str(exc))
-            raise
+            except Exception as exc:
+                dest_temp_path.unlink(missing_ok=True)
+                if segment.segment_id in self._active_transfers:
+                    del self._active_transfers[segment.segment_id]
+                self._failed_transfers.append({
+                    "segment_id": segment.segment_id,
+                    "error": str(exc),
+                    "timestamp": time.time(),
+                    "source_preserved": source_path.exists(),
+                })
+                logger.error("isep.staging_transfer_failed_source_preserved", segment_id=segment.segment_id, error=str(exc))
+                raise
 
     def recover_interrupted_transfers(self) -> int:
         """Clean up orphaned '.staging_transfer' files left behind by abrupt crashes."""

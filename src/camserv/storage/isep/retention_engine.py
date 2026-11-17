@@ -61,17 +61,22 @@ class CleanupAuditEntry:
 class RetentionPolicyEngine:
     """
     Coordinates policy evaluation, hold checks, and non-destructive retention enforcement.
+    Maintains a durable append-only retention audit trail in both SQLite and JSONL formats.
     """
 
     def __init__(
         self,
         evidence_manager: EvidencePreservationManager,
         default_rule: CameraRetentionRule | None = None,
+        audit_log_path: Path | str | None = None,
     ) -> None:
         self.evidence_manager = evidence_manager
         self.default_rule = default_rule or CameraRetentionRule()
         self.camera_rules: dict[str, CameraRetentionRule] = {}
         self.audit_trail: list[CleanupAuditEntry] = []
+        self.audit_log_path = Path(audit_log_path or "logs/retention_audit.jsonl").resolve()
+        self.audit_log_path.parent.mkdir(parents=True, exist_ok=True)
+        self.store = getattr(evidence_manager, "store", None)
 
     def set_camera_retention_rule(self, camera_id: str, rule: CameraRetentionRule) -> None:
         """Assign custom retention policies to a specific camera."""
@@ -154,6 +159,7 @@ class RetentionPolicyEngine:
 
         # Step 5: Execute authorized deletion
         for seg in eligible:
+            rule = self.camera_rules.get(seg.camera_id, self.default_rule)
             try:
                 p = Path(seg.file_path).resolve()
                 if p.is_file():
@@ -163,17 +169,57 @@ class RetentionPolicyEngine:
                 purged_ids.append(seg.segment_id)
                 seg.state = SegmentState.PURGED
 
-                # Step 6: Record result in audit trail
+                # Step 6: Record result in audit trail and persistent audit ledger
+                now_iso = datetime.now(timezone.utc).isoformat()
                 audit_entry = CleanupAuditEntry(
                     segment_id=seg.segment_id,
                     camera_id=seg.camera_id,
                     file_path=seg.file_path,
                     size_bytes=seg.file_size_bytes,
-                    freed_at_utc=datetime.now(timezone.utc).isoformat(),
+                    freed_at_utc=now_iso,
                     reason=f"Exceeded retention age ({seg.duration_seconds}s segment)",
                     rule_applied=operator_authorization,
                 )
                 self.audit_trail.append(audit_entry)
+
+                # Persist to SQLite store if available
+                if self.store is not None:
+                    try:
+                        self.store.record_retention_audit_entry(
+                            segment_id=seg.segment_id,
+                            sha256_hash=seg.sha256_hash,
+                            camera_id=seg.camera_id,
+                            file_path=seg.file_path,
+                            size_bytes=seg.file_size_bytes,
+                            retention_decision="PURGED",
+                            policy_rule=f"min_hours={rule.min_retention_hours},cont_hours={rule.continuous_retention_hours}",
+                            policy_version="2.0",
+                            operator_authorization=operator_authorization,
+                            hold_verification_result="NO_ACTIVE_HOLD_UNEXPIRED",
+                            deletion_outcome="SUCCESS",
+                        )
+                    except Exception as err:
+                        logger.error("isep.store_retention_audit_failed", error=str(err))
+
+                # Append to JSONL audit log
+                try:
+                    import json
+                    log_record = {
+                        "event": "RETENTION_PURGE",
+                        "segment_id": seg.segment_id,
+                        "sha256_hash": seg.sha256_hash,
+                        "camera_id": seg.camera_id,
+                        "file_path": seg.file_path,
+                        "size_bytes": seg.file_size_bytes,
+                        "freed_at_utc": now_iso,
+                        "operator": operator_authorization,
+                        "decision": "PURGED",
+                        "hold_verification": "CLEARED",
+                    }
+                    with open(self.audit_log_path, "a", encoding="utf-8") as f_log:
+                        f_log.write(json.dumps(log_record) + "\n")
+                except Exception as err:
+                    logger.error("isep.jsonl_retention_audit_failed", error=str(err))
 
             except Exception as exc:
                 logger.error("isep.purge_failed_on_segment", segment_id=seg.segment_id, error=str(exc))

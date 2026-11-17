@@ -81,6 +81,10 @@ class StorageRecoveryManager:
                 incomplete_count += 1
                 continue
 
+            if seg.state == SegmentState.RECOVERED_PARTIAL or seg.is_partial:
+                incomplete_count += 1
+                continue
+
             check = self.verifier.verify_segment_integrity(seg)
             if check["is_valid"]:
                 complete_count += 1
@@ -96,10 +100,17 @@ class StorageRecoveryManager:
 
         elapsed_ms = (time.time() - t0) * 1000.0
 
+        recovery_status = "CLEAN"
+        if corrupted_count > 0:
+            recovery_status = "DEGRADED_CORRUPTED_FOUND"
+        elif incomplete_count > 0:
+            recovery_status = "RECOVERED_PARTIALS_FOUND"
+
         recovery_report = {
             "recovery_timestamp_utc": report_timestamp,
             "elapsed_ms": round(elapsed_ms, 2),
             "recovered_orphaned_parts": len(recovered_parts),
+            "recovered_partial_recordings": len(recovered_parts),
             "cleaned_interrupted_staging_transfers": cleaned_staging,
             "total_segments_evaluated": len(all_segments),
             "complete_recordings": complete_count,
@@ -108,7 +119,7 @@ class StorageRecoveryManager:
             "protected_evidence_count": protected_evidence_count,
             "unverified_transfers": unverified_transfers,
             "corrupted_segment_ids": corrupted_records,
-            "recovery_status": "CLEAN" if corrupted_count == 0 else "DEGRADED_CORRUPTED_FOUND",
+            "recovery_status": recovery_status,
         }
 
         logger.info(
