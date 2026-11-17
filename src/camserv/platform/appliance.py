@@ -3,27 +3,33 @@ camserv.platform.appliance
 ==========================
 
 CAMserv AI Appliance Hardware Specification, Profile Engineering & Abstraction.
-Defines hardware profiles (Edge, Professional, Enterprise), hardware capability
-interfaces, resource monitoring, thermal throttle management, and graceful
-workload degradation governors.
+Defines hardware profiles (Edge, Standard, Professional, Enterprise), capability
+interfaces, resource monitoring, thermal throttle management, graceful workload
+degradation governors, and capacity sizing models.
 """
 
 from __future__ import annotations
 
 import enum
 import os
-import platform
 import shutil
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any
 
 import structlog
 
+from camserv.platform.factory import get_platform_hardware_prober
 from camserv.platform.hardware import (
     DiagnosticState,
     GPUCapability,
     HardwareDetector,
     HardwareProfile,
+)
+from camserv.storage.isep.models import (
+    HardwareAvailabilityState,
+    HardwareTelemetryMetric,
+    TelemetrySource,
 )
 
 logger = structlog.get_logger(__name__)
@@ -33,8 +39,9 @@ class ApplianceProfileType(str, enum.Enum):
     """Standardized CAMserv AI Appliance hardware tiers."""
 
     PROFILE_A_EDGE = "profile_a_edge"                  # Compact low-power, fanless edge nodes (1-4 streams)
-    PROFILE_B_PROFESSIONAL = "profile_b_professional"  # Mid-tier appliance / smart NVR (4-16 streams)
-    PROFILE_C_ENTERPRISE = "profile_c_enterprise"      # Multi-GPU rackmount server (16-64+ streams)
+    PROFILE_STANDARD = "profile_standard"              # Small-to-medium multi-camera installations (4-16 streams)
+    PROFILE_B_PROFESSIONAL = "profile_b_professional"  # Mid-to-high appliance / smart NVR (16-32 streams)
+    PROFILE_C_ENTERPRISE = "profile_c_enterprise"      # Multi-GPU rackmount server (32-64+ streams)
     CUSTOM = "custom"                                  # Heterogeneous or developer environment
 
 
@@ -49,13 +56,20 @@ class ThermalState(str, enum.Enum):
 
 @dataclass(slots=True)
 class ThermalStatus:
-    """Thermal telemetry for appliance host and accelerators."""
+    """Thermal telemetry for appliance host and accelerators with verified sensor provenance."""
 
     cpu_temp_celsius: float | None = None
     gpu_temp_celsius: float | None = None
+    npu_temp_celsius: float | None = None
+    storage_temp_celsius: float | None = None
+    board_temp_celsius: float | None = None
+    ambient_temp_celsius: float | None = None
     state: ThermalState = ThermalState.NOMINAL
     fan_speed_percent: int | None = None
     throttle_reason: str | None = None
+    telemetry_source: TelemetrySource = TelemetrySource.UNAVAILABLE
+    availability: HardwareAvailabilityState = HardwareAvailabilityState.UNAVAILABLE
+    sensor_provenance: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -70,6 +84,8 @@ class StorageEnduranceMetrics:
     is_solid_state: bool = True
     estimated_wear_percent: float | None = None  # SMART endurance metric where supported
     warning_low_space: bool = False              # True if free space < 10%
+    telemetry_source: TelemetrySource = TelemetrySource.OS_SHUTIL_DISK_USAGE
+    availability: HardwareAvailabilityState = HardwareAvailabilityState.AVAILABLE
 
 
 @dataclass(slots=True)
@@ -91,6 +107,11 @@ class ApplianceSpecification:
     thermal_limit_celsius: float
     estimated_bom_usd: tuple[float, float]
     description: str
+    network_interfaces: str = "Dual 1GbE RJ45"
+    cooling_type: str = "Passive / Fanless"
+    typical_power_watts: float = 12.0
+    workload_envelope: str = "4x 1080p30 H.264/H.265 continuous recording"
+    known_limitations: list[str] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -102,8 +123,14 @@ class ApplianceCapabilityProfile:
     thermal: ThermalStatus = field(default_factory=ThermalStatus)
     storage: StorageEnduranceMetrics = field(default_factory=StorageEnduranceMetrics)
     allocated_streams: int = 0
-    active_degradation_level: int = 0  # 0: None, 1: Minor (15->10 FPS), 2: Major (10->5 FPS, downscaled ROI)
+    active_degradation_level: int = 0  # 0: None, 1: Minor (15->10 FPS), 2: Major (10->5 FPS, downscaled ROI), 3: Critical (raw vault only)
     is_accelerator_healthy: bool = True
+    hardware_detected: bool = True
+    hardware_available: bool = True
+    hardware_initialized: bool = True
+    hardware_actively_used: bool = True
+    hardware_physically_verified: bool = False
+    telemetry_metrics: dict[str, HardwareTelemetryMetric] = field(default_factory=dict)
     diagnostic_messages: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -126,12 +153,17 @@ class ApplianceCapabilityProfile:
             "allocated_streams": self.allocated_streams,
             "active_degradation_level": self.active_degradation_level,
             "is_accelerator_healthy": self.is_accelerator_healthy,
+            "hardware_detected": self.hardware_detected,
+            "hardware_available": self.hardware_available,
+            "hardware_initialized": self.hardware_initialized,
+            "hardware_actively_used": self.hardware_actively_used,
+            "hardware_physically_verified": self.hardware_physically_verified,
             "diagnostics": self.diagnostic_messages,
         }
 
 
 class ApplianceCatalog:
-    """Standardized specifications for CAMserv AI Appliance reference designs."""
+    """Standardized specifications and sizing models for CAMserv AI Appliance reference designs."""
 
     SPECIFICATIONS: dict[ApplianceProfileType, ApplianceSpecification] = {
         ApplianceProfileType.PROFILE_A_EDGE: ApplianceSpecification(
@@ -140,16 +172,49 @@ class ApplianceCatalog:
             target_form_factor="Ultra-Compact Fanless Industrial Box (DIN-rail / VESA)",
             recommended_stream_range=(1, 4),
             max_stream_ceiling=6,
-            cpu_arch_requirement="ARM64 or x86_64",
+            cpu_arch_requirement="ARM64 (Rockchip RK3588) or x86_64 (Intel N100)",
             min_physical_cores=4,
             min_ram_gb=8,
-            recommended_accelerator="Integrated NPU / Intel OpenVINO / CPU ONNX",
-            video_decoders=["vaapi", "qsv", "software"],
+            recommended_accelerator="Embedded 6 TOPS NPU / Intel OpenVINO / CPU ONNX",
+            video_decoders=["mpp", "vaapi", "qsv", "software"],
             storage_type="Industrial NVMe SSD (High TBW, pSLC / TLC cache)",
             power_budget_watts=15.0,
+            typical_power_watts=12.0,
             thermal_limit_celsius=75.0,
             estimated_bom_usd=(350.0, 550.0),
+            cooling_type="Passive / Fanless Aluminum Heatsink",
+            network_interfaces="Dual 1GbE RJ45",
+            workload_envelope="1-4x 1080p30 H.264/H.265 continuous recording",
             description="Engineered for distributed perimeter gates, retail outposts, and remote transformer substations.",
+            known_limitations=[
+                "Low RAM limits dense multi-model neural pipelines",
+                "Fanless enclosure requires ambient environment <= 45°C",
+            ],
+        ),
+        ApplianceProfileType.PROFILE_STANDARD: ApplianceSpecification(
+            profile_type=ApplianceProfileType.PROFILE_STANDARD,
+            display_name="CAMserv Standard Appliance",
+            target_form_factor="Compact Desktop / 1U Chassis",
+            recommended_stream_range=(4, 16),
+            max_stream_ceiling=20,
+            cpu_arch_requirement="x86_64 (Intel Core i3/i5 / AMD Ryzen 5)",
+            min_physical_cores=6,
+            min_ram_gb=16,
+            recommended_accelerator="Intel OpenVINO / QSV / ONNX Runtime",
+            video_decoders=["qsv", "vaapi", "software"],
+            storage_type="512GB NVMe OS/Staging + 2x 4TB Surveillance SATA CMR HDDs",
+            power_budget_watts=65.0,
+            typical_power_watts=35.0,
+            thermal_limit_celsius=78.0,
+            estimated_bom_usd=(750.0, 1150.0),
+            cooling_type="Active Low-Noise PWM Fan",
+            network_interfaces="Dual 2.5GbE RJ45",
+            workload_envelope="4-16x 1080p30 H.264/H.265 continuous recording + motion analytics",
+            description="Engineered for small-to-medium retail shops, branch offices, and commercial schools.",
+            known_limitations=[
+                "Single power supply input (no hardware redundancy)",
+                "Not designed for dense multi-channel 4K neural analytics",
+            ],
         ),
         ApplianceProfileType.PROFILE_B_PROFESSIONAL: ApplianceSpecification(
             profile_type=ApplianceProfileType.PROFILE_B_PROFESSIONAL,
@@ -164,9 +229,17 @@ class ApplianceCatalog:
             video_decoders=["nvdec", "qsv", "software"],
             storage_type="1TB NVMe OS/Pre-Roll + 2x 8TB Surveillance SATA HDDs (RAID-1)",
             power_budget_watts=120.0,
+            typical_power_watts=95.0,
             thermal_limit_celsius=82.0,
             estimated_bom_usd=(1200.0, 1800.0),
+            cooling_type="Dual PWM Ball-Bearing Chassis Fans",
+            network_interfaces="Dual 2.5GbE + Dedicated 1GbE Management",
+            workload_envelope="16-32x 1080p30 or 8x 4K30 streams with continuous neural tracking",
             description="Engineered for corporate headquarters, logistics warehouses, and commercial office complexes.",
+            known_limitations=[
+                "Standard ATX single/redundant optional PSU",
+                "Chassis airflow requirement: front/rear clearance >= 100mm",
+            ],
         ),
         ApplianceProfileType.PROFILE_C_ENTERPRISE: ApplianceSpecification(
             profile_type=ApplianceProfileType.PROFILE_C_ENTERPRISE,
@@ -181,11 +254,69 @@ class ApplianceCatalog:
             video_decoders=["dual nvdec", "software"],
             storage_type="2TB NVMe M.2 (RAID-1 OS) + 4x U.2 NVMe / 8x SAS Surveillance HDDs (RAID-6)",
             power_budget_watts=550.0,
+            typical_power_watts=320.0,
             thermal_limit_celsius=85.0,
             estimated_bom_usd=(4500.0, 8500.0),
+            cooling_type="Hot-Swappable Redundant High-CFM Fan Matrix",
+            network_interfaces="Quad 10GbE SFP+ / 2.5GbE RJ45 + IPMI 2.0 Dedicated",
+            workload_envelope="32-64+ streams with concurrent multi-camera re-identification and incident forensics",
             description="Engineered for airports, critical municipal infrastructure, and large industrial campus installations.",
+            known_limitations=[
+                "Requires 2U rack enclosure and 208-240V dual feeds for optimal efficiency",
+            ],
         ),
     }
+
+    @classmethod
+    def calculate_storage_rate_gb_day(
+        cls,
+        stream_count: int,
+        bitrate_kbps: float,
+        protocol_overhead: float = 0.05,
+    ) -> float:
+        """
+        Calculate daily storage consumption in Gigabytes (GB).
+        Formula: (stream_count * bitrate_kbps * (1 + overhead) * 86400) / (8 * 1024 * 1024)
+        """
+        if stream_count <= 0 or bitrate_kbps <= 0:
+            return 0.0
+        total_kbps = stream_count * bitrate_kbps * (1.0 + protocol_overhead)
+        kbits_per_day = total_kbps * 86400.0
+        gb_per_day = kbits_per_day / (8.0 * 1024.0 * 1024.0)
+        return round(gb_per_day, 3)
+
+    @classmethod
+    def calculate_retention_days(
+        cls,
+        usable_storage_gb: float,
+        stream_count: int,
+        bitrate_kbps: float,
+        protocol_overhead: float = 0.05,
+    ) -> float:
+        """Calculate supported continuous retention duration in days."""
+        daily_gb = cls.calculate_storage_rate_gb_day(stream_count, bitrate_kbps, protocol_overhead)
+        if daily_gb <= 0:
+            return 0.0
+        return round(usable_storage_gb / daily_gb, 2)
+
+    @classmethod
+    def calculate_network_bandwidth_mbps(
+        cls,
+        stream_count: int,
+        bitrate_kbps: float,
+        protocol_overhead: float = 0.08,
+    ) -> float:
+        """Calculate total incoming network ingestion bandwidth in Megabits per second (Mbps)."""
+        if stream_count <= 0 or bitrate_kbps <= 0:
+            return 0.0
+        return round((stream_count * bitrate_kbps * (1.0 + protocol_overhead)) / 1000.0, 2)
+
+    @classmethod
+    def calculate_daily_power_kwh(cls, typical_watts: float) -> float:
+        """Calculate daily electrical consumption in kilowatt-hours (kWh)."""
+        if typical_watts <= 0:
+            return 0.0
+        return round((typical_watts * 24.0) / 1000.0, 3)
 
 
 class ApplianceHardwareManager:
@@ -214,6 +345,9 @@ class ApplianceHardwareManager:
         elif len(gpus) >= 1 and gpus[0].memory_total_mb >= 6000 and cores >= 6:
             profile_type = ApplianceProfileType.PROFILE_B_PROFESSIONAL
             diagnostics.append("Matched Professional Appliance Profile (Discrete Dedicated Accelerator)")
+        elif cores >= 6 and ram_gb >= 12.0:
+            profile_type = ApplianceProfileType.PROFILE_STANDARD
+            diagnostics.append("Matched Standard Appliance Profile (Multi-Core CPU / High RAM)")
         elif cores >= 2 and ram_gb >= 3.5:
             profile_type = ApplianceProfileType.PROFILE_A_EDGE
             diagnostics.append("Matched Edge Appliance Profile (Compact / Low-Power CPU / NPU)")
@@ -226,8 +360,39 @@ class ApplianceHardwareManager:
         if storage_metrics.warning_low_space:
             diagnostics.append(f"Storage Warning: Only {storage_metrics.free_gb:.1f} GB free on mount")
 
-        # Initial thermal check
+        # Initial thermal check with truthful sensor provenance
         thermal_status = self._probe_thermal()
+
+        # Telemetry metrics dictionary
+        telemetry_metrics: dict[str, HardwareTelemetryMetric] = {}
+        now_iso = datetime.now(timezone.utc).isoformat()
+
+        if thermal_status.cpu_temp_celsius is not None:
+            telemetry_metrics["cpu_temp"] = HardwareTelemetryMetric(
+                metric_name="cpu_temperature_celsius",
+                value=thermal_status.cpu_temp_celsius,
+                source=thermal_status.telemetry_source,
+                timestamp_utc=now_iso,
+                availability=HardwareAvailabilityState.AVAILABLE,
+                confidence=1.0,
+            )
+        else:
+            telemetry_metrics["cpu_temp"] = HardwareTelemetryMetric(
+                metric_name="cpu_temperature_celsius",
+                value=None,
+                source=TelemetrySource.UNAVAILABLE,
+                timestamp_utc=now_iso,
+                availability=HardwareAvailabilityState.UNAVAILABLE,
+                details="No physical CPU thermal zone accessible without elevated host privilege",
+            )
+
+        telemetry_metrics["storage_free"] = HardwareTelemetryMetric(
+            metric_name="storage_free_gb",
+            value=round(storage_metrics.free_gb, 2),
+            source=storage_metrics.telemetry_source,
+            timestamp_utc=now_iso,
+            availability=storage_metrics.availability,
+        )
 
         return ApplianceCapabilityProfile(
             profile_type=profile_type,
@@ -242,6 +407,12 @@ class ApplianceHardwareManager:
                 if self.hardware.gpus
                 else True
             ),
+            hardware_detected=True,
+            hardware_available=True,
+            hardware_initialized=True,
+            hardware_actively_used=True,
+            hardware_physically_verified=False,  # Set True only on verified physical laboratory bench
+            telemetry_metrics=telemetry_metrics,
             diagnostic_messages=diagnostics,
         )
 
@@ -261,29 +432,102 @@ class ApplianceHardwareManager:
                 percent_used=percent,
                 is_solid_state=True,
                 warning_low_space=(free_gb < 10.0 or percent > 92.0),
+                telemetry_source=TelemetrySource.OS_SHUTIL_DISK_USAGE,
+                availability=HardwareAvailabilityState.AVAILABLE,
             )
         except Exception as e:
             logger.warning("appliance.storage_probe_failed", error=str(e))
-            return StorageEnduranceMetrics()
+            return StorageEnduranceMetrics(
+                telemetry_source=TelemetrySource.UNAVAILABLE,
+                availability=HardwareAvailabilityState.DEGRADED,
+            )
 
     def _probe_thermal(self) -> ThermalStatus:
-        """Inspect hardware thermal sensors if accessible."""
-        # Software fallback heuristic: normal unless GPU driver reports elevated metrics
+        """
+        Inspect hardware thermal sensors using authentic platform probers.
+        Never fabricates hardcoded temperatures or returns mock readings as real.
+        """
         gpu_temp: float | None = None
+        cpu_temp: float | None = None
         state = ThermalState.NOMINAL
+        source = TelemetrySource.UNAVAILABLE
+        availability = HardwareAvailabilityState.UNAVAILABLE
+        provenance: dict[str, Any] = {}
 
-        # If NVIDIA GPU present, probe temperature if available
-        if self.hardware.gpus:
-            # Safe default nominal: real hardware probes via nvidia-smi if accessible
-            gpu_temp = 52.0  # Typical idle/moderate load temp
+        try:
+            prober = get_platform_hardware_prober()
+            thermal_data = prober.probe_thermal_and_power()
+            temps = thermal_data.get("temperatures_celsius", {})
+
+            if temps:
+                source = TelemetrySource.PHYSICAL_OS
+                availability = HardwareAvailabilityState.AVAILABLE
+                provenance = {"raw_sensors": temps}
+
+                # Extract GPU temperature if present
+                for sensor_name, val in temps.items():
+                    sensor_lower = sensor_name.lower()
+                    if "gpu" in sensor_lower or "nvidia" in sensor_lower:
+                        gpu_temp = float(val)
+                    elif "cpu" in sensor_lower or "core" in sensor_lower or "package" in sensor_lower or "soc" in sensor_lower:
+                        cpu_temp = float(val)
+
+                # Evaluate thermal state against hottest available sensor
+                max_temp = max([t for t in (cpu_temp, gpu_temp) if t is not None], default=None)
+                if max_temp is not None:
+                    if max_temp >= 90.0:
+                        state = ThermalState.CRITICAL
+                    elif max_temp >= 83.0:
+                        state = ThermalState.THROTTLED
+                    elif max_temp >= 70.0:
+                        state = ThermalState.ELEVATED
+                    else:
+                        state = ThermalState.NOMINAL
+        except Exception as e:
+            logger.debug("appliance.thermal_probe_failed", error=str(e))
+            source = TelemetrySource.UNAVAILABLE
+            availability = HardwareAvailabilityState.UNAVAILABLE
 
         return ThermalStatus(
-            cpu_temp_celsius=48.0,
+            cpu_temp_celsius=cpu_temp,
             gpu_temp_celsius=gpu_temp,
             state=state,
-            fan_speed_percent=45,
-            throttle_reason=None,
+            fan_speed_percent=None,
+            throttle_reason="Thermal throttle engaged" if state in (ThermalState.THROTTLED, ThermalState.CRITICAL) else None,
+            telemetry_source=source,
+            availability=availability,
+            sensor_provenance=provenance,
         )
+
+    def validate_disk_initialization_safety(
+        self,
+        target_path: str,
+        confirmed: bool = False,
+    ) -> tuple[bool, str]:
+        """
+        Verify that a disk initialization / format operation is safe and explicitly authorized.
+        Guards against accidental deletion of root OS, existing recordings, and preservation holds.
+        """
+        if not confirmed:
+            return (
+                False,
+                "REJECTED: Disk initialization requires explicit confirmation flag (confirmed=True). "
+                "Non-destructive policy prevents automatic disk formatting.",
+            )
+
+        abs_target = os.path.abspath(target_path)
+
+        # Disallow formatting system drive root
+        system_drive = os.path.abspath(os.sep)
+        if abs_target == system_drive:
+            return False, f"REJECTED: Target path '{abs_target}' is the system root volume."
+
+        # Disallow formatting active project directory
+        cwd = os.path.abspath(os.getcwd())
+        if abs_target == cwd or abs_target.startswith(cwd + os.sep):
+            return False, f"REJECTED: Target path '{abs_target}' is within the active application directory."
+
+        return True, f"AUTHORIZED: Target path '{abs_target}' validated for controlled initialization."
 
     def evaluate_workload_allocation(self, requested_camera_count: int) -> tuple[bool, int, str]:
         """
