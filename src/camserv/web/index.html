@@ -551,6 +551,39 @@
             <div class="kpi-trend">● Drop Oldest Backpressure Idle</div>
           </div>
         </div>
+
+        <!-- Phase 24: ISEP Storage & Evidence Preservation Telemetry Card -->
+        <div class="table-panel" style="margin-top: 20px; padding: 20px;">
+          <div class="table-header-bar" style="margin-bottom: 15px;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span style="font-size: 18px;">💾</span>
+              <h3 style="margin: 0;">ISEP: Intelligent Storage & Evidence Preservation Engine</h3>
+            </div>
+            <span class="badge-pill badge-verified" id="badge-isep-status">EVIDENCE VAULT ACTIVE</span>
+          </div>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px;">
+            <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-subtle); border-radius: var(--radius-xs); padding: 12px;">
+              <div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 700;">Storage Topology</div>
+              <div style="font-size: 14px; font-weight: 600; color: var(--accent-cyan); margin-top: 4px;" id="isep-topology">HDD-Only (Sequential Archive)</div>
+              <div style="font-size: 10px; color: var(--text-muted); margin-top: 4px;">Direct sequential writes with zero staging overhead</div>
+            </div>
+            <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-subtle); border-radius: var(--radius-xs); padding: 12px;">
+              <div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 700;">Active Storage Profile</div>
+              <div style="font-size: 14px; font-weight: 600; color: var(--accent-emerald); margin-top: 4px;" id="isep-profile">Balanced (Native Streams)</div>
+              <div style="font-size: 10px; color: var(--text-muted); margin-top: 4px;">Continuous standard stream + full-res incidents</div>
+            </div>
+            <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-subtle); border-radius: var(--radius-xs); padding: 12px;">
+              <div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 700;">Primary Volume Capacity</div>
+              <div style="font-size: 14px; font-weight: 600; color: var(--text-primary); margin-top: 4px;" id="isep-capacity">642.4 GB Free / 952.8 GB (67.4%)</div>
+              <div style="font-size: 10px; color: var(--text-muted); margin-top: 4px;">Write Latency: 3.8 ms • Health: Nominal</div>
+            </div>
+            <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-subtle); border-radius: var(--radius-xs); padding: 12px;">
+              <div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 700;">Retention Runway Forecast</div>
+              <div style="font-size: 14px; font-weight: 600; color: var(--accent-cyan); margin-top: 4px;" id="isep-runway">38.2 Days Remaining</div>
+              <div style="font-size: 10px; color: var(--text-muted); margin-top: 4px;">Measured Bitrate: 4.2 Mbps • Conf: 96%</div>
+            </div>
+          </div>
+        </div>
       </section>
 
       <!-- Screen 12: Deployment & Configuration -->

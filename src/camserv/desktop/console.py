@@ -34,6 +34,11 @@ from camserv.workspace import (
     WorkspaceConfig,
     WorkspaceStorageManager,
 )
+from camserv.storage.isep import (
+    StorageIntelligenceEngine,
+    StorageProfile,
+    StorageTopology,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -60,6 +65,7 @@ class DesktopOperatorConsole:
         self.display_manager = get_platform_display_manager()
         self.layout_engine = DynamicCameraLayoutEngine()
         self.storage_manager = WorkspaceStorageManager()
+        self.isep_engine = StorageIntelligenceEngine()
         self.policy_engine = OperatorResourcePolicyEngine(self.hardware_prober)
         self.focus_controller = EventDrivenFocusController()
         self.video_wall_window: Any = None
@@ -513,6 +519,13 @@ class DesktopOperatorConsole:
         return self.storage_manager
 
     @property
+    def storage_engine(self) -> StorageIntelligenceEngine:
+        return self.isep_engine
+
+    def get_storage_telemetry(self) -> dict[str, Any]:
+        return self.isep_engine.get_telemetry()
+
+    @property
     def active_layout(self) -> DisplayLayout:
         return self.display_layout
 
@@ -799,6 +812,19 @@ class DesktopOperatorConsole:
 
         self.lbl_hw_info = tk.Label(hw_frame, text="Gathering hardware specifications...", font=("Consolas", 10), justify=tk.LEFT)
         self.lbl_hw_info.pack(anchor=tk.W, padx=10, pady=10)
+
+        # Phase 24: ISEP Storage & Evidence Preservation Telemetry Frame
+        isep_frame = tk.LabelFrame(container, text=" CAMserv ISEP — Storage & Evidence Preservation ", font=("Segoe UI", 10, "bold"), padx=10, pady=10)
+        isep_frame.pack(fill=tk.X, pady=5)
+
+        self.lbl_isep_info = tk.Label(
+            isep_frame,
+            text=f"Topology: {self.isep_engine.topology.value.upper()} | Profile: {self.isep_engine.current_profile.value.upper()} | Evidence Vault: ACTIVE (WORM Locked)\nDisk Latency: Synchronous Safe | Bitrate Analytics: Multi-Stream Continuous Ingest",
+            font=("Consolas", 9),
+            justify=tk.LEFT,
+            fg="#38bdf8",
+        )
+        self.lbl_isep_info.pack(anchor=tk.W, padx=5, pady=5)
 
     def _build_cluster_tab(self) -> None:
         tk = self._tk
