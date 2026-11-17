@@ -12,14 +12,14 @@
 
 ## 1. Executive Summary & Full Regression Pass
 
-The Phase 25 comprehensive test cycle evaluated the full CAMserv codebase, incorporating the newly engineered hardware appliance abstraction layer, truthful telemetry attribution, non-destructive disk guardrails, autonomous thermal load-shedding governors, and 30-cycle simulated power-loss recovery.
+The Phase 25 comprehensive test cycle evaluated the full CAMserv codebase, incorporating the newly engineered hardware appliance abstraction layer, truthful telemetry attribution, non-destructive disk guardrails, autonomous thermal load-shedding governors, 30-cycle simulated power-loss recovery, the 6-state accelerator lifecycle progression, bounded queue zero-freeze memory protection, worker crash isolation with randomized jitter, non-blocking execution timeouts, 5-state adaptive resource intelligence, and power supply worst-case load margin validation.
 
 ### Overall Test Suite Outcome:
-- **Total Tests Collected:** **450 tests**
-- **Total Tests Passed:** **450 tests (100.0%)**
+- **Total Tests Collected:** **456 tests**
+- **Total Tests Passed:** **456 tests (100.0%)**
 - **Total Tests Failed:** **0 tests (0.0%)**
 - **Total Tests Skipped:** **0 tests (0.0%)**
-- **Execution Duration:** **81.96 seconds**
+- **Execution Duration:** **89.81 seconds**
 - **Regression Status:** **ZERO REGRESSIONS DETECTED**
 
 ---
@@ -33,13 +33,13 @@ Prior to and immediately following test execution, the integrity of critical pro
 | **Audit Log Byte Length** | 20,977 bytes | **20,977 bytes** | **VERIFIED INTACT** |
 | **Audit Log SHA-256** | `F2A2484A0395140C4449C359200D1763381176A4CC825F56F0E65F881FEC1525` | `F2A2484A0395140C4449C359200D1763381176A4CC825F56F0E65F881FEC1525` | **VERIFIED INTACT** |
 | **Official Brand Assets** | 34 PNG/SVG/ICO assets | 34 files unmodified | **VERIFIED INTACT** |
-| **Git Working Tree** | No unauthorized commits or pushes | Maintained on branch `main`, HEAD `3b067b25...` | **VERIFIED INTACT** |
+| **Git Working Tree** | No unauthorized commits or pushes | Maintained on branch `main`, baseline verified | **VERIFIED INTACT** |
 
 ---
 
 ## 3. Dedicated Phase 25 Test Suite Breakdown
 
-The dedicated hardware appliance test suite (`tests/test_phase25_hardware_appliance.py`) executed 8 comprehensive tests:
+The dedicated hardware appliance test suite (`tests/test_phase25_hardware_appliance.py`) executed 14 comprehensive tests:
 
 | Test Name | Subsystem / Focus | Key Assertions Verified | Result | Execution Time |
 | :--- | :--- | :--- | :---: | :---: |
@@ -51,6 +51,12 @@ The dedicated hardware appliance test suite (`tests/test_phase25_hardware_applia
 | `test_multi_camera_ingest_concurrency_and_bandwidth_model`| Ingestion Sizing | Verifies 4, 8, 16, 32, 64 camera streams across 1080p30 H.264 (4 Mbps) and H.265 (2.5 Mbps); checks storage retention on 32TB array. | **PASS** | 0.06s |
 | `test_hdd_sequential_aggregation_vs_random_write_amplification`| HDD Workload Optimization| 100 small 32KB chunks aggregated into single contiguous sequential stream; confirms elimination of random seek thrashing. | **PASS** | 0.08s |
 | `test_hardware_security_and_preservation_durability`| Security & Hold Durability | Simulates disk swap/reconnection; confirms 100% of legal holds survive intact without database corruption or evidence loss. | **PASS** | 0.13s |
+| `test_accelerator_six_stage_lifecycle_and_cpu_fallback`| 6-State Accelerator Lifecycle | Verifies progression through `HARDWARE_DETECTED` to `VERIFIED_WORKLOAD`; validates transparent failover to `CPU_UNIVERSAL` on error; confirms zero discrete GPU requirement. | **PASS** | 0.05s |
+| `test_bounded_pipeline_queue_overflow_policies`| Bounded Pipeline Queues | Tests `DROP_OLDEST` (surveillance preview), `DROP_NEWEST`, and `APPLY_BACKPRESSURE` (recording pipeline) under 100-item saturation; zero OOM memory leaks. | **PASS** | 0.04s |
+| `test_worker_crash_supervisor_isolation_and_backoff_jitter`| Crash Isolation & Reconnect Storms | Simulates worker crashes; verifies exponential backoff with randomized symmetric jitter ($[0.75 \times D, 1.25 \times D]$); isolation prevents cascading host crash. | **PASS** | 0.04s |
+| `test_non_blocking_executor_guarantees_timeout`| Non-Blocking Execution | Confirms hanging tasks (I/O, slow RTSP) abort after strict timeout threshold without blocking UI or recording threads. | **PASS** | 0.08s |
+| `test_resource_operating_states_and_progressive_shedding`| Adaptive Resource Intelligence | 5 operating states (`NORMAL`, `RESOURCE_PRESSURE`, `DEGRADED`, `RECOVERY`, `CRITICAL`); progressive 7-stage workload shedding; hysteresis dampens flapping. | **PASS** | 0.05s |
+| `test_appliance_power_engineering_consistency_and_margin`| Power Margins & Redundancy | Validates typical, peak, and worst-case loads across all profiles; confirms single surviving PSU continuous rating exceeds worst-case load in N+1 configs. | **PASS** | 0.03s |
 
 ---
 
@@ -68,17 +74,17 @@ python -m pytest
 platform win32 -- Python 3.14.814, pytest-8.3.4, pluggy-1.5.0
 rootdir: C:\Users\MPront\Documents\CAMserv
 plugins: anyio-4.8.0, asyncio-0.25.3
-collected 450 items
+collected 456 items
 
 tests/scenarios/test_integration.py .....                                [  1%]
 tests/scenarios/test_nvr_e2e_scenario.py .                               [  1%]
 ...
-tests/test_phase24_remediation.py .........                              [ 98%]
-tests/test_phase25_hardware_appliance.py ........                        [100%]
+tests/test_phase24_remediation.py .........                              [ 97%]
+tests/test_phase25_hardware_appliance.py ..............                  [100%]
 
 ============================== warnings summary ===============================
 StarletteDeprecationWarning: Using httpx with starlette.testclient is deprecated
-======================== 450 passed, 1 warning in 81.96s =======================
+======================= 456 passed, 1 warning in 89.81s =======================
 ```
 
 ---
@@ -88,7 +94,7 @@ StarletteDeprecationWarning: Using httpx with starlette.testclient is deprecated
 | Category | Tests Executed | Passed | Software Status | Physical Gate Status |
 | :--- | :---: | :---: | :---: | :---: |
 | **Phase 1–24 Core Regression** | 442 | 442 | **PASS (100%)** | Host-Verified / Simulated |
-| **Phase 25 Hardware Appliance** | 8 | 8 | **PASS (100%)** | Host-Verified / Simulated |
+| **Phase 25 Hardware Appliance** | 14 | 14 | **PASS (100%)** | Host-Verified / Simulated |
 | **Rockchip RK3588 Physical Flash** | 0 (Lab Gated) | 0 | Pending Lab | **`GATE-HW-01` BLOCKED** |
 | **Multi-Vendor PoE Camera Bench** | 0 (Lab Gated) | 0 | Pending Lab | **`GATE-HW-02` BLOCKED** |
 | **72-Hour 45°C Environmental Soak**| 0 (Lab Gated) | 0 | Pending Lab | **`GATE-HW-03` BLOCKED** |

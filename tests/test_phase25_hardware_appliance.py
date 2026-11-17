@@ -24,6 +24,17 @@ from typing import Any
 
 import pytest
 
+from camserv.platform.accelerator import (
+    AcceleratorAbstractionManager,
+    AcceleratorBackendType,
+    AcceleratorDevice,
+    AcceleratorLifecycleState,
+)
+from camserv.platform.adaptive_manager import (
+    AdaptiveResourceManager,
+    ResourceOperatingState,
+    ResourceSnapshot,
+)
 from camserv.platform.appliance import (
     ApplianceCatalog,
     ApplianceCapabilityProfile,
@@ -39,6 +50,15 @@ from camserv.platform.hardware import (
     GPUCapability,
     HardwareProfile,
 )
+from camserv.platform.stability import (
+    BoundedPipelineQueue,
+    NonBlockingExecutor,
+    QueueOverflowPolicy,
+    ServicePriority,
+    WorkerCrashSupervisor,
+    calculate_backoff_with_jitter,
+)
+from camserv.platform.tiers import HardwareTier, TierPolicyEngine
 from camserv.storage.isep.disk_health import DiskHealthMonitor
 from camserv.storage.isep.evidence_preservation import EvidencePreservationManager
 from camserv.storage.isep.models import (
@@ -396,3 +416,226 @@ def test_hardware_security_and_preservation_durability():
             h = all_holds[h_id]
             assert h.active is True
             assert h.hold_type == "legal_hold"
+
+
+def test_accelerator_six_stage_lifecycle_and_cpu_fallback():
+    """Verify that accelerators transition through the 6 mandatory states and fall back to CPU cleanly."""
+    mgr = AcceleratorAbstractionManager(probe_on_init=False)
+
+    # 1. CPU universal baseline must be automatically verified
+    assert "cpu_universal" in mgr.devices
+    cpu_dev = mgr.devices["cpu_universal"]
+    assert cpu_dev.lifecycle_state == AcceleratorLifecycleState.VERIFIED_WORKLOAD
+    assert mgr.active_decode_backend == AcceleratorBackendType.CPU_UNIVERSAL
+
+    # 2. Register mock hardware accelerator
+    mock_dev = AcceleratorDevice(
+        device_id="mock_gpu_0",
+        name="Test Accelerator",
+        backend_type=AcceleratorBackendType.NVIDIA_CUDA_NVDEC,
+        is_discrete_gpu=True,
+        memory_total_mb=8192,
+        memory_free_mb=7000,
+        lifecycle_state=AcceleratorLifecycleState.HARDWARE_DETECTED,
+    )
+    mgr.devices[mock_dev.device_id] = mock_dev
+
+    # 3. Stepwise lifecycle progression
+    assert mgr.advance_lifecycle("mock_gpu_0", AcceleratorLifecycleState.DRIVER_AVAILABLE)
+    assert mock_dev.lifecycle_state == AcceleratorLifecycleState.DRIVER_AVAILABLE
+
+    assert mgr.advance_lifecycle("mock_gpu_0", AcceleratorLifecycleState.RUNTIME_AVAILABLE)
+    assert mock_dev.lifecycle_state == AcceleratorLifecycleState.RUNTIME_AVAILABLE
+
+    assert mgr.advance_lifecycle("mock_gpu_0", AcceleratorLifecycleState.CODEC_OR_MODEL_SUPPORTED)
+    assert mock_dev.lifecycle_state == AcceleratorLifecycleState.CODEC_OR_MODEL_SUPPORTED
+
+    assert mgr.advance_lifecycle("mock_gpu_0", AcceleratorLifecycleState.INITIALIZED)
+    assert mock_dev.lifecycle_state == AcceleratorLifecycleState.INITIALIZED
+
+    # Verifier function simulating workload execution
+    def _mock_workload() -> bool:
+        return True
+
+    assert mgr.advance_lifecycle("mock_gpu_0", AcceleratorLifecycleState.VERIFIED_WORKLOAD, verifier_fn=_mock_workload)
+    assert mock_dev.lifecycle_state == AcceleratorLifecycleState.VERIFIED_WORKLOAD
+    assert mock_dev.last_verified_utc is not None
+
+    # Optimal backend selection picks verified accelerator
+    dec, inf = mgr.select_optimal_backends()
+    assert dec == AcceleratorBackendType.NVIDIA_CUDA_NVDEC
+
+    # 4. Simulate accelerator failure: must isolate and gracefully fall back to CPU
+    mgr.handle_accelerator_failure("mock_gpu_0", "CUDA kernel launch timeout under heavy thermal load")
+    assert mock_dev.lifecycle_state == AcceleratorLifecycleState.FAILED
+    assert mgr.active_decode_backend == AcceleratorBackendType.CPU_UNIVERSAL
+    assert mgr.active_inference_backend == AcceleratorBackendType.CPU_UNIVERSAL
+    assert len(mgr.failure_history) == 1
+
+    # Status summary reflects zero requirement for discrete GPU
+    status = mgr.get_status_summary()
+    assert status["requires_discrete_gpu"] is False
+    assert status["is_cpu_only_supported"] is True
+
+
+def test_bounded_pipeline_queue_overflow_policies():
+    """Verify bounded queue capacity enforcement, drop-oldest, drop-newest, and telemetry."""
+    # Policy A: DROP_OLDEST (for preview / transient AI frames)
+    q_oldest = BoundedPipelineQueue[str](name="ai_preview_q", maxsize=3, policy=QueueOverflowPolicy.DROP_OLDEST)
+    assert q_oldest.put("frame_1")
+    assert q_oldest.put("frame_2")
+    assert q_oldest.put("frame_3")
+
+    # 4th item pushes oldest ("frame_1") out
+    assert q_oldest.put("frame_4")
+    t_oldest = q_oldest.get_telemetry()
+    assert t_oldest.current_size == 3
+    assert t_oldest.total_dropped == 1
+    assert t_oldest.overflow_events == 1
+
+    # First item dequeued is frame_2
+    item = q_oldest.get(timeout_sec=0.1)
+    assert item == "frame_2"
+
+    # Policy B: DROP_NEWEST (reject burst)
+    q_newest = BoundedPipelineQueue[str](name="burst_q", maxsize=2, policy=QueueOverflowPolicy.DROP_NEWEST)
+    assert q_newest.put("item_a")
+    assert q_newest.put("item_b")
+    # 3rd item is rejected
+    assert q_newest.put("item_c") is False
+    t_newest = q_newest.get_telemetry()
+    assert t_newest.current_size == 2
+    assert t_newest.total_dropped == 1
+
+    # Policy C: Backpressure timeout
+    q_backpressure = BoundedPipelineQueue[str](
+        name="rec_q",
+        maxsize=2,
+        policy=QueueOverflowPolicy.APPLY_BACKPRESSURE,
+        priority=ServicePriority.CRITICAL_RECORDING,
+    )
+    assert q_backpressure.put("seg_1")
+    assert q_backpressure.put("seg_2")
+    # Put with short timeout expires cleanly without hanging
+    accepted = q_backpressure.put("seg_3", timeout_sec=0.05)
+    assert accepted is False
+
+
+def test_worker_crash_supervisor_isolation_and_backoff_jitter():
+    """Verify worker crash isolation, exponential backoff delays with jitter, and restart storm fencing."""
+    supervisor = WorkerCrashSupervisor(name="ai_worker_0", max_restarts=3, backoff_base_sec=1.0)
+
+    # First crash
+    delay1 = supervisor.record_crash("CUDA OutOfMemoryError")
+    assert 0.7 <= delay1 <= 1.3  # Base 1.0s with up to 25% jitter
+    assert supervisor.restart_count == 1
+    assert supervisor.is_alive is True
+
+    # Second crash: ~2.0s
+    delay2 = supervisor.record_crash("Driver reset")
+    assert 1.4 <= delay2 <= 2.6
+    assert supervisor.restart_count == 2
+
+    # Third crash: ~4.0s
+    delay3 = supervisor.record_crash("Segmentation fault in plugin")
+    assert 2.8 <= delay3 <= 5.2
+    assert supervisor.restart_count == 3
+
+    # Fourth crash: Exceeds max_restarts (3), must fence worker to prevent continuous thrashing
+    delay4 = supervisor.record_crash("Persistent failure")
+    assert delay4 == -1.0
+    assert supervisor.is_fenced is True
+    assert supervisor.is_alive is False
+    assert len(supervisor.crash_history) == 4
+
+
+def test_non_blocking_executor_guarantees_timeout():
+    """Verify that slow background operations never block caller past guaranteed timeout."""
+    import time
+
+    def _fast_task() -> str:
+        return "SUCCESS_DATA"
+
+    def _slow_hanging_task() -> str:
+        time.sleep(2.0)
+        return "TOO_LATE"
+
+    # Fast task finishes well within timeout
+    ok_fast, res_fast, err_fast = NonBlockingExecutor.execute_with_timeout(_fast_task, timeout_sec=1.0)
+    assert ok_fast is True
+    assert res_fast == "SUCCESS_DATA"
+    assert err_fast is None
+
+    # Slow hanging task returns failure within 0.1s without hanging caller
+    t0 = time.time()
+    ok_slow, res_slow, err_slow = NonBlockingExecutor.execute_with_timeout(
+        _slow_hanging_task,
+        timeout_sec=0.1,
+        fallback_value="FALLBACK",
+    )
+    elapsed = time.time() - t0
+    assert ok_slow is False
+    assert res_slow == "FALLBACK"
+    assert "timed out" in err_slow.lower()
+    assert elapsed < 0.5  # Guaranteed non-blocking
+
+
+def test_resource_operating_states_and_progressive_shedding():
+    """Verify operating state transitions and progressive 7-stage workload shedding."""
+    preset = TierPolicyEngine.get_preset(HardwareTier.TIER_2_STANDARD)
+    manager = AdaptiveResourceManager(base_tier_config=preset, cooldown_period_sec=0.0)
+
+    # Operating state begins in NORMAL
+    assert manager.operating_state == ResourceOperatingState.NORMAL
+
+    # Test all 7 progressive shedding policies
+    p1 = manager.get_progressive_shedding_policy(1)
+    assert p1["background_indexing"] is False
+    assert p1["ai_fps"] == 15
+
+    p4 = manager.get_progressive_shedding_policy(4)
+    assert p4["recording_priority"] == "critical"
+    assert p4["ai_fps"] == 5
+
+    p7 = manager.get_progressive_shedding_policy(7)
+    assert p7["inference_suspended"] is True
+    assert p7["raw_recording_preserved"] is True
+    assert p7["ai_fps"] == 0
+
+    # Simulate warning threshold -> RESOURCE_PRESSURE
+    warn_snap = ResourceSnapshot(
+        timestamp=200.0,
+        cpu_percent=90.0,  # Exceeds warning_cpu_threshold (88%)
+        ram_percent=70.0,
+        ram_used_mb=5600,
+        ram_available_mb=2400,
+        is_under_pressure=True,
+    )
+    manager.evaluate_pressure(warn_snap)
+    assert manager.operating_state == ResourceOperatingState.RESOURCE_PRESSURE
+
+
+def test_appliance_power_engineering_consistency_and_margin():
+    """Verify that all profiles enforce zero GPU requirement and verified PSU safety margins."""
+    specs = ApplianceCatalog.SPECIFICATIONS
+
+    for p_type, spec in specs.items():
+        # Core non-negotiable principle: dedicated GPU is strictly OPTIONAL
+        assert spec.is_gpu_required is False, f"Profile {p_type} must not require discrete GPU"
+        assert spec.supports_cpu_only is True, f"Profile {p_type} must support CPU-only operation"
+
+        # Continuous power capacity must safely exceed worst-case power
+        assert spec.psu_capacity_watts >= spec.worst_case_power_watts, (
+            f"Profile {p_type}: PSU capacity {spec.psu_capacity_watts}W must exceed "
+            f"worst-case {spec.worst_case_power_watts}W"
+        )
+        assert spec.psu_safety_margin_percent >= 10.0, (
+            f"Profile {p_type}: safety margin must be at least 10%"
+        )
+
+        # Enterprise redundant PSU verification: single surviving PSU carries full load
+        if spec.psu_redundant:
+            assert spec.psu_capacity_watts >= spec.worst_case_power_watts, (
+                "Single surviving redundant PSU must support 100% of worst-case load"
+            )
+

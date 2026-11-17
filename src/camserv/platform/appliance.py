@@ -3,9 +3,16 @@ camserv.platform.appliance
 ==========================
 
 CAMserv AI Appliance Hardware Specification, Profile Engineering & Abstraction.
-Defines hardware profiles (Edge, Standard, Professional, Enterprise), capability
-interfaces, resource monitoring, thermal throttle management, graceful workload
-degradation governors, and capacity sizing models.
+Defines capability-based hardware profiles (Profile A Low-Power, Profile B Standard,
+Profile C Professional, Profile D Enterprise), hardware capability interfaces,
+resource monitoring, thermal throttle management, graceful workload degradation
+governors, and capacity sizing models.
+
+CORE MANDATE:
+- Dedicated graphics cards are strictly OPTIONAL. Core surveillance recording NEVER requires a discrete GPU.
+- Supports CPU-only, integrated graphics (Intel QSV / AMD iGPU), ARM SoC (Rockchip), and optional discrete GPUs.
+- All power models account for CPU, GPU (when present), RAM, storage drives, network adapters, fans, and peripherals.
+- Power supplies specify continuous rated capacity and load safety margins (including single surviving PSU under N+1 redundancy).
 """
 
 from __future__ import annotations
@@ -36,17 +43,24 @@ logger = structlog.get_logger(__name__)
 
 
 class ApplianceProfileType(str, enum.Enum):
-    """Standardized CAMserv AI Appliance hardware tiers."""
+    """Standardized capability-based CAMserv hardware profiles."""
 
-    PROFILE_A_EDGE = "profile_a_edge"                  # Compact low-power, fanless edge nodes (1-4 streams)
-    PROFILE_STANDARD = "profile_standard"              # Small-to-medium multi-camera installations (4-16 streams)
-    PROFILE_B_PROFESSIONAL = "profile_b_professional"  # Mid-to-high appliance / smart NVR (16-32 streams)
-    PROFILE_C_ENTERPRISE = "profile_c_enterprise"      # Multi-GPU rackmount server (32-64+ streams)
-    CUSTOM = "custom"                                  # Heterogeneous or developer environment
+    # Primary standardized profile designations
+    PROFILE_A_LOW_POWER = "profile_a_low_power"        # Entry-level / low-power x86 / small ARM / older PCs (No GPU)
+    PROFILE_B_STANDARD = "profile_b_standard"          # Mainstream desktop / mini-PC / integrated graphics (No discrete GPU required)
+    PROFILE_C_PROFESSIONAL = "profile_c_professional"  # Performance CPU / larger RAM / optional discrete or integrated accelerator
+    PROFILE_D_ENTERPRISE = "profile_d_enterprise"      # Multi-socket / server CPU / multi-disk / optional distributed accelerators
+    CUSTOM = "custom"                                  # Heterogeneous or developer test environment
+
+    # Backward-compatible aliases for existing test suites
+    PROFILE_A_EDGE = "profile_a_edge"
+    PROFILE_STANDARD = "profile_standard"
+    PROFILE_B_PROFESSIONAL = "profile_b_professional"
+    PROFILE_C_ENTERPRISE = "profile_c_enterprise"
 
 
 class ThermalState(str, enum.Enum):
-    """Thermal throttling status for edge and enterprise appliances."""
+    """Thermal throttling status for edge, standard, and enterprise appliances."""
 
     NOMINAL = "nominal"      # < 70°C: Full capacity, peak inference throughput
     ELEVATED = "elevated"    # 70°C - 82°C: Minor fan escalation, warning logged
@@ -90,7 +104,7 @@ class StorageEnduranceMetrics:
 
 @dataclass(slots=True)
 class ApplianceSpecification:
-    """Hardware architecture and bill-of-materials specification."""
+    """Hardware architecture, bill-of-materials, and electrical power specification."""
 
     profile_type: ApplianceProfileType
     display_name: str
@@ -110,6 +124,12 @@ class ApplianceSpecification:
     network_interfaces: str = "Dual 1GbE RJ45"
     cooling_type: str = "Passive / Fanless"
     typical_power_watts: float = 12.0
+    worst_case_power_watts: float = 18.0
+    psu_capacity_watts: float = 40.0
+    psu_redundant: bool = False
+    psu_safety_margin_percent: float = 55.0
+    is_gpu_required: bool = False                      # Strictly False: discrete GPU is NEVER required
+    supports_cpu_only: bool = True                     # Universal CPU fallback is always supported
     workload_envelope: str = "4x 1080p30 H.264/H.265 continuous recording"
     known_limitations: list[str] = field(default_factory=list)
 
@@ -147,6 +167,7 @@ class ApplianceCapabilityProfile:
                 if self.detected_hardware.gpus
                 else "CPU (Universal Native)"
             ),
+            "requires_discrete_gpu": False,
             "thermal_state": self.thermal.state.value,
             "storage_free_gb": round(self.storage.free_gb, 2),
             "storage_percent_used": round(self.storage.percent_used, 1),
@@ -165,106 +186,147 @@ class ApplianceCapabilityProfile:
 class ApplianceCatalog:
     """Standardized specifications and sizing models for CAMserv AI Appliance reference designs."""
 
+    _SPEC_EDGE = ApplianceSpecification(
+        profile_type=ApplianceProfileType.PROFILE_A_EDGE,
+        display_name="CAMserv Profile A — Low-Power / Entry-Level (Edge)",
+        target_form_factor="Ultra-Compact Fanless Industrial Box (DIN-rail / VESA)",
+        recommended_stream_range=(1, 4),
+        max_stream_ceiling=6,
+        cpu_arch_requirement="ARM64 (Rockchip RK3588) or x86_64 (Intel N100 / Older x86)",
+        min_physical_cores=4,
+        min_ram_gb=8,
+        recommended_accelerator="Embedded 6 TOPS NPU / Intel OpenVINO / Universal CPU",
+        video_decoders=["mpp", "vaapi", "qsv", "software"],
+        storage_type="Industrial NVMe SSD (High TBW, pSLC / TLC cache) or SATA HDD",
+        power_budget_watts=15.0,
+        typical_power_watts=12.0,
+        worst_case_power_watts=16.5,
+        psu_capacity_watts=40.0,
+        psu_redundant=False,
+        psu_safety_margin_percent=58.7,
+        is_gpu_required=False,
+        supports_cpu_only=True,
+        thermal_limit_celsius=75.0,
+        estimated_bom_usd=(330.0, 480.0),
+        cooling_type="Passive / Fanless Monolithic Aluminum Heatsink",
+        network_interfaces="Dual 1GbE RJ45",
+        workload_envelope="1-4x 1080p30 H.264/H.265 continuous recording; zero discrete GPU needed",
+        description="Engineered for distributed perimeter gates, cellular kiosks, remote substations, and older hardware.",
+        known_limitations=[
+            "Low RAM limits dense concurrent neural pipelines",
+            "Fanless enclosure requires ambient environment <= 45°C",
+            "Discrete GPUs are neither supported nor required",
+        ],
+    )
+
+    _SPEC_STANDARD = ApplianceSpecification(
+        profile_type=ApplianceProfileType.PROFILE_STANDARD,
+        display_name="CAMserv Profile B — Standard (Mainstream)",
+        target_form_factor="Compact Desktop Mini-Tower / 1U Chassis",
+        recommended_stream_range=(4, 16),
+        max_stream_ceiling=20,
+        cpu_arch_requirement="x86_64 (Intel Core i3/i5 12th-14th Gen / AMD Ryzen 5)",
+        min_physical_cores=6,
+        min_ram_gb=16,
+        recommended_accelerator="Integrated GPU (Intel QSV / AMD iGPU) or Host CPU",
+        video_decoders=["qsv", "vaapi", "software"],
+        storage_type="512GB NVMe OS/Staging + 2x 4TB Surveillance SATA CMR HDDs",
+        power_budget_watts=65.0,
+        typical_power_watts=35.0,
+        worst_case_power_watts=75.0,
+        psu_capacity_watts=150.0,
+        psu_redundant=False,
+        psu_safety_margin_percent=50.0,
+        is_gpu_required=False,
+        supports_cpu_only=True,
+        thermal_limit_celsius=78.0,
+        estimated_bom_usd=(750.0, 1150.0),
+        cooling_type="Active Low-Noise PWM Fan (<= 28 dBA)",
+        network_interfaces="Dual 2.5GbE RJ45",
+        workload_envelope="4-16x 1080p30 H.264/H.265 continuous recording + substream AI; operates 100% without discrete GPU",
+        description="Engineered for retail storefronts, commercial offices, primary schools, and medical clinics.",
+        known_limitations=[
+            "Single power supply input (no electrical redundancy)",
+            "Optimized for integrated graphics; discrete GPU is strictly optional",
+        ],
+    )
+
+    _SPEC_PRO = ApplianceSpecification(
+        profile_type=ApplianceProfileType.PROFILE_B_PROFESSIONAL,
+        display_name="CAMserv Profile C — Professional",
+        target_form_factor="Compact 1U / 2U Rackmount NVR Chassis",
+        recommended_stream_range=(4, 16),
+        max_stream_ceiling=20,
+        cpu_arch_requirement="x86_64 (Intel Core i7-13700 / AMD Ryzen 7 7700X)",
+        min_physical_cores=8,
+        min_ram_gb=32,
+        recommended_accelerator="Intel UHD / QSV (Base) or Optional Discrete GPU (NVIDIA RTX 4060 8GB / Arc A770)",
+        video_decoders=["nvdec", "qsv", "software"],
+        storage_type="1TB NVMe OS/Pre-Roll + 2x 8TB Surveillance SATA HDDs (RAID-1)",
+        power_budget_watts=120.0,
+        typical_power_watts=95.0,
+        worst_case_power_watts=185.0,
+        psu_capacity_watts=350.0,
+        psu_redundant=False,
+        psu_safety_margin_percent=47.1,
+        is_gpu_required=False,
+        supports_cpu_only=True,
+        thermal_limit_celsius=82.0,
+        estimated_bom_usd=(1200.0, 1800.0),
+        cooling_type="Dual PWM Ball-Bearing Chassis Fans",
+        network_interfaces="Dual 2.5GbE + Dedicated 1GbE Management",
+        workload_envelope="16-32x 1080p30 or 8x 4K30 streams; base operates without discrete GPU; discrete GPU is optional accelerator",
+        description="Engineered for corporate headquarters, logistics warehouses, and commercial office complexes.",
+        known_limitations=[
+            "Standard ATX single/redundant optional PSU",
+            "Chassis airflow requirement: front/rear clearance >= 100mm",
+        ],
+    )
+
+    _SPEC_ENTERPRISE = ApplianceSpecification(
+        profile_type=ApplianceProfileType.PROFILE_C_ENTERPRISE,
+        display_name="CAMserv Profile D — Enterprise",
+        target_form_factor="2U Rackmount Server with Redundant Power & Fans",
+        recommended_stream_range=(16, 64),
+        max_stream_ceiling=80,
+        cpu_arch_requirement="x86_64 (AMD EPYC 7003/9004 / Intel Xeon Scalable)",
+        min_physical_cores=16,
+        min_ram_gb=64,
+        recommended_accelerator="High-Core Server CPUs (Base) or Optional Dual Accelerators (RTX 4090 / L40S / Distributed Nodes)",
+        video_decoders=["dual nvdec", "software"],
+        storage_type="2TB NVMe M.2 (RAID-1 OS) + 4x U.2 NVMe / 8x SAS Surveillance HDDs (RAID-6)",
+        power_budget_watts=550.0,
+        typical_power_watts=320.0,
+        worst_case_power_watts=680.0,
+        psu_capacity_watts=800.0,
+        psu_redundant=True,
+        psu_safety_margin_percent=15.0,
+        is_gpu_required=False,
+        supports_cpu_only=True,
+        thermal_limit_celsius=85.0,
+        estimated_bom_usd=(4500.0, 8500.0),
+        cooling_type="Hot-Swappable Redundant High-CFM Fan Matrix (N+1)",
+        network_interfaces="Quad 10GbE SFP+ / 2.5GbE RJ45 + IPMI 2.0 Dedicated",
+        workload_envelope="32-64+ streams with concurrent multi-camera re-identification; core recording never requires GPU",
+        description="Engineered for airports, critical municipal infrastructure, and large industrial campus installations.",
+        known_limitations=[
+            "Requires 2U rack enclosure and 208-240V dual feeds for optimal efficiency",
+            "Single surviving 800W PSU carries 100% of peak 680W load during AC feed failover",
+        ],
+    )
+
     SPECIFICATIONS: dict[ApplianceProfileType, ApplianceSpecification] = {
-        ApplianceProfileType.PROFILE_A_EDGE: ApplianceSpecification(
-            profile_type=ApplianceProfileType.PROFILE_A_EDGE,
-            display_name="CAMserv Edge Appliance (Profile A)",
-            target_form_factor="Ultra-Compact Fanless Industrial Box (DIN-rail / VESA)",
-            recommended_stream_range=(1, 4),
-            max_stream_ceiling=6,
-            cpu_arch_requirement="ARM64 (Rockchip RK3588) or x86_64 (Intel N100)",
-            min_physical_cores=4,
-            min_ram_gb=8,
-            recommended_accelerator="Embedded 6 TOPS NPU / Intel OpenVINO / CPU ONNX",
-            video_decoders=["mpp", "vaapi", "qsv", "software"],
-            storage_type="Industrial NVMe SSD (High TBW, pSLC / TLC cache)",
-            power_budget_watts=15.0,
-            typical_power_watts=12.0,
-            thermal_limit_celsius=75.0,
-            estimated_bom_usd=(350.0, 550.0),
-            cooling_type="Passive / Fanless Aluminum Heatsink",
-            network_interfaces="Dual 1GbE RJ45",
-            workload_envelope="1-4x 1080p30 H.264/H.265 continuous recording",
-            description="Engineered for distributed perimeter gates, retail outposts, and remote transformer substations.",
-            known_limitations=[
-                "Low RAM limits dense multi-model neural pipelines",
-                "Fanless enclosure requires ambient environment <= 45°C",
-            ],
-        ),
-        ApplianceProfileType.PROFILE_STANDARD: ApplianceSpecification(
-            profile_type=ApplianceProfileType.PROFILE_STANDARD,
-            display_name="CAMserv Standard Appliance",
-            target_form_factor="Compact Desktop / 1U Chassis",
-            recommended_stream_range=(4, 16),
-            max_stream_ceiling=20,
-            cpu_arch_requirement="x86_64 (Intel Core i3/i5 / AMD Ryzen 5)",
-            min_physical_cores=6,
-            min_ram_gb=16,
-            recommended_accelerator="Intel OpenVINO / QSV / ONNX Runtime",
-            video_decoders=["qsv", "vaapi", "software"],
-            storage_type="512GB NVMe OS/Staging + 2x 4TB Surveillance SATA CMR HDDs",
-            power_budget_watts=65.0,
-            typical_power_watts=35.0,
-            thermal_limit_celsius=78.0,
-            estimated_bom_usd=(750.0, 1150.0),
-            cooling_type="Active Low-Noise PWM Fan",
-            network_interfaces="Dual 2.5GbE RJ45",
-            workload_envelope="4-16x 1080p30 H.264/H.265 continuous recording + motion analytics",
-            description="Engineered for small-to-medium retail shops, branch offices, and commercial schools.",
-            known_limitations=[
-                "Single power supply input (no hardware redundancy)",
-                "Not designed for dense multi-channel 4K neural analytics",
-            ],
-        ),
-        ApplianceProfileType.PROFILE_B_PROFESSIONAL: ApplianceSpecification(
-            profile_type=ApplianceProfileType.PROFILE_B_PROFESSIONAL,
-            display_name="CAMserv Professional Appliance (Profile B)",
-            target_form_factor="Compact 1U / Desktop NVR Chassis",
-            recommended_stream_range=(4, 16),
-            max_stream_ceiling=20,
-            cpu_arch_requirement="x86_64 (Intel Core i7 / AMD Ryzen 7)",
-            min_physical_cores=8,
-            min_ram_gb=32,
-            recommended_accelerator="NVIDIA RTX 4060 (8GB) / Intel Arc A770 (16GB)",
-            video_decoders=["nvdec", "qsv", "software"],
-            storage_type="1TB NVMe OS/Pre-Roll + 2x 8TB Surveillance SATA HDDs (RAID-1)",
-            power_budget_watts=120.0,
-            typical_power_watts=95.0,
-            thermal_limit_celsius=82.0,
-            estimated_bom_usd=(1200.0, 1800.0),
-            cooling_type="Dual PWM Ball-Bearing Chassis Fans",
-            network_interfaces="Dual 2.5GbE + Dedicated 1GbE Management",
-            workload_envelope="16-32x 1080p30 or 8x 4K30 streams with continuous neural tracking",
-            description="Engineered for corporate headquarters, logistics warehouses, and commercial office complexes.",
-            known_limitations=[
-                "Standard ATX single/redundant optional PSU",
-                "Chassis airflow requirement: front/rear clearance >= 100mm",
-            ],
-        ),
-        ApplianceProfileType.PROFILE_C_ENTERPRISE: ApplianceSpecification(
-            profile_type=ApplianceProfileType.PROFILE_C_ENTERPRISE,
-            display_name="CAMserv Enterprise Appliance (Profile C)",
-            target_form_factor="2U Rackmount Server with Redundant Power & Fans",
-            recommended_stream_range=(16, 64),
-            max_stream_ceiling=80,
-            cpu_arch_requirement="x86_64 (AMD EPYC / Intel Xeon Scalable)",
-            min_physical_cores=16,
-            min_ram_gb=64,
-            recommended_accelerator="Dual NVIDIA RTX 4090 / L40S (24GB-48GB VRAM)",
-            video_decoders=["dual nvdec", "software"],
-            storage_type="2TB NVMe M.2 (RAID-1 OS) + 4x U.2 NVMe / 8x SAS Surveillance HDDs (RAID-6)",
-            power_budget_watts=550.0,
-            typical_power_watts=320.0,
-            thermal_limit_celsius=85.0,
-            estimated_bom_usd=(4500.0, 8500.0),
-            cooling_type="Hot-Swappable Redundant High-CFM Fan Matrix",
-            network_interfaces="Quad 10GbE SFP+ / 2.5GbE RJ45 + IPMI 2.0 Dedicated",
-            workload_envelope="32-64+ streams with concurrent multi-camera re-identification and incident forensics",
-            description="Engineered for airports, critical municipal infrastructure, and large industrial campus installations.",
-            known_limitations=[
-                "Requires 2U rack enclosure and 208-240V dual feeds for optimal efficiency",
-            ],
-        ),
+        # Standard enum mappings
+        ApplianceProfileType.PROFILE_A_LOW_POWER: _SPEC_EDGE,
+        ApplianceProfileType.PROFILE_B_STANDARD: _SPEC_STANDARD,
+        ApplianceProfileType.PROFILE_C_PROFESSIONAL: _SPEC_PRO,
+        ApplianceProfileType.PROFILE_D_ENTERPRISE: _SPEC_ENTERPRISE,
+
+        # Backward-compatible mappings
+        ApplianceProfileType.PROFILE_A_EDGE: _SPEC_EDGE,
+        ApplianceProfileType.PROFILE_STANDARD: _SPEC_STANDARD,
+        ApplianceProfileType.PROFILE_B_PROFESSIONAL: _SPEC_PRO,
+        ApplianceProfileType.PROFILE_C_ENTERPRISE: _SPEC_ENTERPRISE,
     }
 
     @classmethod
@@ -274,10 +336,7 @@ class ApplianceCatalog:
         bitrate_kbps: float,
         protocol_overhead: float = 0.05,
     ) -> float:
-        """
-        Calculate daily storage consumption in Gigabytes (GB).
-        Formula: (stream_count * bitrate_kbps * (1 + overhead) * 86400) / (8 * 1024 * 1024)
-        """
+        """Calculate daily storage consumption in Gigabytes (GB)."""
         if stream_count <= 0 or bitrate_kbps <= 0:
             return 0.0
         total_kbps = stream_count * bitrate_kbps * (1.0 + protocol_overhead)
@@ -536,7 +595,6 @@ class ApplianceHardwareManager:
         """
         spec = ApplianceCatalog.SPECIFICATIONS.get(self.profile.profile_type)
         if spec is None:
-            # Custom / uncalibrated profile
             max_streams = max(1, self.hardware.cpu_cores_physical)
         else:
             max_streams = spec.max_stream_ceiling

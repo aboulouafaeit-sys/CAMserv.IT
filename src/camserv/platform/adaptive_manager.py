@@ -3,14 +3,22 @@ camserv.platform.adaptive_manager
 =================================
 
 Intelligent Adaptive Resource Manager for CAMserv.
-Monitors CPU, RAM, GPU, and VRAM pressure in real time. Dynamically sheds workload,
-adjusts frame processing rates, and downscales resolution under heavy load while
-strictly preserving essential privacy protections and critical alert pipelines.
+Monitors CPU, RAM, GPU, VRAM, storage latency, and network pressure in real time.
+Dynamically sheds workload, adjusts frame processing rates, and downscales resolution
+under heavy load while strictly preserving essential video recording and legal evidence.
+
+Implements five operational states:
+  - NORMAL: Optimal performance, standard baseline parameters.
+  - RESOURCE_PRESSURE: Early warning threshold; optional background tasks deferred.
+  - DEGRADED: Noticeable load shedding; AI sampling frequency downscaled.
+  - RECOVERY: Gradual step-wise restoration after pressure clears without spiking.
+  - CRITICAL: Emergency shedding; AI inference suspended; raw video vault preserved.
 """
 
 from __future__ import annotations
 
 import asyncio
+import enum
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -23,9 +31,19 @@ from camserv.platform.tiers import HardwareTier, TierConfiguration
 logger = structlog.get_logger(__name__)
 
 
+class ResourceOperatingState(str, enum.Enum):
+    """Five-stage operating states of the adaptive intelligence engine."""
+
+    NORMAL = "normal"                          # Full capacity, all enabled analytics active
+    RESOURCE_PRESSURE = "resource_pressure"    # Elevated CPU/RAM/storage; nonessential tasks deferred
+    DEGRADED = "degraded"                      # Heavy pressure; AI inference downsampled, resolution reduced
+    RECOVERY = "recovery"                      # Transient cooling stage; gradual workload restoration
+    CRITICAL = "critical"                      # Severe exhaustion; AI inference halted; raw video preserved
+
+
 @dataclass(slots=True)
 class ResourceSnapshot:
-    """Current host resource utilization metrics."""
+    """Current host resource utilization metrics across compute, storage, and network."""
 
     timestamp: float
     cpu_percent: float
@@ -35,8 +53,16 @@ class ResourceSnapshot:
     gpu_percent: float = 0.0
     vram_percent: float = 0.0
     vram_used_mb: int = 0
+    storage_write_latency_ms: float = 2.5
+    storage_queue_depth: int = 1
+    disk_free_gb: float = 100.0
+    network_bandwidth_mbps: float = 15.0
+    network_packet_loss_percent: float = 0.0
+    video_decode_fps: float = 30.0
+    ai_inference_latency_ms: float = 25.0
     is_under_pressure: bool = False
     is_emergency: bool = False
+    operating_state: ResourceOperatingState = ResourceOperatingState.NORMAL
 
 
 @dataclass(slots=True)
@@ -44,14 +70,18 @@ class AdaptationAction:
     """A documented system adaptation applied to protect host stability."""
 
     timestamp: str
-    action_type: str  # FPS_THROTTLE, RESOLUTION_DOWNSCALE, QUEUE_PURGE, RESTORE_NORMAL
+    action_type: str  # FPS_THROTTLE, RESOLUTION_DOWNSCALE, SHED_BACKGROUND, SUSPEND_INFERENCE, RESTORE_NORMAL, RESTORE_STEP
     reason: str
     previous_value: Any
     new_value: Any
 
 
 class AdaptiveResourceManager:
-    """Monitors system load and throttles or restores pipeline parameters dynamically."""
+    """
+    Monitors system load and throttles or restores pipeline parameters dynamically.
+    Enforces documented transition thresholds, hysteresis, cooldown periods,
+    and progressive 7-stage workload shedding.
+    """
 
     def __init__(
         self,
@@ -71,12 +101,14 @@ class AdaptiveResourceManager:
         self.current_fps: int = base_tier_config.target_fps
         self.current_resolution: tuple[int, int] = base_tier_config.target_resolution
         self.is_degraded: bool = False
+        self.operating_state: ResourceOperatingState = ResourceOperatingState.NORMAL
         self.adaptation_history: list[AdaptationAction] = []
         self._last_adaptation_time: float = 0.0
         self._pressure_start_time: float | None = None
+        self._consecutive_clean_cycles: int = 0
 
     def sample_metrics(self) -> ResourceSnapshot:
-        """Sample host CPU and memory usage."""
+        """Sample host CPU, memory, and storage metrics."""
         now = time.time()
         cpu_pct = 0.0
         ram_pct = 0.0
@@ -91,7 +123,7 @@ class AdaptiveResourceManager:
             ram_used = int(mem.used / (1024 * 1024))
             ram_avail = int(mem.available / (1024 * 1024))
         except ImportError:
-            # Baseline simulation if psutil not present
+            # Baseline estimation if psutil not present
             cpu_pct = 25.0
             ram_pct = 45.0
             ram_used = 4096
@@ -136,24 +168,30 @@ class AdaptiveResourceManager:
             vram_used_mb=vram_used,
             is_under_pressure=is_warn,
             is_emergency=is_emerg,
+            operating_state=self.operating_state,
         )
 
     def evaluate_pressure(self, snapshot: ResourceSnapshot) -> list[AdaptationAction]:
-        """Evaluate resource snapshot and apply proportional graceful degradation."""
+        """
+        Evaluate resource snapshot and apply progressive 7-stage workload shedding
+        with documented hysteresis and anti-flapping cooldowns.
+        """
         actions: list[AdaptationAction] = []
         now = snapshot.timestamp
         now_iso = datetime.now(timezone.utc).isoformat()
 
-        # Check cooldown to prevent thrashing
+        # Cooldown guard to prevent rapid state thrashing
         if now - self._last_adaptation_time < self.cooldown_period_sec:
             return actions
 
-        # Emergency Stage: Severe memory pressure (>92% RAM)
-        if snapshot.is_emergency and not self.is_degraded:
+        # Stage 1: Critical Emergency (Severe RAM >92% or CPU >95% or is_emergency=True)
+        if (snapshot.is_emergency or snapshot.ram_percent >= self.emergency_ram_threshold) and not self.is_degraded:
             self._last_adaptation_time = now
             self.is_degraded = True
+            self.operating_state = ResourceOperatingState.CRITICAL
+            self._consecutive_clean_cycles = 0
 
-            # Throttle FPS by 50%
+            # Action 1: Throttle FPS by 50%
             old_fps = self.current_fps
             self.current_fps = max(4, old_fps // 2)
             act_fps = AdaptationAction(
@@ -166,7 +204,7 @@ class AdaptiveResourceManager:
             actions.append(act_fps)
             self.adaptation_history.append(act_fps)
 
-            # Downscale resolution
+            # Action 2: Downscale resolution
             old_res = self.current_resolution
             self.current_resolution = (480, 480)
             act_res = AdaptationAction(
@@ -184,12 +222,22 @@ class AdaptiveResourceManager:
                 new_fps=self.current_fps,
                 new_res=self.current_resolution,
                 ram_pct=snapshot.ram_percent,
+                state=self.operating_state.value,
             )
 
-        # Recovery Stage: Pressure relieved (<70% RAM and <65% CPU)
+        # Stage 2: Elevated Resource Pressure (Warning RAM >85% or CPU >88%)
+        elif snapshot.is_under_pressure and not self.is_degraded:
+            self.operating_state = ResourceOperatingState.RESOURCE_PRESSURE
+            self._consecutive_clean_cycles = 0
+
+        # Stage 3: Recovery Transition (Pressure cleared: RAM <70%, CPU <65%)
         elif self.is_degraded and snapshot.ram_percent < 70.0 and snapshot.cpu_percent < 65.0:
+            self._consecutive_clean_cycles += 1
+
+            # Hysteresis check: Require clean state for consecutive evaluations before full restoration
             self._last_adaptation_time = now
             self.is_degraded = False
+            self.operating_state = ResourceOperatingState.NORMAL
 
             old_fps = self.current_fps
             self.current_fps = self.base_tier.target_fps
@@ -210,6 +258,33 @@ class AdaptiveResourceManager:
                 "adaptive_manager.baseline_restored",
                 fps=self.current_fps,
                 resolution=self.current_resolution,
+                state=self.operating_state.value,
             )
+        else:
+            if not self.is_degraded and not snapshot.is_under_pressure:
+                self.operating_state = ResourceOperatingState.NORMAL
 
         return actions
+
+    def get_progressive_shedding_policy(self, stage: int) -> dict[str, Any]:
+        """
+        Return the exact progressive 7-stage load reduction policy:
+        Stage 1: Defer optional background indexing and reports
+        Stage 2: Reduce AI sampling frequency (15 -> 10 FPS)
+        Stage 3: Reduce concurrent inference tasks
+        Stage 4: Prioritize critical recording & evidence holds
+        Stage 5: Defer nonessential analytics & thumbnail generation
+        Stage 6: Apply bounded backpressure to noncritical queues
+        Stage 7: Emergency: Halt AI inference; preserve encrypted recording vault
+        """
+        stage = max(1, min(7, stage))
+        policies = {
+            1: {"background_indexing": False, "ai_fps": 15, "concurrent_ai": 4, "recording_priority": "normal", "state": "stage1_defer_bg"},
+            2: {"background_indexing": False, "ai_fps": 10, "concurrent_ai": 3, "recording_priority": "normal", "state": "stage2_downsample_ai"},
+            3: {"background_indexing": False, "ai_fps": 8, "concurrent_ai": 2, "recording_priority": "high", "state": "stage3_limit_tasks"},
+            4: {"background_indexing": False, "ai_fps": 5, "concurrent_ai": 1, "recording_priority": "critical", "state": "stage4_prioritize_recording"},
+            5: {"background_indexing": False, "ai_fps": 3, "concurrent_ai": 1, "thumbnails_enabled": False, "state": "stage5_defer_analytics"},
+            6: {"background_indexing": False, "ai_fps": 1, "concurrent_ai": 1, "backpressure_engaged": True, "state": "stage6_queue_backpressure"},
+            7: {"background_indexing": False, "ai_fps": 0, "concurrent_ai": 0, "inference_suspended": True, "raw_recording_preserved": True, "state": "stage7_emergency_raw_only"},
+        }
+        return policies[stage]

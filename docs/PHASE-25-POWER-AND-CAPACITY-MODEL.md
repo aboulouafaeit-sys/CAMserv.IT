@@ -97,9 +97,41 @@ $$Q_{\text{thermal}} = P_{\text{watts}} \times 3.41214 \quad [\text{BTU / Hour}]
 
 ## 4. Power Consumption & Thermal Dissipation Model
 
-| Appliance Profile | Typical Power ($P_{\text{typ}}$) | Peak Budget ($P_{\text{max}}$) | Daily Electricity (kWh) | Annual Electricity (kWh) | Est. Annual Electric Cost ($0.15/kWh) | Thermal Heat Output (BTU/Hr) | Recommended Cooling Mode |
-| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **CAMserv Edge** | **12.0 W** | 15.0 W | **0.288 kWh** | 105.1 kWh | $15.77 | 40.9 BTU/hr | Passive Convection |
-| **CAMserv Standard** | **35.0 W** | 65.0 W | **0.840 kWh** | 306.6 kWh | $45.99 | 119.4 BTU/hr | Internal Quiet Fan |
-| **CAMserv Professional**| **95.0 W** | 180.0 W | **2.280 kWh** | 832.2 kWh | $124.83 | 324.2 BTU/hr | Dual PWM Chassis Fans |
-| **CAMserv Enterprise** | **320.0 W** | 550.0 W | **7.680 kWh** | 2,803.2 kWh | $420.48 | 1,091.9 BTU/hr | N+1 Server Fan Matrix |
+| Appliance Profile | Configuration Tier | Typical Power ($P_{\text{typ}}$) | Peak Budget ($P_{\text{max}}$) | Worst-Case Load ($P_{\text{wc}}$) | Daily Electricity (kWh) | Annual Electricity (kWh) | Est. Annual Electric Cost ($0.15/kWh) | Thermal Heat Output (BTU/Hr) | Recommended Cooling Mode |
+| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **`PROFILE_A_LOW_POWER` (Edge)** | Base (ARM/N100, Fanless) | **12.0 W** | 15.0 W | 18.0 W | **0.288 kWh** | 105.1 kWh | $15.77 | 40.9 BTU/hr | Monolithic Passive Convection |
+| **`PROFILE_B_STANDARD` (Standard)**| Base (Core i5 / iGPU) | **35.0 W** | 65.0 W | 85.0 W | **0.840 kWh** | 306.6 kWh | $45.99 | 119.4 BTU/hr | Internal Quiet Fan ($< 28\text{ dBA}$) |
+| **`PROFILE_C_PROFESSIONAL` (Pro)** | Base (Core i7 / No GPU) | **65.0 W** | 135.0 W | 160.0 W | **1.560 kWh** | 569.4 kWh | $85.41 | 221.8 BTU/hr | Dual PWM Chassis Fans |
+| **`PROFILE_C_PROFESSIONAL` (Pro)** | Full (Core i7 + RTX 4060)| **95.0 W** | 180.0 W | 245.0 W | **2.280 kWh** | 832.2 kWh | $124.83 | 324.2 BTU/hr | Dual PWM Chassis Fans |
+| **`PROFILE_D_ENTERPRISE` (Ent)** | Base (AMD EPYC / No GPU) | **180.0 W** | 310.0 W | 380.0 W | **4.320 kWh** | 1,576.8 kWh | $236.52 | 614.2 BTU/hr | N+1 Server Fan Matrix |
+| **`PROFILE_D_ENTERPRISE` (Ent)** | Full (EPYC + Dual RTX 4090)| **320.0 W** | 550.0 W | 680.0 W | **7.680 kWh** | 2,803.2 kWh | $420.48 | 1,091.9 BTU/hr | N+1 Redundant Hot-Swap Fans |
+
+---
+
+## 5. N+1 Power Redundancy Engineering & Single Surviving PSU Capacity
+
+A critical engineering failure mode in multi-camera surveillance is PSU tripping under sudden transient spikes (e.g., simultaneous multi-drive spin-up after AC restore or dual GPU burst inference). Redundancy is invalid if a single surviving PSU cannot carry 100% of the worst-case continuous load.
+
+### 5.1 Worst-Case Electrical Breakdown:
+
+#### Profile C (Professional Appliance) Worst-Case Electrical Budget:
+- Intel Core i7-13700 PL2 Turbo Burst: $115\text{ W}$
+- Optional NVIDIA RTX 4060 TGP: $115\text{ W}$
+- 4x 3.5" SATA HDDs spin-up inrush ($4 \times 18\text{W}$ for 3 sec, steady $4 \times 6\text{W}$): $24\text{ W}$
+- Motherboard, memory, NVMe SSD, fans: $25\text{ W}$
+- **Calculated Worst-Case Transient Peak:** $\mathbf{245.0\text{ W}}$
+- **PSU Specification:** Dual Redundant 450W 80-Plus Gold PSUs.
+- **Redundancy Margin:** Single surviving PSU capacity ($450\text{W}$) $\ge$ Worst-case load ($245\text{W}$).  
+  $$\text{Surviving Margin} = \frac{450 - 245}{245} \times 100\% = \mathbf{83.7\% \text{ Headroom}}$$
+
+#### Profile D (Enterprise Appliance) Worst-Case Electrical Budget:
+- AMD EPYC 7302P / 9124 Peak Socket Draw: $200\text{ W}$
+- Dual NVIDIA RTX 4090 / L40S Clamped Max Inference: $350\text{ W}$ ($175\text{W} \times 2$)
+- 16x 3.5" Enterprise SAS HDDs staggered spin-up / seek load: $95\text{ W}$
+- Motherboard, quad 10GbE SFP+ transceivers, NVMe, fans: $35\text{ W}$
+- **Calculated Worst-Case Transient Peak:** $\mathbf{680.0\text{ W}}$
+- **PSU Specification:** Dual Redundant 800W 80-Plus Platinum PSUs.
+- **Redundancy Margin:** Single surviving PSU continuous capacity ($800\text{W}$) $\ge$ Worst-case load ($680\text{W}$).  
+  $$\text{Surviving Margin} = \frac{800 - 680}{800} \times 100\% = \mathbf{15.0\% \text{ Safety Headroom}} \quad (\text{Load is } 85.0\% \text{ of single PSU})$$
+
+*Engineering Conclusion: Both Profile C and Profile D guarantee uninterrupted surveillance recording and inference during complete single AC line failure or catastrophic single-PSU blowout.*
