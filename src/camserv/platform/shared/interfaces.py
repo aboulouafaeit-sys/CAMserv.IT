@@ -215,3 +215,99 @@ class PlatformHardwareProber(abc.ABC):
     def probe_thermal_and_power(self) -> dict[str, Any]:
         """Query hardware thermal sensors and fan speeds."""
         raise NotImplementedError
+
+
+@dataclass(slots=True)
+class DisplayGeometry:
+    """Bounding box coordinates and usable working area for a physical monitor."""
+
+    x: int
+    y: int
+    width: int
+    height: int
+    work_x: int = 0
+    work_y: int = 0
+    work_width: int = 0
+    work_height: int = 0
+
+    def __post_init__(self) -> None:
+        if self.work_width == 0:
+            object.__setattr__(self, "work_width", self.width)
+        if self.work_height == 0:
+            object.__setattr__(self, "work_height", self.height)
+        if self.work_x == 0 and self.x != 0:
+            object.__setattr__(self, "work_x", self.x)
+        if self.work_y == 0 and self.y != 0:
+            object.__setattr__(self, "work_y", self.y)
+
+    @property
+    def aspect_ratio(self) -> float:
+        return self.width / max(1, self.height)
+
+    def contains_point(self, px: int, py: int) -> bool:
+        """Check if a coordinate falls within this monitor's bounds."""
+        return self.x <= px < (self.x + self.width) and self.y <= py < (self.y + self.height)
+
+
+@dataclass(slots=True)
+class DisplayInfo:
+    """Telemetry report describing an attached physical monitor/display."""
+
+    display_id: str
+    name: str
+    geometry: DisplayGeometry
+    is_primary: bool = False
+    scale_factor: float = 1.0
+    refresh_rate_hz: float = 60.0
+    is_connected: bool = True
+    dpi: int = 96
+
+
+class PlatformDisplayManager(abc.ABC):
+    """Abstract interface for platform multi-monitor enumeration and geometry validation."""
+
+    def __init__(self) -> None:
+        self._listeners: list[Any] = []
+
+    @abc.abstractmethod
+    def enumerate_displays(self) -> list[DisplayInfo]:
+        """Discover all connected physical and virtual display monitors."""
+        raise NotImplementedError
+
+    def get_displays(self) -> list[DisplayInfo]:
+        """Convenience alias for enumerate_displays."""
+        return self.enumerate_displays()
+
+    @abc.abstractmethod
+    def get_primary_display(self) -> DisplayInfo:
+        """Retrieve the system primary display."""
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def get_display_by_id(self, display_id: str) -> DisplayInfo | None:
+        """Find a display matching a persistent identifier."""
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def validate_window_geometry(
+        self, x: int, y: int, width: int, height: int
+    ) -> tuple[int, int, int, int]:
+        """Clamp requested window geometry to ensure it resides inside a visible display."""
+        raise NotImplementedError
+
+    def register_display_change_listener(self, listener: Any) -> None:
+        """Register a callback invoked when display configuration changes."""
+        if not hasattr(self, "_listeners"):
+            self._listeners = []
+        self._listeners.append(listener)
+
+    def trigger_display_change(self) -> None:
+        """Notify registered listeners of display changes."""
+        if hasattr(self, "_listeners"):
+            displays = self.enumerate_displays()
+            for l in self._listeners:
+                try:
+                    l(displays)
+                except Exception:
+                    pass
+

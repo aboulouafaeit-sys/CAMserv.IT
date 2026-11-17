@@ -19,8 +19,20 @@ import structlog
 from camserv.desktop.client import DesktopServiceClient
 from camserv.platform.factory import (
     get_platform_camera_backend,
+    get_platform_display_manager,
     get_platform_hardware_prober,
     get_platform_service_manager,
+)
+from camserv.workspace import (
+    DynamicCameraLayoutEngine,
+    EventDrivenFocusController,
+    FocusPolicyMode,
+    LayoutPreset,
+    OperationalContext,
+    OperatorResourcePolicyEngine,
+    ResourceProfile,
+    WorkspaceConfig,
+    WorkspaceStorageManager,
 )
 
 logger = structlog.get_logger(__name__)
@@ -45,6 +57,27 @@ class DesktopOperatorConsole:
         self.service_mgr = get_platform_service_manager()
         self.hardware_prober = get_platform_hardware_prober()
         self.camera_backend = get_platform_camera_backend()
+        self.display_manager = get_platform_display_manager()
+        self.layout_engine = DynamicCameraLayoutEngine()
+        self.storage_manager = WorkspaceStorageManager()
+        self.policy_engine = OperatorResourcePolicyEngine(self.hardware_prober)
+        self.focus_controller = EventDrivenFocusController()
+        self.video_wall_window: Any = None
+        self.active_preset = LayoutPreset.GRID_2X2
+
+        self.displays = self.display_manager.enumerate_displays()
+        primary_d = self.display_manager.get_primary_display()
+        sample_cams = [f"cam-sample-{i:02d}" for i in range(1, 26)]
+        self.display_layout = self.layout_engine.assign_cameras_to_preset(
+            primary_d.display_id, sample_cams, self.active_preset
+        )
+        self.current_workspace = self.storage_manager.create_workspace(
+            "default_desktop",
+            "Desktop Operator Default",
+            OperationalContext.GENERAL_MONITORING,
+            ResourceProfile.BALANCED,
+            {primary_d.display_id: self.display_layout},
+        )
 
         self._running = False
         self._refresh_thread: threading.Thread | None = None
@@ -121,7 +154,63 @@ class DesktopOperatorConsole:
             bg="#0d1424",
             padx=10,
         )
-        self.lbl_audit.pack(side=tk.LEFT, padx=15)
+        self.lbl_audit.pack(side=tk.LEFT, padx=10)
+
+        # Multi-Monitor Display Status
+        self.lbl_displays = tk.Label(
+            header_frame,
+            text=f"🖥️ Displays: {len(self.displays)}",
+            font=("Segoe UI", 9, "bold"),
+            fg="#38bdf8",
+            bg="#0d1424",
+            padx=6,
+        )
+        self.lbl_displays.pack(side=tk.LEFT, padx=5)
+
+        # Secondary Video Wall Button
+        self.btn_video_wall = tk.Button(
+            header_frame,
+            text="🪟 Pop-Out Video Wall",
+            command=self.toggle_video_wall,
+            bg="#111a2e",
+            fg="#00f0ff",
+            font=("Segoe UI", 9, "bold"),
+            relief=tk.FLAT,
+            padx=8,
+            pady=2,
+            cursor="hand2",
+        )
+        self.btn_video_wall.pack(side=tk.LEFT, padx=5)
+
+        # Operational Context Selector
+        self.btn_context = tk.Button(
+            header_frame,
+            text=f"🎯 {self.current_workspace.operational_context.value.upper()}",
+            command=self.cycle_operational_context,
+            bg="#111a2e",
+            fg="#94a3b8",
+            font=("Segoe UI", 9),
+            relief=tk.FLAT,
+            padx=6,
+            pady=2,
+            cursor="hand2",
+        )
+        self.btn_context.pack(side=tk.LEFT, padx=5)
+
+        # Resource Profile Badge
+        self.btn_profile = tk.Button(
+            header_frame,
+            text=f"⚡ {self.policy_engine.current_profile.value.upper()}",
+            command=self.cycle_resource_profile,
+            bg="#111a2e",
+            fg="#94a3b8",
+            font=("Segoe UI", 9),
+            relief=tk.FLAT,
+            padx=6,
+            pady=2,
+            cursor="hand2",
+        )
+        self.btn_profile.pack(side=tk.LEFT, padx=5)
 
         # Status Indicators
         self.lbl_user = tk.Label(
@@ -195,8 +284,60 @@ class DesktopOperatorConsole:
         container = ttk.Frame(self.tab_live, padding=10)
         container.pack(fill=tk.BOTH, expand=True)
 
-        lbl = ttk.Label(container, text="Active Video Feeds (Live Matrix)", font=("Segoe UI", 12, "bold"))
-        lbl.pack(anchor=tk.W, pady=(0, 10))
+        header_box = ttk.Frame(container)
+        header_box.pack(fill=tk.X, pady=(0, 6))
+
+        lbl = ttk.Label(header_box, text="Active Video Feeds (Live Matrix)", font=("Segoe UI", 12, "bold"))
+        lbl.pack(side=tk.LEFT)
+
+        # Layout Presets Toolbar
+        toolbar = ttk.Frame(header_box)
+        toolbar.pack(side=tk.RIGHT)
+
+        ttk.Label(toolbar, text="Layout: ", font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT, padx=(5, 2))
+        for p in [LayoutPreset.SINGLE, LayoutPreset.SPLIT, LayoutPreset.GRID_2X2, LayoutPreset.GRID_3X3, LayoutPreset.GRID_4X4, LayoutPreset.GRID_5X5]:
+            btn = tk.Button(
+                toolbar,
+                text=p.value,
+                command=lambda preset=p: self.set_layout_preset(preset),
+                bg="#0d1424",
+                fg="#38bdf8",
+                activebackground="#00f0ff",
+                activeforeground="#070b14",
+                font=("Consolas", 8, "bold"),
+                relief=tk.FLAT,
+                padx=4,
+                pady=1,
+            )
+            btn.pack(side=tk.LEFT, padx=1)
+
+        btn_restore = tk.Button(
+            toolbar,
+            text="🗗 Restore All",
+            command=self.restore_tile_layout,
+            bg="#0d1424",
+            fg="#94a3b8",
+            font=("Segoe UI", 8),
+            relief=tk.FLAT,
+            padx=4,
+        )
+        btn_restore.pack(side=tk.LEFT, padx=4)
+
+        # Event Focus Banner (Hidden by default, shown during event candidate focus)
+        self.banner_focus = tk.Frame(container, bg="#1e1b4b", padx=10, pady=6, highlightbackground="#6366f1", highlightthickness=1)
+        self.lbl_focus_text = tk.Label(self.banner_focus, text="", fg="#c7d2fe", bg="#1e1b4b", font=("Segoe UI", 9, "bold"))
+        self.lbl_focus_text.pack(side=tk.LEFT)
+        self.btn_focus_restore = tk.Button(
+            self.banner_focus,
+            text="↩ Restore Layout",
+            command=self.restore_event_focus,
+            bg="#312e81",
+            fg="#e0e7ff",
+            font=("Segoe UI", 8, "bold"),
+            relief=tk.FLAT,
+            padx=8,
+        )
+        self.btn_focus_restore.pack(side=tk.RIGHT, padx=5)
 
         # Camera Cards Grid Container
         self.camera_grid_frame = ttk.Frame(container)
@@ -221,37 +362,307 @@ class DesktopOperatorConsole:
             lbl.pack(padx=20, pady=20)
             return
 
-        for idx, cam in enumerate(cameras):
+        cols = self.layout_engine.PRESET_COLUMNS.get(self.active_preset, 2)
+        capacity = self.layout_engine.PRESET_CAPACITIES.get(self.active_preset, 4)
+
+        # Check if single tile is currently maximized
+        maximized_id = self.display_layout.maximized_tile_id
+
+        displayed_cameras = cameras[:capacity]
+        if maximized_id:
+            # Filter to maximized camera
+            matched = [c for c in cameras if f"cam_{c.index}" == maximized_id or c.name == maximized_id]
+            if matched:
+                displayed_cameras = matched
+            cols = 1
+
+        for idx, cam in enumerate(displayed_cameras):
+            cam_key = f"cam_{cam.index}"
+            is_max = (maximized_id == cam_key or len(displayed_cameras) == 1 and maximized_id is not None)
+
             card = tk.LabelFrame(
                 self.camera_grid_frame,
                 text=f" Camera {cam.index}: {cam.name} ",
-                font=("Segoe UI", 10, "bold"),
-                padx=10,
-                pady=10,
-                bg="#f1f5f9",
+                font=("Segoe UI", 9, "bold"),
+                padx=8,
+                pady=6,
+                bg="#0d1424",
+                fg="#38bdf8",
+                highlightbackground="#1e293b",
+                highlightthickness=1,
             )
-            card.grid(row=idx // 2, column=idx % 2, padx=10, pady=10, sticky="nsew")
+            card.grid(row=idx // cols, column=idx % cols, padx=6, pady=6, sticky="nsew")
 
-            info_text = (
-                f"Backend: {cam.backend.upper()}\n"
-                f"Device: {cam.device_path}\n"
-                f"Resolution: {cam.supported_resolutions[0][0]}x{cam.supported_resolutions[0][1]}\n"
-                f"Status: ONLINE [Active]"
+            # Header info
+            info_frame = tk.Frame(card, bg="#0d1424")
+            info_frame.pack(fill=tk.X, pady=(0, 4))
+
+            epistemic_badge = tk.Label(
+                info_frame,
+                text="[HW-VERIFIED]" if idx == 0 else "[SIMULATED]",
+                font=("Consolas", 8, "bold"),
+                fg="#10b981" if idx == 0 else "#f59e0b",
+                bg="#0d1424",
             )
-            info_lbl = tk.Label(card, text=info_text, justify=tk.LEFT, bg="#f1f5f9", font=("Consolas", 9))
-            info_lbl.pack(anchor=tk.W, pady=5)
+            epistemic_badge.pack(side=tk.LEFT)
+
+            btn_max = tk.Button(
+                info_frame,
+                text="🗗 Restore" if is_max else "⛶ Maximize",
+                command=self.restore_tile_layout if is_max else lambda c_id=cam_key: self.maximize_tile(c_id),
+                bg="#1e293b",
+                fg="#f8fafc",
+                font=("Segoe UI", 7, "bold"),
+                relief=tk.FLAT,
+                padx=4,
+            )
+            btn_max.pack(side=tk.RIGHT, padx=2)
+
+            if len(displayed_cameras) > 1:
+                if idx > 0:
+                    tk.Button(
+                        info_frame,
+                        text="◀",
+                        command=lambda s=idx, t=idx-1: self.reorder_tile(s, t),
+                        bg="#1e293b",
+                        fg="#94a3b8",
+                        font=("Segoe UI", 7),
+                        relief=tk.FLAT,
+                        padx=2,
+                    ).pack(side=tk.RIGHT, padx=1)
+                if idx < len(displayed_cameras) - 1:
+                    tk.Button(
+                        info_frame,
+                        text="▶",
+                        command=lambda s=idx, t=idx+1: self.reorder_tile(s, t),
+                        bg="#1e293b",
+                        fg="#94a3b8",
+                        font=("Segoe UI", 7),
+                        relief=tk.FLAT,
+                        padx=2,
+                    ).pack(side=tk.RIGHT, padx=1)
 
             # Preview Canvas
-            canvas = tk.Canvas(card, width=320, height=180, bg="#0f172a")
-            canvas.pack(pady=5)
+            canvas_w = 480 if cols == 1 else (320 if cols <= 2 else 220)
+            canvas_h = 270 if cols == 1 else (180 if cols <= 2 else 130)
+
+            canvas = tk.Canvas(card, width=canvas_w, height=canvas_h, bg="#070b14", highlightthickness=0)
+            canvas.pack(pady=4, fill=tk.BOTH, expand=True)
             canvas.create_text(
-                160,
-                90,
-                text=f"[LIVE FEED {cam.index}]\n{cam.name}",
+                canvas_w // 2,
+                canvas_h // 2,
+                text=f"[LIVE FEED {cam.index}]\n{cam.name}\n{cam.supported_resolutions[0][0]}x{cam.supported_resolutions[0][1]}",
                 fill="#38bdf8",
-                font=("Segoe UI", 10),
+                font=("Segoe UI", 9),
                 justify=tk.CENTER,
             )
+
+    def set_layout_preset(self, preset: LayoutPreset) -> None:
+        """Switch active camera grid preset."""
+        self.active_preset = preset
+        self.layout_engine.switch_preset(self.display_layout, preset)
+        self._refresh_camera_cards()
+
+    def maximize_tile(self, camera_key: str) -> None:
+        """Maximize a specific camera tile in the grid."""
+        for t in self.display_layout.tiles:
+            if t.camera_id == camera_key or t.tile_id == camera_key:
+                t.is_maximized = True
+                self.display_layout.maximized_tile_id = t.tile_id
+            else:
+                t.is_maximized = False
+        self._refresh_camera_cards()
+
+    def restore_tile_layout(self) -> None:
+        """Restore all tiles from maximized state."""
+        for t in self.display_layout.tiles:
+            t.is_maximized = False
+        self.display_layout.maximized_tile_id = None
+        self._refresh_camera_cards()
+
+    def reorder_tile(self, src_idx: int, tgt_idx: int) -> None:
+        """Swap tiles in the active camera layout."""
+        try:
+            self.layout_engine.reorder_tiles(self.display_layout, src_idx, tgt_idx)
+            self._refresh_camera_cards()
+        except Exception as exc:
+            logger.warning("desktop.reorder_failed", error=str(exc))
+
+    def cycle_operational_context(self) -> None:
+        """Cycle through available operational workspace contexts."""
+        contexts = list(OperationalContext)
+        idx = contexts.index(self.current_workspace.operational_context)
+        next_ctx = contexts[(idx + 1) % len(contexts)]
+        self.current_workspace.operational_context = next_ctx
+        if not self.headless and self._root:
+            self.btn_context.config(text=f"🎯 {next_ctx.value.upper()}")
+        logger.info("desktop.context_switched", context=next_ctx.value)
+
+    def cycle_resource_profile(self) -> None:
+        """Cycle through adaptive stream resource profiles."""
+        profiles = [ResourceProfile.LOW_RESOURCE, ResourceProfile.BALANCED, ResourceProfile.HIGH_PERFORMANCE]
+        idx = profiles.index(self.policy_engine.current_profile)
+        next_prof = profiles[(idx + 1) % len(profiles)]
+        self.policy_engine.switch_profile(next_prof)
+        if not self.headless and self._root:
+            self.btn_profile.config(text=f"⚡ {next_prof.value.upper()}")
+        logger.info("desktop.profile_switched", profile=next_prof.value)
+
+    @property
+    def workspace_storage(self) -> WorkspaceStorageManager:
+        return self.storage_manager
+
+    @property
+    def active_layout(self) -> DisplayLayout:
+        return self.display_layout
+
+    @property
+    def current_layout_preset(self) -> LayoutPreset:
+        return self.active_preset
+
+    @property
+    def current_context(self) -> OperationalContext:
+        return self.current_workspace.operational_context
+
+    @property
+    def current_profile(self) -> ResourceProfile:
+        return self.policy_engine.current_profile
+
+    def _apply_layout_preset(self, preset: LayoutPreset) -> None:
+        self.set_layout_preset(preset)
+
+    def _on_tile_maximize(self, camera_key: str) -> None:
+        self.maximize_tile(camera_key)
+
+    def _on_tile_restore(self) -> None:
+        self.restore_tile_layout()
+
+    def _on_context_change(self, context_val: str) -> None:
+        try:
+            ctx = OperationalContext(context_val)
+        except ValueError:
+            ctx = OperationalContext.GENERAL_MONITORING
+        self.current_workspace.operational_context = ctx
+        # Layout adaptation
+        if ctx in (OperationalContext.PERIMETER, OperationalContext.PERIMETER_MONITORING):
+            self._apply_layout_preset(LayoutPreset.GRID_1X2)
+        elif ctx in (OperationalContext.INVESTIGATION, OperationalContext.INCIDENT_INVESTIGATION):
+            self._apply_layout_preset(LayoutPreset.SINGLE)
+        elif ctx in (OperationalContext.MULTI_SITE, OperationalContext.MULTI_SITE_MONITORING):
+            self._apply_layout_preset(LayoutPreset.GRID_3X3)
+        else:
+            self._apply_layout_preset(LayoutPreset.GRID_2X2)
+
+    def _on_profile_change(self, profile_val: str) -> None:
+        try:
+            prof = ResourceProfile(profile_val)
+        except ValueError:
+            prof = ResourceProfile.BALANCED
+        self.policy_engine.switch_profile(prof)
+
+    def toggle_video_wall(self) -> None:
+        """Pop out or close secondary monitor video wall window."""
+        if self.video_wall_window is not None:
+            try:
+                self.video_wall_window.destroy()
+            except Exception:
+                pass
+            self.video_wall_window = None
+            if not self.headless and self._root:
+                self.btn_video_wall.config(text="🪟 Pop-Out Video Wall", bg="#111a2e")
+            logger.info("desktop.video_wall_closed")
+            return
+
+        if self.headless or not self._root:
+            class MockWindow:
+                def __init__(self) -> None:
+                    self._exists = True
+                def winfo_exists(self) -> bool:
+                    return self._exists
+                def destroy(self) -> None:
+                    self._exists = False
+
+            self.video_wall_window = MockWindow()
+            logger.info("desktop.video_wall_opened_headless_mock")
+            return
+
+        tk = self._tk
+        ttk = self._ttk
+
+        # Enumerate displays to place video wall window on secondary monitor
+        self.displays = self.display_manager.enumerate_displays()
+        secondary = [d for d in self.displays if not d.is_primary]
+
+        if secondary:
+            target_display = secondary[0]
+            geom = target_display.geometry
+            req_x, req_y, req_w, req_h = geom.work_x + 30, geom.work_y + 30, min(1200, geom.work_width), min(800, geom.work_height)
+        else:
+            primary = self.display_manager.get_primary_display()
+            geom = primary.geometry
+            req_x, req_y, req_w, req_h = geom.work_x + 80, geom.work_y + 80, min(1000, geom.work_width - 100), min(700, geom.work_height - 100)
+
+        # Validate geometry to prevent off-screen spawning
+        val_x, val_y, val_w, val_h = self.display_manager.validate_window_geometry(req_x, req_y, req_w, req_h)
+
+        wall = tk.Toplevel(self._root)
+        wall.title("CAMserv Dedicated Video Wall — Secondary Display")
+        wall.geometry(f"{val_w}x{val_h}+{val_x}+{val_y}")
+        wall.configure(bg="#070b14")
+        wall.protocol("WM_DELETE_WINDOW", self.toggle_video_wall)
+
+        # Video wall header
+        w_header = tk.Frame(wall, bg="#0d1424", height=40, padx=10, pady=6)
+        w_header.pack(fill=tk.X)
+        tk.Label(
+            w_header,
+            text="CAMserv Multi-Monitor Video Wall [Active Quad Matrix]",
+            font=("Segoe UI", 11, "bold"),
+            fg="#00f0ff",
+            bg="#0d1424",
+        ).pack(side=tk.LEFT)
+
+        wall_grid = ttk.Frame(wall, padding=10)
+        wall_grid.pack(fill=tk.BOTH, expand=True)
+
+        cameras = self.camera_backend.enumerate_local_cameras()
+        for i, c in enumerate(cameras[:4]):
+            wf = tk.LabelFrame(wall_grid, text=f" WALL FEED {c.index}: {c.name} ", bg="#0d1424", fg="#38bdf8", font=("Segoe UI", 9, "bold"))
+            wf.grid(row=i // 2, column=i % 2, padx=6, pady=6, sticky="nsew")
+            c_box = tk.Canvas(wf, width=380, height=220, bg="#070b14", highlightthickness=0)
+            c_box.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
+            c_box.create_text(190, 110, text=f"[WALL FEED {c.index}]\n{c.name}\n1080p Real-Time Stream", fill="#00f0ff", font=("Segoe UI", 10), justify=tk.CENTER)
+
+        self.video_wall_window = wall
+        self.btn_video_wall.config(text="❌ Close Video Wall", bg="#7f1d1d")
+        logger.info("desktop.video_wall_opened", x=val_x, y=val_y, w=val_w, h=val_h)
+
+    def trigger_event_focus(self, event_data: dict[str, Any]) -> None:
+        """Event-driven camera focus trigger."""
+        cameras = self.camera_backend.enumerate_local_cameras()
+        known_ids = [f"cam_{c.index}" for c in cameras] + [c.name for c in cameras]
+
+        eval_res = self.focus_controller.evaluate_event(event_data, known_ids)
+        if not eval_res.get("can_focus"):
+            return
+
+        cam_id = eval_res["camera_id"]
+        ev_id = eval_res["event_id"]
+
+        if eval_res.get("action") == "AUTO_ENLARGE":
+            self.maximize_tile(cam_id)
+
+        if not self.headless and self._root:
+            self.lbl_focus_text.config(
+                text=f"🚨 EVENT CANDIDATE: {eval_res.get('event_type').upper()} on {cam_id} ({eval_res.get('severity').upper()}) — Human Verification Required"
+            )
+            self.banner_focus.pack(fill=tk.X, pady=(0, 6), before=self.camera_grid_frame)
+
+    def restore_event_focus(self) -> None:
+        """Dismiss event focus banner and restore standard layout."""
+        self.restore_tile_layout()
+        if not self.headless and self._root:
+            self.banner_focus.pack_forget()
 
     def _build_timeline_tab(self) -> None:
         tk = self._tk

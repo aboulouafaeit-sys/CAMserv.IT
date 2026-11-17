@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -8,6 +9,7 @@
   <link rel="icon" type="image/x-icon" href="/assets/favicon.ico">
   <link rel="stylesheet" href="/styles.css">
 </head>
+
 <body>
   <div id="app-root">
     <!-- Left Navigation Command Rail -->
@@ -125,8 +127,10 @@
             <span>VRAM:</span>
             <span class="val" id="pill-vram">1.8 / 6.0 GB</span>
           </div>
-          <span class="badge-epistemic badge-simulated" id="pill-epistemic" title="Awaiting backend confirmation">[CONNECTING...]</span>
-          <button class="btn btn-secondary mono" id="btn-effects-toggle" style="font-size: 11px;" title="Toggle Glass / Low-Power Mode">
+          <span class="badge-epistemic badge-simulated" id="pill-epistemic"
+            title="Awaiting backend confirmation">[CONNECTING...]</span>
+          <button class="btn btn-secondary mono" id="btn-effects-toggle" style="font-size: 11px;"
+            title="Toggle Glass / Low-Power Mode">
             ✨ Glass
           </button>
           <button class="btn btn-secondary mono" id="btn-theme-toggle" style="font-size: 11px;">
@@ -166,7 +170,8 @@
         <div class="table-panel">
           <div class="table-header-bar">
             <h3>Recent High-Priority Events & Anomalies</h3>
-            <button class="btn btn-primary" onclick="window.camservApp.switchScreen('events')">View Event Center</button>
+            <button class="btn btn-primary" onclick="window.camservApp.switchScreen('events')">View Event
+              Center</button>
           </div>
           <table class="data-table">
             <thead>
@@ -192,27 +197,74 @@
         <div class="hud-narrative-bar">
           <div class="hud-narrative-badge">ZERO-API LIVE NARRATIVE</div>
           <div class="hud-narrative-content" id="live-narrative-text">
-            <strong>[EN]</strong> Object (ID #402) detected approaching northern fence at 0.4 m/s. Repeated bending in nighttime-enhanced zone. Threat Level: 88%.
+            <strong>[EN]</strong> Object (ID #402) detected approaching northern fence at 0.4 m/s. Repeated bending in
+            nighttime-enhanced zone. Threat Level: 88%.
             &nbsp;|&nbsp;
-            <span dir="rtl" style="font-family: 'Segoe UI', Tahoma, sans-serif;"><strong>[AR]</strong> تم رصد الكائن (المعرف #402) يقترب من السياج الشمالي بسرعة 0.4 م/ث مع حركات انحناء في منطقة معززة للرؤية الليلية. مستوى التهديد: 88%.</span>
+            <span dir="rtl" style="font-family: 'Segoe UI', Tahoma, sans-serif;"><strong>[AR]</strong> تم رصد الكائن
+              (المعرف #402) يقترب من السياج الشمالي بسرعة 0.4 م/ث مع حركات انحناء في منطقة معززة للرؤية الليلية. مستوى
+              التهديد: 88%.</span>
           </div>
           <div class="hud-preroll-pill">● RAM Pre-Roll: 15s Armed</div>
         </div>
 
-        <div style="margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
-          <div style="font-size: 13px; color: var(--text-muted);">
-            Active Layout: <span style="color: var(--text-primary); font-weight: 600;">2x2 Quad Multi-View</span> • Mode: <span style="color: var(--accent-cyan); font-weight: 600;">Cinematic Contours & 3D Ground Ring</span>
-          </div>
-          <div style="display: flex; gap: 8px;">
-            <button class="btn btn-primary" id="btn-toggle-hud">Cinematic Contours (ON)</button>
-            <button class="btn btn-secondary" id="btn-toggle-pose">Skeletal Pose (ON)</button>
-            <button class="btn btn-secondary" id="btn-toggle-isp">Software ISP (CLAHE)</button>
-            <button class="btn btn-secondary" id="btn-toggle-privacy" title="Enforced by GDPR Article 25. Click for Judicial Policy.">🔒 Privacy: Enforced</button>
-          </div>
-        </div>
-        <div class="video-grid" id="live-video-grid">
-          <!-- Dynamically populated camera streams -->
-        </div>
+        <div
+          style="margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+            <div
+              style="font-size: 13px; color: var(--text-muted); display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+              <span style="font-weight: 600; color: var(--text-secondary);">Layout:</span>
+              <button class="btn-layout-preset" onclick="window.camservApp.switchLayout('1x1')">1x1</button>
+              <button class="btn-layout-preset" onclick="window.camservApp.switchLayout('1x2')">1x2</button>
+              <button class="btn-layout-preset active" id="btn-layout-2x2"
+                onclick="window.camservApp.switchLayout('2x2')">2x2</button>
+              <button class="btn-layout-preset" onclick="window.camservApp.switchLayout('3x3')">3x3</button>
+              <button class="btn-layout-preset" onclick="window.camservApp.switchLayout('4x4')">4x4</button>
+              <button class="btn-layout-preset" onclick="window.camservApp.switchLayout('5x5')">5x5</button>
+              <button class="btn-layout-preset" onclick="window.camservApp.restoreAllTiles()"
+                title="Restore from maximized tile">🗗 Restore</button>
+            </div>
+              <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                <button class="btn btn-secondary mono" id="btn-popout-wall" onclick="window.camservApp.openVideoWall()"
+                  title="Open dedicated multi-monitor video wall pop-out window">🪟 Pop-Out Wall</button>
+                <button class="btn btn-secondary mono" id="btn-workspaces"
+                  onclick="window.camservApp.openModal('modal-workspace-manager')">💾 Workspaces</button>
+                <select class="control-pill" id="select-context" onchange="window.camservApp.switchContext(this.value)"
+                  style="background: var(--bg-surface-elevated); color: var(--text-primary); border: 1px solid var(--border-subtle); padding: 5px 8px; border-radius: var(--radius-xs); font-size: 11px;">
+                  <option value="general">🎯 Context: General</option>
+                  <option value="perimeter">🎯 Context: Perimeter</option>
+                  <option value="investigation">🎯 Context: Investigation</option>
+                  <option value="diagnostics">🎯 Context: Diagnostics</option>
+                  <option value="multi_site">🎯 Context: Multi-Site</option>
+                </select>
+                <button class="btn btn-primary" id="btn-toggle-hud">Cinematic Contours (ON)</button>
+                <button class="btn btn-secondary" id="btn-toggle-pose">Skeletal Pose (ON)</button>
+                <button class="btn btn-secondary" id="btn-toggle-isp">Software ISP (CLAHE)</button>
+                <button class="btn btn-secondary" id="btn-toggle-privacy"
+                  title="Enforced by GDPR Article 25. Click for Judicial Policy.">🔒 Privacy: Enforced</button>
+              </div>
+            </div>
+
+              <!-- Event-Driven Camera Focus Banner -->
+              <div class="event-focus-banner" id="event-focus-banner" style="display: none;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                  <span style="font-size: 16px;">🚨</span>
+                  <div>
+                    <strong style="color: #c7d2fe;" id="event-focus-title">EVENT CANDIDATE DETECTED: Perimeter Intrusion
+                      Hypothesis</strong>
+                    <div style="font-size: 11px; color: var(--text-muted);" id="event-focus-desc">Camera: cam-north-01 •
+                      Prediction confidence: 88% • Human Verification Required</div>
+                  </div>
+                </div>
+                <div style="display: flex; gap: 8px;">
+                  <button class="btn btn-primary" id="btn-focus-cam" style="font-size: 11px; padding: 4px 10px;"
+                    onclick="window.camservApp.focusEventCamera()">🔍 Focus Camera</button>
+                  <button class="btn btn-secondary" style="font-size: 11px; padding: 4px 10px;"
+                    onclick="window.camservApp.dismissEventFocus()">✕ Dismiss / Restore</button>
+                </div>
+              </div>
+
+              <div class="video-grid layout-2x2" id="live-video-grid">
+                <!-- Dynamically populated camera streams -->
+              </div>
       </section>
 
       <!-- Screen 03: Camera Management -->
@@ -248,7 +300,8 @@
           <div class="table-header-bar">
             <h3>Security Event & Anomaly Intelligence</h3>
             <div style="display: flex; gap: 8px;">
-              <select id="filter-event-severity" style="padding: 4px 8px; background: var(--bg-canvas); color: var(--text-primary); border: 1px solid var(--border-subtle); border-radius: 4px;">
+              <select id="filter-event-severity"
+                style="padding: 4px 8px; background: var(--bg-canvas); color: var(--text-primary); border: 1px solid var(--border-subtle); border-radius: 4px;">
                 <option value="">All Severities</option>
                 <option value="critical">Critical</option>
                 <option value="high">High</option>
@@ -329,12 +382,17 @@
         <div class="kpi-card" style="margin-bottom: 20px;">
           <h3 style="font-size: 15px; margin-bottom: 8px;">Multi-Camera Incident Timeline Reconstruction</h3>
           <p style="color: var(--text-muted); font-size: 12px; margin-bottom: 14px;">
-            Correlates temporal detection graphs across adjacent cameras to establish synchronized incident chronologies without persistent identity tracking.
+            Correlates temporal detection graphs across adjacent cameras to establish synchronized incident chronologies
+            without persistent identity tracking.
           </p>
-          <div style="background: #050811; padding: 16px; border-radius: var(--radius-md); font-family: var(--font-mono); font-size: 12px; border: 1px solid var(--border-subtle);">
-            <div>[21:14:02 UTC] cam-north-01: Anonymous Track #104 entered Restricted Perimeter Zone A (Confidence 0.94)</div>
-            <div>[21:14:18 UTC] cam-north-01: Kinematic aspect ratio drop (1.82s stationary) -> Fall Detection Hypothesis Triggered</div>
-            <div>[21:14:22 UTC] cam-perimeter-02: Correlated adjacent camera confirms prostrate subject in loading dock</div>
+          <div
+            style="background: #050811; padding: 16px; border-radius: var(--radius-md); font-family: var(--font-mono); font-size: 12px; border: 1px solid var(--border-subtle);">
+            <div>[21:14:02 UTC] cam-north-01: Anonymous Track #104 entered Restricted Perimeter Zone A (Confidence 0.94)
+            </div>
+            <div>[21:14:18 UTC] cam-north-01: Kinematic aspect ratio drop (1.82s stationary) -> Fall Detection
+              Hypothesis Triggered</div>
+            <div>[21:14:22 UTC] cam-perimeter-02: Correlated adjacent camera confirms prostrate subject in loading dock
+            </div>
             <div>[21:14:30 UTC] System: Escalated to CRITICAL alert. Assigned to Human Operator Review.</div>
           </div>
         </div>
@@ -345,7 +403,8 @@
         <div class="table-panel">
           <div class="table-header-bar">
             <h3>Tamper-Evident Forensic Evidence Records</h3>
-            <button class="btn btn-secondary" onclick="window.camservApp.openEvidenceVerifier()">Audit Package (.ZIP)</button>
+            <button class="btn btn-secondary" onclick="window.camservApp.openEvidenceVerifier()">Audit Package
+              (.ZIP)</button>
           </div>
           <table class="data-table">
             <thead>
@@ -430,11 +489,14 @@
         <div class="table-panel" style="padding: 20px;">
           <h3 style="margin-bottom: 12px;">GDPR & EU AI Act Conformity Safeguards</h3>
           <p style="color: var(--text-muted); font-size: 13px; line-height: 1.6; margin-bottom: 16px;">
-            CAMserv enforces privacy by default at the acquisition boundary. Video frames undergo irreversible geometric zone masking and facial blurring before long-term persistence or external streaming.
+            CAMserv enforces privacy by default at the acquisition boundary. Video frames undergo irreversible geometric
+            zone masking and facial blurring before long-term persistence or external streaming.
           </p>
           <div style="display: flex; gap: 10px;">
-            <button class="btn btn-secondary" onclick="alert('DPIA Compliance Report generated: docs/PRIVACY.md');">View DPIA Documentation</button>
-            <button class="btn btn-primary" onclick="alert('Triggered automated retention purge.');">Run Manual Retention Purge</button>
+            <button class="btn btn-secondary" onclick="alert('DPIA Compliance Report generated: docs/PRIVACY.md');">View
+              DPIA Documentation</button>
+            <button class="btn btn-primary" onclick="alert('Triggered automated retention purge.');">Run Manual
+              Retention Purge</button>
           </div>
         </div>
       </section>
@@ -521,7 +583,8 @@
             </div>
           </div>
           <div style="margin-top: 20px; display: flex; justify-content: flex-end;">
-            <button class="btn btn-primary" onclick="alert('Configuration updated and validated.');">Apply & Save</button>
+            <button class="btn btn-primary" onclick="alert('Configuration updated and validated.');">Apply &
+              Save</button>
           </div>
         </div>
       </section>
@@ -537,15 +600,19 @@
       </div>
       <div class="modal-body">
         <div id="verify-modal-desc" style="font-size: 13px; line-height: 1.6; color: var(--text-primary);"></div>
-        <div style="background: #050811; padding: 12px; border-radius: var(--radius-sm); border: 1px solid var(--border-subtle); font-family: var(--font-mono); font-size: 11px;" id="verify-modal-reasoning"></div>
+        <div
+          style="background: #050811; padding: 12px; border-radius: var(--radius-sm); border: 1px solid var(--border-subtle); font-family: var(--font-mono); font-size: 11px;"
+          id="verify-modal-reasoning"></div>
         <div class="form-group">
           <label>Operator Audit Notes</label>
           <textarea id="verify-notes" rows="3" placeholder="Enter rationale for sign-off or dismissal..."></textarea>
         </div>
       </div>
       <div class="modal-footer">
-        <button class="btn btn-secondary" onclick="window.camservApp.submitVerification('dismissed')">Dismiss (False Alarm)</button>
-        <button class="btn btn-primary" onclick="window.camservApp.submitVerification('verified')">Confirm & Dispatch</button>
+        <button class="btn btn-secondary" onclick="window.camservApp.submitVerification('dismissed')">Dismiss (False
+          Alarm)</button>
+        <button class="btn btn-primary" onclick="window.camservApp.submitVerification('verified')">Confirm &
+          Dispatch</button>
       </div>
     </div>
   </div>
@@ -593,21 +660,30 @@
         <span style="cursor: pointer;" onclick="window.camservApp.closeModal('modal-privacy-policy')">✕</span>
       </div>
       <div class="modal-body">
-        <div style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: var(--radius-sm); padding: 12px; font-size: 12px; line-height: 1.6;">
-          <strong>Zero-Bypass Policy:</strong> CAMserv enforces spatial face, body, and license plate obfuscation directly at the acquisition and frame ingestion boundary. Unmasked raw video is cryptographically sealed with Ed25519 witness signatures.
+        <div
+          style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: var(--radius-sm); padding: 12px; font-size: 12px; line-height: 1.6;">
+          <strong>Zero-Bypass Policy:</strong> CAMserv enforces spatial face, body, and license plate obfuscation
+          directly at the acquisition and frame ingestion boundary. Unmasked raw video is cryptographically sealed with
+          Ed25519 witness signatures.
         </div>
         <p style="font-size: 12px; color: var(--text-secondary); line-height: 1.6;">
-          Operators in control rooms <strong>cannot bypass, reduce, or toggle off</strong> privacy masking for live streaming. Unmasking raw video footage for criminal investigations requires formal <strong>Dual-Control Judicial Quorum</strong> authorization signed by two credentialed officers.
+          Operators in control rooms <strong>cannot bypass, reduce, or toggle off</strong> privacy masking for live
+          streaming. Unmasking raw video footage for criminal investigations requires formal <strong>Dual-Control
+            Judicial Quorum</strong> authorization signed by two credentialed officers.
         </p>
-        <div style="font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); background: #04070e; padding: 10px; border-radius: var(--radius-xs); border: 1px solid var(--border-subtle);">
+        <div
+          style="font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); background: #04070e; padding: 10px; border-radius: var(--radius-xs); border: 1px solid var(--border-subtle);">
           Policy: FAIL_CLOSED_BLACKOUT<br>
           Biometric Facial Search: STRICTLY_PROHIBITED<br>
           Ground Contact Distance Uncertainty: ENABLED
         </div>
       </div>
       <div class="modal-footer">
-        <button class="btn btn-secondary" onclick="window.camservApp.closeModal('modal-privacy-policy')">Acknowledge</button>
-        <button class="btn btn-judicial" onclick="window.camservApp.closeModal('modal-privacy-policy'); window.camservApp.openModal('modal-judicial-export');">Request Judicial Unmasking</button>
+        <button class="btn btn-secondary"
+          onclick="window.camservApp.closeModal('modal-privacy-policy')">Acknowledge</button>
+        <button class="btn btn-judicial"
+          onclick="window.camservApp.closeModal('modal-privacy-policy'); window.camservApp.openModal('modal-judicial-export');">Request
+          Judicial Unmasking</button>
       </div>
     </div>
   </div>
@@ -624,7 +700,8 @@
       </div>
       <div class="modal-body">
         <p style="font-size: 12px; color: var(--text-secondary);">
-          Decryption of pristine unredacted evidence requires concurrent co-signing by a Judicial Authority and Lead Forensic Officer under Dual-Control Quorum (SEC-P3-02).
+          Decryption of pristine unredacted evidence requires concurrent co-signing by a Judicial Authority and Lead
+          Forensic Officer under Dual-Control Quorum (SEC-P3-02).
         </p>
         <div class="form-group">
           <label>Primary Officer ID & Role</label>
@@ -640,12 +717,68 @@
         </div>
       </div>
       <div class="modal-footer">
-        <button class="btn btn-secondary" onclick="window.camservApp.closeModal('modal-judicial-export')">Cancel</button>
-        <button class="btn btn-primary" onclick="window.camservApp.submitJudicialAuth()">Authorize Judicial Export</button>
+        <button class="btn btn-secondary"
+          onclick="window.camservApp.closeModal('modal-judicial-export')">Cancel</button>
+        <button class="btn btn-primary" onclick="window.camservApp.submitJudicialAuth()">Authorize Judicial
+          Export</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Operator Workspace Manager Modal (Phase 23) -->
+  <div class="modal-overlay" id="modal-workspace-manager">
+    <div class="modal-card" style="max-width: 650px;">
+      <div class="modal-header">
+        <h3 style="display: flex; align-items: center; gap: 8px;">
+          <span>💾</span>
+          <span>Operator Workspace & Multi-Monitor Manager</span>
+        </h3>
+        <span style="cursor: pointer;" onclick="window.camservApp.closeModal('modal-workspace-manager')">✕</span>
+      </div>
+      <div class="modal-body">
+        <div
+          style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; padding-bottom: 10px; border-bottom: 1px solid var(--border-subtle);">
+          <div>
+            <strong>Active Workspace:</strong>
+            <span id="ws-active-name" style="color: var(--accent-cyan); font-weight: 600;">Default Control Desk</span>
+          </div>
+          <button class="btn btn-primary" onclick="window.camservApp.saveCurrentWorkspacePrompt()">Save Current
+            Workspace</button>
+        </div>
+
+        <div style="margin-bottom: 15px;">
+          <label style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 700;">Saved
+            Workspaces</label>
+          <div id="workspace-list-container"
+            style="margin-top: 8px; display: flex; flex-direction: column; gap: 8px; max-height: 180px; overflow-y: auto;">
+            <!-- Populated dynamically -->
+          </div>
+        </div>
+
+        <div style="border-top: 1px solid var(--border-subtle); padding-top: 12px; margin-top: 12px;">
+          <label style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 700;">Import
+            / Export Workspace Configuration (Strict JSON Schema)</label>
+          <div style="display: flex; gap: 8px; margin-top: 8px;">
+            <button class="btn btn-secondary mono" onclick="window.camservApp.exportCurrentWorkspace()">Export
+              JSON</button>
+            <button class="btn btn-secondary mono" onclick="window.camservApp.triggerImportWorkspace()">Import
+              JSON</button>
+          </div>
+          <textarea id="ws-import-export-area"
+            placeholder="Paste validated workspace JSON schema here for untrusted input verification..."
+            style="width: 100%; height: 80px; margin-top: 8px; background: #04070e; border: 1px solid var(--border-subtle); border-radius: var(--radius-xs); color: var(--text-primary); font-family: var(--font-mono); font-size: 10px; padding: 8px;"></textarea>
+          <button class="btn btn-primary mono" style="margin-top: 6px; font-size: 11px;"
+            onclick="window.camservApp.processImportedJSON()">Validate & Load JSON</button>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary"
+          onclick="window.camservApp.closeModal('modal-workspace-manager')">Close</button>
       </div>
     </div>
   </div>
 
   <script src="/app.js"></script>
 </body>
+
 </html>

@@ -13,8 +13,10 @@ import sys
 
 from camserv.platform.shared.credentials import StandardSoftwareCredentialVault
 from camserv.platform.shared.interfaces import (
+    DisplayInfo,
     PlatformCameraBackend,
     PlatformCredentialVault,
+    PlatformDisplayManager,
     PlatformFilesystem,
     PlatformHardwareProber,
     PlatformServiceManager,
@@ -99,3 +101,27 @@ def get_platform_hardware_prober() -> PlatformHardwareProber:
     else:
         from camserv.platform.linux.hardware import LinuxHardwareProber
         return LinuxHardwareProber()
+
+
+def get_platform_display_manager(
+    mock_displays: list[DisplayInfo] | None = None,
+) -> PlatformDisplayManager:
+    """Instantiate OS-appropriate multi-monitor and display manager."""
+    if mock_displays is not None:
+        if is_windows():
+            from camserv.platform.windows.display import WindowsDisplayManager
+            return WindowsDisplayManager(mock_displays=mock_displays)
+        else:
+            from camserv.platform.linux.display import LinuxDisplayManager
+            return LinuxDisplayManager(mock_displays=mock_displays)
+
+    if is_windows():
+        from camserv.platform.windows.display import WindowsDisplayManager
+        return WindowsDisplayManager()
+    elif is_linux():
+        from camserv.platform.linux.display import LinuxDisplayManager
+        return LinuxDisplayManager()
+    else:
+        from camserv.platform.linux.display import LinuxDisplayManager
+        return LinuxDisplayManager()
+
