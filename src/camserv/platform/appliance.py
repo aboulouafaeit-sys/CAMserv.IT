@@ -127,7 +127,9 @@ class ApplianceSpecification:
     worst_case_power_watts: float = 18.0
     psu_capacity_watts: float = 40.0
     psu_redundant: bool = False
-    psu_safety_margin_percent: float = 55.0
+    psu_safety_margin_percent: float = 55.0  # Backward-compatible alias for psu_headroom_to_load_percent
+    psu_headroom_to_load_percent: float = 55.0  # (PSU - Load) / Load * 100
+    psu_headroom_to_psu_rating_percent: float = 30.0  # (PSU - Load) / PSU * 100
     is_gpu_required: bool = False                      # Strictly False: discrete GPU is NEVER required
     supports_cpu_only: bool = True                     # Universal CPU fallback is always supported
     workload_envelope: str = "4x 1080p30 H.264/H.265 continuous recording"
@@ -204,6 +206,8 @@ class ApplianceCatalog:
         psu_capacity_watts=40.0,
         psu_redundant=False,
         psu_safety_margin_percent=81.8,
+        psu_headroom_to_load_percent=81.82,
+        psu_headroom_to_psu_rating_percent=45.00,
         is_gpu_required=False,
         supports_cpu_only=True,
         thermal_limit_celsius=75.0,
@@ -237,6 +241,8 @@ class ApplianceCatalog:
         psu_capacity_watts=250.0,
         psu_redundant=False,
         psu_safety_margin_percent=79.9,
+        psu_headroom_to_load_percent=79.86,
+        psu_headroom_to_psu_rating_percent=44.40,
         is_gpu_required=False,
         supports_cpu_only=True,
         thermal_limit_celsius=78.0,
@@ -269,6 +275,8 @@ class ApplianceCatalog:
         psu_capacity_watts=500.0,
         psu_redundant=True,
         psu_safety_margin_percent=45.6,
+        psu_headroom_to_load_percent=45.56,
+        psu_headroom_to_psu_rating_percent=31.30,
         is_gpu_required=False,
         supports_cpu_only=True,
         thermal_limit_celsius=82.0,
@@ -301,6 +309,8 @@ class ApplianceCatalog:
         psu_capacity_watts=800.0,
         psu_redundant=True,
         psu_safety_margin_percent=31.5,
+        psu_headroom_to_load_percent=31.54,
+        psu_headroom_to_psu_rating_percent=23.98,
         is_gpu_required=False,
         supports_cpu_only=True,
         thermal_limit_celsius=85.0,
@@ -329,6 +339,13 @@ class ApplianceCatalog:
         ApplianceProfileType.PROFILE_B_PROFESSIONAL: _SPEC_PRO,
         ApplianceProfileType.PROFILE_C_ENTERPRISE: _SPEC_ENTERPRISE,
     }
+
+    @classmethod
+    def get_specification(cls, profile_type: ApplianceProfileType) -> ApplianceSpecification:
+        """Retrieve standardized hardware specification for a given profile."""
+        if profile_type in cls.SPECIFICATIONS:
+            return cls.SPECIFICATIONS[profile_type]
+        raise KeyError(f"Unknown appliance profile: {profile_type}")
 
     @classmethod
     def calculate_storage_rate_gb_day(

@@ -179,3 +179,56 @@ Every finding in this register was evaluated against actual source code, physica
 * **Remediation:** Established 6-tier classification standard (`DESIGN_TARGET`, `THEORETICAL_CALCULATED`, `SYNTHETIC_BENCHMARK`, `SOFTWARE_INTEGRATION_TESTED`, `PHYSICAL_CAMERA_BENCH_GATED`, `LONG_DURATION_QUALIFIED`). Documented exact stream envelopes across resolutions, codecs, and bitrates.
 * **Verification:** Tested in `tests/test_phase25_1_reliability_hardening.py::test_camera_capacity_claim_classification`.
 * **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+## 5. Phase 25.1-A Final Reliability Findings & Verified Remediations
+
+### FINDING-P25.1A-01: Premature Worker Termination Reporting & Channel Lease Revocation
+* **Severity:** **CRITICAL RELIABILITY / SPLIT-BRAIN PREVENTION**
+* **Affected Subsystem:** `camserv.platform.stability.WorkerCrashSupervisor`, `camserv.platform.stability.CancellationToken`
+* **Root Cause:** A timeout in a cooperative cancellation token did not forcibly terminate underlying Python threads. Reporting `TERMINATED` and revoking the channel lease allowed newly spawned workers to collide on the same channel while the previous worker was still writing.
+* **Remediation:** Introduced `TERMINATION_UNCONFIRMED` state; enforced channel lease retention while a worker thread is active; implemented cooperative checkpoints and confirmation tracking; enabled enforceable process-level SIGTERM/SIGKILL for isolated worker processes.
+* **Verification:** Tested in `tests/test_phase25_1_a_verification.py::TestCriticalAuditAWorkerCancellation` (10 tests).
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### FINDING-P25.1A-02: Bounded Ingest Queue Drop Discontinuity Accounting
+* **Severity:** **CRITICAL EVIDENCE INTEGRITY**
+* **Affected Subsystem:** `camserv.platform.stability.BoundedPipelineQueue`, `camserv.platform.stability.RecordingContinuityLedger`
+* **Root Cause:** When the 500ms bounded backpressure wait expired on recording ingest, frames were dropped to protect network sockets, but without explicit discontinuity ledger records, creating silent frame loss.
+* **Remediation:** Updated `BoundedPipelineQueue.put()` to invoke `record_queue_drop()` upon timeout; transition ledger to `RECORDING_DEGRADED`; log explicit `DiscontinuityEvent` documenting dropped count and timeout limit.
+* **Verification:** Tested in `tests/test_phase25_1_a_verification.py::TestCriticalAuditBRecordingContinuity` (3 tests).
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### FINDING-P25.1A-03: Conflation of Calculated Estimates with Confirmed Frame Loss
+* **Severity:** **HIGH FORENSIC INTEGRITY**
+* **Affected Subsystem:** `camserv.platform.stability.DiscontinuityEvent`, `camserv.platform.stability.RecordingContinuityLedger`
+* **Root Cause:** Gaps derived from timestamp deltas and nominal FPS were documented as frame loss counts without indicating whether they were confirmed by packet sequence numbers or merely estimated.
+* **Remediation:** Explicitly separated `confirmed_missing_frames` (RTP sequence numbers), `estimated_missing_frames` (timestamp intervals at nominal FPS), and `unknown_frame_loss` (variable FPS without sequence numbers). Preserved estimation method and confidence level.
+* **Verification:** Tested in `tests/test_phase25_1_a_verification.py::TestCriticalAuditCFrameLossSemantics` (5 tests).
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### FINDING-P25.1A-04: Power Budget Headroom Denominator Ambiguity
+* **Severity:** **HIGH SPECIFICATION TRUTHFULNESS**
+* **Affected Subsystem:** `camserv.platform.appliance.ApplianceSpecification`, `camserv.platform.appliance.ApplianceCatalog`
+* **Root Cause:** Margin percentage ($31.5\%$) was ambiguous regarding whether the denominator was system load ($608.2\text{W}$) or rated PSU capacity ($800\text{W}$).
+* **Remediation:** Added distinct fields `psu_headroom_to_load_percent` ($31.54\%$) and `psu_headroom_to_psu_rating_percent` ($23.98\%$) across all four appliance profiles. Documented single surviving 800W PSU survival under full worst-case 608.2W load.
+* **Verification:** Tested in `tests/test_phase25_1_a_verification.py::TestHighPriorityAuditDPowerBudget` (3 tests).
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### FINDING-P25.1A-05: Real-World Thermal Variance in Hardware Probe Unit Test
+* **Severity:** **LOW TEST RELIABILITY**
+* **Affected Subsystem:** `tests/test_appliance_hardware.py`
+* **Root Cause:** Unit test strictly asserted `profile.thermal.state == ThermalState.NOMINAL`, which failed when executed on a physical host under sustained multi-test load with CPU temperatures $> 70^\circ\text{C}$ (`ELEVATED`).
+* **Remediation:** Updated test assertion to allow `ThermalState.NOMINAL` or `ThermalState.ELEVATED` during live host hardware discovery.
+* **Verification:** Tested in `tests/test_appliance_hardware.py::test_appliance_manager_host_probe`.
+* **Status:** **REMEDIATED & VERIFIED**.
+

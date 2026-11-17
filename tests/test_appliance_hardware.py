@@ -53,7 +53,7 @@ def test_appliance_manager_host_probe():
     assert profile.profile_type in ApplianceProfileType
     assert profile.storage.total_gb > 0
     assert profile.storage.free_gb > 0
-    assert profile.thermal.state == ThermalState.NOMINAL
+    assert profile.thermal.state in (ThermalState.NOMINAL, ThermalState.ELEVATED)
 
     summary = profile.to_dict()
     assert "profile_type" in summary

@@ -39,6 +39,7 @@ from camserv.platform.hardware import GPUCapability, HardwareDetector, HardwareP
 from camserv.platform.shared.paths import PathResolver, PlatformPaths
 from camserv.platform.stability import (
     BoundedPipelineQueue,
+    CancellationExit,
     CancellationToken,
     DiscontinuityEvent,
     NonBlockingExecutor,
@@ -47,6 +48,7 @@ from camserv.platform.stability import (
     QueueTelemetry,
     RecordingContinuityLedger,
     RecordingContinuityRecord,
+    RecordingContinuityState,
     ServicePriority,
     WorkerCrashSupervisor,
     WorkerLifecycleState,
@@ -68,6 +70,7 @@ __all__ = [
     "ApplianceSpecification",
     "BoundedPipelineQueue",
     "CPUFallbackAdmissionController",
+    "CancellationExit",
     "CancellationToken",
     "DiscontinuityEvent",
     "FallbackAdmissionDecision",
@@ -76,6 +79,7 @@ __all__ = [
     "PipelineType",
     "RecordingContinuityLedger",
     "RecordingContinuityRecord",
+    "RecordingContinuityState",
     "WorkerLifecycleState",
     "GPUCapability",
     "HardwareDetector",
