@@ -255,19 +255,58 @@ class RecordingContinuityRecord:
 
 class RecordingContinuityLedger:
     """
-    Central, thread-safe recording continuity ledger.
+    Central, thread-safe recording continuity ledger with optional durable SQLite persistence.
     Tracks frame sequence numbers, presentation timestamps (PTS), and detected gaps
     without inventing or fabricating missing frame information.
     Differentiates confirmed missing frames (via sequence numbers) from estimated
     missing frames (via PTS intervals) and unknown frame losses.
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        durable_store: Any | None = None,
+        db_path: Path | str | None = None,
+    ) -> None:
         self._lock = threading.Lock()
         self._records: dict[str, RecordingContinuityRecord] = {}
         self._last_frame_timestamps: dict[str, float] = {}
         self._last_frame_seqs: dict[str, int] = {}
         self._expected_fps: dict[str, float] = {}
+        self._camera_nominal_fps: dict[str, float] = {}
+        self.durable_store = durable_store
+        if self.durable_store is None and db_path is not None:
+            from camserv.storage.continuity_store import DurableContinuityStore
+            self.durable_store = DurableContinuityStore(db_path)
+        self.is_persistence_degraded = False
+
+    def register_camera_fps(self, camera_id: str, fps: float) -> None:
+        """Register expected nominal FPS for a camera channel."""
+        with self._lock:
+            self._camera_nominal_fps[camera_id] = fps
+
+    def _persist_segment(self, record: RecordingContinuityRecord) -> None:
+        if self.durable_store is not None:
+            try:
+                ok = self.durable_store.save_segment(record)
+                if not ok:
+                    self.is_persistence_degraded = True
+                else:
+                    self.is_persistence_degraded = False
+            except Exception as exc:
+                self.is_persistence_degraded = True
+                logger.error("recording_continuity.persist_segment_failed", error=str(exc))
+
+    def _persist_event(self, event: DiscontinuityEvent) -> None:
+        if self.durable_store is not None:
+            try:
+                ok = self.durable_store.save_discontinuity_event(event)
+                if not ok:
+                    self.is_persistence_degraded = True
+                else:
+                    self.is_persistence_degraded = False
+            except Exception as exc:
+                self.is_persistence_degraded = True
+                logger.error("recording_continuity.persist_event_failed", error=str(exc))
 
     def start_segment(
         self,
@@ -278,6 +317,7 @@ class RecordingContinuityLedger:
     ) -> RecordingContinuityRecord:
         key = f"{camera_id}:{segment_id}"
         with self._lock:
+            effective_fps = self._camera_nominal_fps.get(camera_id, expected_fps)
             rec = RecordingContinuityRecord(
                 camera_id=camera_id,
                 stream_id=stream_id,
@@ -286,7 +326,8 @@ class RecordingContinuityLedger:
                 current_state=RecordingContinuityState.CONTINUOUS,
             )
             self._records[key] = rec
-            self._expected_fps[key] = expected_fps
+            self._expected_fps[key] = effective_fps
+            self._persist_segment(rec)
             return rec
 
     def record_frame(
@@ -295,11 +336,12 @@ class RecordingContinuityLedger:
         segment_id: str,
         frame_timestamp: float | None = None,
         frame_seq: int | None = None,
+        pts: float | None = None,
         source_metadata: dict[str, Any] | None = None,
     ) -> None:
         key = f"{camera_id}:{segment_id}"
         now = time.time()
-        ts = frame_timestamp if frame_timestamp is not None else now
+        ts = pts if pts is not None else (frame_timestamp if frame_timestamp is not None else now)
         meta = source_metadata or {}
         with self._lock:
             rec = self._records.get(key)
@@ -340,6 +382,8 @@ class RecordingContinuityLedger:
                     rec.discontinuities.append(gap_event)
                     rec.confirmed_missing_frames_total += missing_count
                     rec.current_state = RecordingContinuityState.FRAME_GAP_DETECTED
+                    self._persist_event(gap_event)
+                    self._persist_segment(rec)
                     logger.warning(
                         "recording_continuity.confirmed_gap_detected",
                         camera_id=camera_id,
@@ -369,6 +413,8 @@ class RecordingContinuityLedger:
                         source_metadata=meta,
                     )
                     rec.discontinuities.append(gap_event)
+                    self._persist_event(gap_event)
+                    self._persist_segment(rec)
                     logger.warning(
                         "recording_continuity.out_of_order_frame",
                         camera_id=camera_id,
@@ -402,6 +448,8 @@ class RecordingContinuityLedger:
                         rec.discontinuities.append(gap_event)
                         rec.unknown_frame_loss_events += 1
                         rec.current_state = RecordingContinuityState.FRAME_GAP_DETECTED
+                        self._persist_event(gap_event)
+                        self._persist_segment(rec)
                     else:
                         # Nominal FPS estimation
                         lost_est = max(1, int(round((delta - expected_interval) / expected_interval)))
@@ -426,6 +474,8 @@ class RecordingContinuityLedger:
                         rec.discontinuities.append(gap_event)
                         rec.estimated_missing_frames_total += lost_est
                         rec.current_state = RecordingContinuityState.FRAME_GAP_DETECTED
+                        self._persist_event(gap_event)
+                        self._persist_segment(rec)
                         logger.warning(
                             "recording_continuity.gap_detected",
                             camera_id=camera_id,
@@ -447,6 +497,7 @@ class RecordingContinuityLedger:
             if frame_seq is not None:
                 self._last_frame_seqs[key] = frame_seq
                 rec.last_frame_seq = frame_seq
+            self._persist_segment(rec)
 
     def record_queue_drop(
         self,
@@ -480,6 +531,8 @@ class RecordingContinuityLedger:
             rec.discontinuities.append(gap_event)
             rec.estimated_missing_frames_total += dropped_count
             rec.current_state = RecordingContinuityState.RECORDING_DEGRADED
+            self._persist_event(gap_event)
+            self._persist_segment(rec)
 
     def record_camera_disconnect(
         self,
@@ -495,24 +548,25 @@ class RecordingContinuityLedger:
                 return
             rec.current_state = RecordingContinuityState.CAMERA_DISCONNECTED
             now_iso = datetime.now(timezone.utc).isoformat()
-            rec.discontinuities.append(
-                DiscontinuityEvent(
-                    camera_id=camera_id,
-                    stream_id=rec.stream_id,
-                    segment_id=segment_id,
-                    gap_start_utc=now_iso,
-                    gap_end_utc=now_iso,
-                    gap_duration_sec=0.0,
-                    lost_frames_estimated=0,
-                    confirmed_missing_frames=None,
-                    estimated_missing_frames=None,
-                    unknown_frame_loss=True,
-                    estimation_method="camera_disconnect",
-                    confidence="unknown",
-                    reason=f"CAMERA_DISCONNECTED: {reason}",
-                    recovery_status="interrupted",
-                )
+            gap_event = DiscontinuityEvent(
+                camera_id=camera_id,
+                stream_id=rec.stream_id,
+                segment_id=segment_id,
+                gap_start_utc=now_iso,
+                gap_end_utc=now_iso,
+                gap_duration_sec=0.0,
+                lost_frames_estimated=0,
+                confirmed_missing_frames=None,
+                estimated_missing_frames=None,
+                unknown_frame_loss=True,
+                estimation_method="camera_disconnect",
+                confidence="unknown",
+                reason=f"CAMERA_DISCONNECTED: {reason}",
+                recovery_status="interrupted",
             )
+            rec.discontinuities.append(gap_event)
+            self._persist_event(gap_event)
+            self._persist_segment(rec)
 
     def record_camera_reconnect_start(self, camera_id: str, segment_id: str) -> None:
         """Record initiation of camera reconnect attempt."""
@@ -522,6 +576,7 @@ class RecordingContinuityLedger:
             if rec:
                 rec.reconnect_events += 1
                 rec.current_state = RecordingContinuityState.RECOVERY_IN_PROGRESS
+                self._persist_segment(rec)
 
     def transition_state(
         self,
@@ -536,6 +591,7 @@ class RecordingContinuityLedger:
             rec = self._records.get(key)
             if rec:
                 rec.current_state = new_state
+                self._persist_segment(rec)
                 if reason:
                     logger.info(
                         "recording_continuity.state_transition",
@@ -551,23 +607,24 @@ class RecordingContinuityLedger:
             if rec:
                 rec.storage_write_errors += 1
                 rec.current_state = RecordingContinuityState.STORAGE_BACKPRESSURE
-                rec.discontinuities.append(
-                    DiscontinuityEvent(
-                        camera_id=camera_id,
-                        stream_id=rec.stream_id,
-                        segment_id=segment_id,
-                        gap_start_utc=datetime.now(timezone.utc).isoformat(),
-                        gap_end_utc=datetime.now(timezone.utc).isoformat(),
-                        gap_duration_sec=0.0,
-                        lost_frames_estimated=0,
-                        confirmed_missing_frames=None,
-                        estimated_missing_frames=None,
-                        unknown_frame_loss=True,
-                        estimation_method="storage_error",
-                        confidence="unknown",
-                        reason=f"STORAGE_WRITE_ERROR: {error_reason}",
-                    )
+                gap_event = DiscontinuityEvent(
+                    camera_id=camera_id,
+                    stream_id=rec.stream_id,
+                    segment_id=segment_id,
+                    gap_start_utc=datetime.now(timezone.utc).isoformat(),
+                    gap_end_utc=datetime.now(timezone.utc).isoformat(),
+                    gap_duration_sec=0.0,
+                    lost_frames_estimated=0,
+                    confirmed_missing_frames=None,
+                    estimated_missing_frames=None,
+                    unknown_frame_loss=True,
+                    estimation_method="storage_error",
+                    confidence="unknown",
+                    reason=f"STORAGE_WRITE_ERROR: {error_reason}",
                 )
+                rec.discontinuities.append(gap_event)
+                self._persist_event(gap_event)
+                self._persist_segment(rec)
 
     def record_reconnect(self, camera_id: str, segment_id: str) -> None:
         key = f"{camera_id}:{segment_id}"
@@ -575,6 +632,61 @@ class RecordingContinuityLedger:
             rec = self._records.get(key)
             if rec:
                 rec.reconnect_events += 1
+                self._persist_segment(rec)
+
+    def record_discontinuity(
+        self,
+        camera_id: str,
+        segment_id: str,
+        gap_duration_sec: float = 0.0,
+        reason: str = "DISCONTINUITY",
+        last_seq: int | None = None,
+        curr_seq: int | None = None,
+        last_pts: float | None = None,
+        curr_pts: float | None = None,
+        source_metadata: dict[str, Any] | None = None,
+    ) -> DiscontinuityEvent | None:
+        """Record an explicit discontinuity event into the ledger and durable store."""
+        key = f"{camera_id}:{segment_id}"
+        with self._lock:
+            rec = self._records.get(key)
+            if not rec:
+                return None
+            missing = None
+            if last_seq is not None and curr_seq is not None and curr_seq > last_seq + 1:
+                missing = curr_seq - last_seq - 1
+                rec.confirmed_missing_frames_total += missing
+
+            now_iso = datetime.now(timezone.utc).isoformat()
+            gap_event = DiscontinuityEvent(
+                camera_id=camera_id,
+                stream_id=rec.stream_id,
+                segment_id=segment_id,
+                gap_start_utc=now_iso,
+                gap_end_utc=now_iso,
+                gap_duration_sec=gap_duration_sec,
+                lost_frames_estimated=missing or 0,
+                confirmed_missing_frames=missing,
+                estimated_missing_frames=None if missing is not None else int(round(gap_duration_sec * self._expected_fps.get(key, 30.0))),
+                unknown_frame_loss=False if missing is not None else True,
+                estimation_method="sequence_gap" if missing is not None else "duration",
+                confidence="confirmed" if missing is not None else "estimated",
+                reason=reason,
+                last_confirmed_pts=last_pts,
+                first_subsequent_pts=curr_pts,
+                last_confirmed_seq=last_seq,
+                subsequent_seq=curr_seq,
+                source_metadata=source_metadata or {},
+            )
+            rec.discontinuities.append(gap_event)
+            rec.current_state = RecordingContinuityState.FRAME_GAP_DETECTED
+            if curr_seq is not None:
+                self._last_frame_seqs[key] = curr_seq - 1
+            if curr_pts is not None:
+                self._last_frame_timestamps[key] = curr_pts
+            self._persist_event(gap_event)
+            self._persist_segment(rec)
+            return gap_event
 
     def finalize_segment(
         self,
@@ -595,7 +707,19 @@ class RecordingContinuityLedger:
                 rec.expected_frames = rec.observed_frames
             rec.is_finalized = True
             rec.integrity_verified = integrity_verified
+            self._persist_segment(rec)
             return rec
+
+    def recover_from_store(self) -> list[RecordingContinuityRecord]:
+        """Recover and rehydrate unfinalized segments from durable SQLite store after unclean shutdown."""
+        if not self.durable_store:
+            return []
+        with self._lock:
+            recovered = self.durable_store.recover_unclean_shutdown()
+            for rec in recovered:
+                key = f"{rec.camera_id}:{rec.segment_id}"
+                self._records[key] = rec
+            return recovered
 
     def get_record(self, camera_id: str, segment_id: str) -> RecordingContinuityRecord | None:
         key = f"{camera_id}:{segment_id}"
@@ -837,6 +961,21 @@ class BoundedPipelineQueue(Generic[T]):
             self._not_full.notify_all()
             return count
 
+    def qsize(self) -> int:
+        """Return the current number of items in the queue."""
+        with self._lock:
+            return len(self._deque)
+
+    def empty(self) -> bool:
+        """Return True if queue is empty, False otherwise."""
+        with self._lock:
+            return len(self._deque) == 0
+
+    def full(self) -> bool:
+        """Return True if queue is full, False otherwise."""
+        with self._lock:
+            return len(self._deque) >= self.maxsize
+
 
 def calculate_backoff_with_jitter(
     attempt: int,
@@ -965,6 +1104,7 @@ class WorkerCrashSupervisor:
         self.termination_confirmed: bool = False
         self.termination_forced: bool = False
         self.termination_unconfirmed: bool = False
+        self.ipc_resources: list[Any] = []
 
         if self.channel_id:
             self.acquire_channel_lease()
@@ -983,6 +1123,29 @@ class WorkerCrashSupervisor:
         self.termination_forced = False
         self.termination_unconfirmed = False
         self.is_alive = True
+
+    def register_ipc_resource(self, resource: Any) -> None:
+        """Register an IPC queue, pipe connection, or lock for supervised lifecycle cleanup."""
+        if resource is not None and resource not in self.ipc_resources:
+            self.ipc_resources.append(resource)
+
+    def reconcile_ipc(self) -> None:
+        """
+        Sanitize and close registered IPC resources upon worker exit to prevent
+        deadlocks, broken pipes, or orphaned resources in supervisor or parent.
+        """
+        for res in self.ipc_resources:
+            try:
+                # Handle multiprocessing.Queue
+                if hasattr(res, "close") and hasattr(res, "cancel_join_thread"):
+                    res.close()
+                    res.cancel_join_thread()
+                # Handle connection / pipe
+                elif hasattr(res, "close"):
+                    res.close()
+            except Exception as exc:
+                logger.warning("worker_supervisor.ipc_reconcile_warning", resource=str(res), error=str(exc))
+        self.ipc_resources.clear()
 
     def acquire_channel_lease(self) -> str | None:
         """Acquire atomic exclusive lease for this worker's camera channel."""
@@ -1116,8 +1279,11 @@ class WorkerCrashSupervisor:
 
     def terminate_worker(self, force: bool = False, timeout_sec: float = 1.0) -> bool:
         """
-        Controlled worker termination.
-        Where enforceable process isolation is available and force=True, forces termination.
+        Controlled cross-platform worker termination.
+        Where enforceable process isolation is available:
+        - If not force: attempts graceful termination (proc.terminate() / SIGTERM on Linux) with bounded timeout.
+        - If force or graceful timeout expires: escalates to forced termination (proc.kill() / Win32 TerminateProcess).
+        - Independently confirms exit via proc.is_alive() before releasing channel leases.
         Where cooperative thread termination does not confirm within timeout,
         reports TERMINATION_UNCONFIRMED and preserves channel lease fencing.
         """
@@ -1125,36 +1291,66 @@ class WorkerCrashSupervisor:
 
         # Process isolation path: enforceable termination
         if self.worker_process is not None:
-            if force:
-                try:
-                    if hasattr(self.worker_process, "kill"):
-                        self.worker_process.kill()
-                    elif hasattr(self.worker_process, "terminate"):
-                        self.worker_process.terminate()
-                    if hasattr(self.worker_process, "join"):
-                        self.worker_process.join(timeout_sec)
-                    self.termination_forced = True
+            proc = self.worker_process
+            try:
+                # 1. Attempt graceful shutdown if force is False
+                if not force:
+                    if hasattr(proc, "terminate"):
+                        proc.terminate()
+                    if hasattr(proc, "join"):
+                        proc.join(timeout_sec)
+
+                # 2. Forced escalation if process is still alive or force is True
+                is_alive = proc.is_alive() if hasattr(proc, "is_alive") else False
+                if is_alive or force:
+                    if hasattr(proc, "kill"):
+                        proc.kill()
+                    elif hasattr(proc, "terminate"):
+                        proc.terminate()
+                    if hasattr(proc, "join"):
+                        proc.join(timeout_sec)
+                    is_alive = proc.is_alive() if hasattr(proc, "is_alive") else False
+
+                # 3. Independent exit confirmation
+                if not is_alive:
+                    self.termination_forced = force
                     self.termination_confirmed = True
                     self.termination_unconfirmed = False
                     self.state = WorkerLifecycleState.TERMINATED
                     self.is_alive = False
+                    self.reconcile_ipc()
                     self.revoke_channel_lease()
                     return True
-                except Exception as exc:
-                    logger.error("worker_supervisor.process_force_kill_failed", error=str(exc))
+                else:
+                    # Process refused to terminate within timeout
+                    self.termination_confirmed = False
                     self.termination_unconfirmed = True
                     self.state = WorkerLifecycleState.TERMINATION_UNCONFIRMED
+                    logger.critical(
+                        "worker_supervisor.process_termination_unconfirmed",
+                        worker=self.name,
+                        channel=self.channel_id,
+                    )
                     return False
+            except Exception as exc:
+                logger.error("worker_supervisor.process_force_kill_failed", error=str(exc))
+                self.termination_unconfirmed = True
+                self.state = WorkerLifecycleState.TERMINATION_UNCONFIRMED
+                return False
 
         # Cooperative token / thread path
         if self.cancellation_token or self.worker_thread:
-            return self.request_cancellation(timeout_sec=timeout_sec)
+            ok = self.request_cancellation(timeout_sec=timeout_sec)
+            if ok:
+                self.reconcile_ipc()
+            return ok
 
         # Default synchronous path when no background worker thread/process is active
         self.termination_confirmed = True
         self.termination_unconfirmed = False
         self.state = WorkerLifecycleState.TERMINATED
         self.is_alive = False
+        self.reconcile_ipc()
         self.revoke_channel_lease()
         return True
 

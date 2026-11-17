@@ -1,5 +1,5 @@
 {
-  "created_at": "2026-11-17T13:23:19.322721+00:00",
+  "created_at": "2026-11-17T19:16:26.414905+00:00",
   "description": "",
   "display_layouts": {
     "_DISPLAY1": {
@@ -24,7 +24,7 @@
           "row_span": 1,
           "stream_quality": "main",
           "stream_type": "main",
-          "tile_id": "tile__DISPLAY1_0_6dabd6",
+          "tile_id": "tile__DISPLAY1_0_3bc18e",
           "truthfulness_state": "unverified"
         },
         {
@@ -40,7 +40,7 @@
           "row_span": 1,
           "stream_quality": "main",
           "stream_type": "main",
-          "tile_id": "tile__DISPLAY1_1_477279",
+          "tile_id": "tile__DISPLAY1_1_93b7ae",
           "truthfulness_state": "unverified"
         },
         {
@@ -56,7 +56,7 @@
           "row_span": 1,
           "stream_quality": "main",
           "stream_type": "main",
-          "tile_id": "tile__DISPLAY1_2_e91501",
+          "tile_id": "tile__DISPLAY1_2_8ce234",
           "truthfulness_state": "unverified"
         },
         {
@@ -72,7 +72,7 @@
           "row_span": 1,
           "stream_quality": "main",
           "stream_type": "main",
-          "tile_id": "tile__DISPLAY1_3_896b96",
+          "tile_id": "tile__DISPLAY1_3_b96409",
           "truthfulness_state": "unverified"
         }
       ]
@@ -101,7 +101,7 @@
           "row_span": 1,
           "stream_quality": "main",
           "stream_type": "main",
-          "tile_id": "tile__DISPLAY1_0_6dabd6",
+          "tile_id": "tile__DISPLAY1_0_3bc18e",
           "truthfulness_state": "unverified"
         },
         {
@@ -117,7 +117,7 @@
           "row_span": 1,
           "stream_quality": "main",
           "stream_type": "main",
-          "tile_id": "tile__DISPLAY1_1_477279",
+          "tile_id": "tile__DISPLAY1_1_93b7ae",
           "truthfulness_state": "unverified"
         },
         {
@@ -133,7 +133,7 @@
           "row_span": 1,
           "stream_quality": "main",
           "stream_type": "main",
-          "tile_id": "tile__DISPLAY1_2_e91501",
+          "tile_id": "tile__DISPLAY1_2_8ce234",
           "truthfulness_state": "unverified"
         },
         {
@@ -149,7 +149,7 @@
           "row_span": 1,
           "stream_quality": "main",
           "stream_type": "main",
-          "tile_id": "tile__DISPLAY1_3_896b96",
+          "tile_id": "tile__DISPLAY1_3_b96409",
           "truthfulness_state": "unverified"
         }
       ]
@@ -168,7 +168,7 @@
   },
   "resource_profile": "balanced",
   "schema_version": "2.0",
-  "updated_at": "2026-11-17T13:23:19.322721+00:00",
+  "updated_at": "2026-11-17T19:16:26.414905+00:00",
   "version": 2,
   "workspace_id": "default_desktop"
 }

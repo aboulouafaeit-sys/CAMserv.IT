@@ -18,11 +18,11 @@ Every finding in this register was evaluated against actual source code, physica
 
 | Severity Category | Discovered | Remediated & Software Verified | Operational Boundary / Hardware Gated |
 | :--- | :---: | :---: | :---: |
-| **CRITICAL ARCHITECTURAL** | 4 | 4 | 0 |
-| **HIGH RELIABILITY** | 4 | 4 | 0 |
-| **MEDIUM OPERATIONAL** | 3 | 3 | 0 |
+| **CRITICAL ARCHITECTURAL / INTEGRITY** | 8 | 8 | 0 |
+| **HIGH RELIABILITY / TRUTHFULNESS** | 7 | 7 | 0 |
+| **MEDIUM OPERATIONAL / DOCUMENTATION** | 5 | 5 | 0 |
 | **PHYSICAL HARDWARE GATES** | 4 | 0 | 4 (Accredited Lab Required) |
-| **TOTAL** | **15** | **11 Remediated** | **4 Physical Gates Active** |
+| **TOTAL** | **24** | **20 Remediated** | **4 Physical Gates Active** |
 
 ---
 
@@ -232,3 +232,128 @@ Every finding in this register was evaluated against actual source code, physica
 * **Verification:** Tested in `tests/test_appliance_hardware.py::test_appliance_manager_host_probe`.
 * **Status:** **REMEDIATED & VERIFIED**.
 
+---
+
+## 6. Phase 25.1-B Cross-Platform & Durable Persistence Findings
+
+### FINDING-P25.1B-01: In-Memory Continuity State Loss During Abrupt Crash
+* **Severity:** **CRITICAL EVIDENCE INTEGRITY**
+* **Affected Subsystem:** `camserv.storage.continuity_store.DurableContinuityStore`, `camserv.platform.stability.RecordingContinuityLedger`
+* **Root Cause:** Recording continuity records were held in transient memory dictionaries. In the event of an abrupt process crash, power loss, or kernel panic, in-flight segments were lost, allowing incomplete recordings to be falsely assumed continuous or untracked upon restart.
+* **Remediation:** Implemented `DurableContinuityStore` backed by SQLite WAL mode. Added `continuity_segments` and `continuity_events` schemas with idempotent upsert and deduplication. Implemented `recover_unclean_shutdown()` to detect unfinalized segments on reboot, transition them to `RECORDING_INTERRUPTED`, and commit explicit crash discontinuity events.
+* **Verification:** Tested in `tests/test_phase25_1_b_cross_platform.py::TestDurableContinuityLedger` (7 tests).
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### FINDING-P25.1B-02: Channel Lease Revocation Before Process Exit Confirmation
+* **Severity:** **CRITICAL SPLIT-BRAIN PREVENTION**
+* **Affected Subsystem:** `camserv.platform.stability.WorkerCrashSupervisor`
+* **Root Cause:** Attempting worker termination could release channel leases before the underlying OS process had completely exited. This permitted a newly spawned worker to bind to the same camera channel concurrently, causing split-brain recording corruption.
+* **Remediation:** Updated `WorkerCrashSupervisor.terminate_worker()` to enforce independent exit confirmation via `proc.is_alive()` before revoking channel leases. If a process refuses termination, state transitions to `TERMINATION_UNCONFIRMED` and the channel lease is strictly retained.
+* **Verification:** Tested in `tests/test_phase25_1_b_cross_platform.py::TestCrossPlatformWorkerTermination` (`test_windows_process_exit_confirmation_is_alive_refusal` and `test_channel_lease_retention_before_exit_confirmation`).
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### FINDING-P25.1B-03: Orphaned IPC Resources Causing Supervisor Deadlock
+* **Severity:** **HIGH RELIABILITY**
+* **Affected Subsystem:** `camserv.platform.stability.WorkerCrashSupervisor.reconcile_ipc`
+* **Root Cause:** When an isolated worker process terminated abruptly, child queues (`multiprocessing.Queue`) and pipe connections remained registered and unclosed, causing supervisor threads to hang on thread joins or unharvested pipe buffers.
+* **Remediation:** Added `register_ipc_resource()` and `reconcile_ipc()` to `WorkerCrashSupervisor`. All registered queues and pipes are closed, feeder thread joins are cancelled via `cancel_join_thread()`, and resources are cleared upon worker exit.
+* **Verification:** Tested in `tests/test_phase25_1_b_cross_platform.py::test_windows_ipc_resource_reconciliation`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### FINDING-P25.1B-04: Documentation Path and Environment Discrepancies
+* **Severity:** **MEDIUM DOCUMENTATION TRUTHFULNESS**
+* **Affected Subsystem:** `docs/PHASE-25.1-REPORT.md`, `docs/PHASE-25.1-A-FINAL-QUALIFICATION.md`
+* **Root Cause:** Prior reports cited `src/camserv/platform/init.py` (missing dunders) and stated `Python 3.14.81` (typographical version).
+* **Remediation:** Verified actual filesystem path is `src/camserv/platform/__init__.py` and actual installed runtime is `Python 3.14.8` on Windows 11 Enterprise x86_64 Build 26300. Documented reconciliation formally in `docs/PHASE-25.1-B-GIT-AND-ENVIRONMENT-RECONCILIATION.md`.
+* **Verification:** Verified via filesystem audit and `python --version` runtime interrogation.
+* **Status:** **RECONCILED & DOCUMENTED**.
+
+
+
+---
+
+## 7. Phase 26 Identity & Access Security Foundation Findings
+
+### FINDING-P26-01: Factory-Default Admin Credential Elimination & Local Bootstrap Protocol
+* **Severity:** **CRITICAL AUTHENTICATION SECURITY**
+* **Affected Subsystem:** `camserv.security.identity.bootstrap`, `camserv.api.app`
+* **Root Cause:** Previous test configurations and API bootstrap paths included hardcoded administrative accounts (e.g. `admin/admin_password`), which, if deployed in production environments, exposed physical surveillance cameras to trivial credential exploitation.
+* **Remediation:** Built `LocalAdministratorBootstrap`. Initial appliance startup requires physical/local console access to read a high-entropy, 256-bit token from `data/.bootstrap_token` (file permission `0600`, 15-minute time-to-live). The administrator must set their own password and immediately enroll in mandatory TOTP MFA. Upon completion, the token is cryptographically overwritten and shredded, permanently sealing the bootstrap state machine against replay.
+* **Verification:** Tested in `tests/test_phase26_identity_security.py::TestAdministratorBootstrap` (2 tests).
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### FINDING-P26-02: RFC 9106 Argon2id Password Hardening & Bounded Concurrency
+* **Severity:** **CRITICAL CRYPTOGRAPHIC RESILIENCE**
+* **Affected Subsystem:** `camserv.security.identity.password`, `camserv.security.auth`
+* **Root Cause:** Prior authentication relied on PBKDF2-HMAC-SHA256, which lacks memory-hardness and is vulnerable to parallelized GPU/ASIC offline dictionary cracking. Furthermore, unthrottled password hashing could allow an adversary to cause memory exhaustion DoS.
+* **Remediation:** Implemented RFC 9106 Argon2id calibrated to $m=65536$ KiB (64 MiB), $t=2$, $p=4$, and 32 bytes derived key. Implemented dual-verification for seamless PBKDF2 backward-compatibility with automatic `needs_rehash()` upgrading on login. Added a bounded `threading.Semaphore(max_concurrency=4)` preventing memory exhaustion under concurrent authentication bursts.
+* **Verification:** Tested in `tests/test_phase26_identity_security.py::TestPasswordSecurity` (4 tests).
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### FINDING-P26-03: Broken Object Level Authorization (BOLA/IDOR) Elimination
+* **Severity:** **CRITICAL ACCESS CONTROL**
+* **Affected Subsystem:** `camserv.security.identity.authorization`, `camserv.security.identity.sentinel`
+* **Root Cause:** Prior authorization verified global capabilities (e.g. `cameras:read`) without validating whether an individual client user was assigned to the requested physical camera ID or recording. A viewer permitted to watch the front lobby could access high-security vault cameras simply by substituting the `camera_id` in API calls.
+* **Remediation:** Implemented `ZeroTrustPolicyEngine` with deny-by-default object-level evaluation against `allowed_camera_ids` and persistent `ResourceScope` records. Integrated with `CAMservSentinelIdentity`, which detects repeated unauthorized resource requests (BOLA probing) and automatically revokes the attacking session.
+* **Verification:** Tested in `tests/test_phase26_identity_security.py::TestZeroTrustAuthorization` and `TestSentinelIdentityDefense`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### FINDING-P26-04: Stateless JWT Revocation Inability & Anti-Fixation Session Rotation
+* **Severity:** **HIGH SESSION SECURITY**
+* **Affected Subsystem:** `camserv.security.identity.session`
+* **Root Cause:** Stateless bearer tokens could not be revoked prior to expiration without complex distributed blocklists. Additionally, elevation of privilege did not rotate session identifiers, leaving users vulnerable to session fixation.
+* **Remediation:** Designed stateful, SQLite WAL-backed `SessionManager` tracking 256-bit cryptographically secure session IDs. Enforced strict 30-minute idle inactivity timeouts and 12-hour absolute lifetime limits. Implemented atomic session rotation upon privilege elevation (AAL2 step-up) and instant single or bulk session revocation upon password reset, lock, or emergency lockdown.
+* **Verification:** Tested in `tests/test_phase26_identity_security.py::TestSessionSecurity` (4 tests).
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### FINDING-P26-05: Plaintext Camera RTSP Password Leakage & Redaction
+* **Severity:** **HIGH DATA PRIVACY & CREDENTIAL PROTECTION**
+* **Affected Subsystem:** `camserv.security.identity.secrets`
+* **Root Cause:** Camera connection URLs containing embedded cleartext credentials (e.g. `rtsp://admin:pass@host/live`) risked exposure in REST API responses, diagnostic logs, and client telemetry. Furthermore, passwords containing special characters (`@`, `:`, `/`) broke naive regex replacement.
+* **Remediation:** Built `CameraCredentialProtection` with AES-256-GCM encryption at rest and HKDF key separation (`camserv-v1-camera-credentials`). Created robust `redact_url()` utilizing URL decomposition and right-split authority parsing to sanitize embedded credentials containing special characters (`***REDACTED***`). Implemented deep recursive object sanitization across all client responses.
+* **Verification:** Tested in `tests/test_phase26_identity_security.py::TestCameraCredentialProtection` (3 tests).
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### FINDING-P26-06: Non-Cryptographic Security Event Logging & Tamper Pinpointing
+* **Severity:** **HIGH FORENSIC AUDITABILITY**
+* **Affected Subsystem:** `camserv.security.identity.audit`
+* **Root Cause:** Identity security incidents were previously logged into flat JSON files without mathematical integrity guarantees. A privileged attacker or rogue insider could modify, backdate, or delete log entries without detection.
+* **Remediation:** Built `TamperEvidentSecurityAudit` implementing forward SHA-256 cryptographic hash chaining rooted in a fixed genesis anchor (`GENESIS_SECURITY_AUDIT_HASH_PHASE26_00000000`). Provided automated audit chain verification that mathematically detects any modification, deletion, or insertion and pinpoints the exact row where tampering occurred.
+* **Verification:** Tested in `tests/test_phase26_identity_security.py::TestTamperEvidentAudit` (2 tests).
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### FINDING-P26-07: Insecure Generic Shared Operator Accounts Prohibition
+* **Severity:** **MEDIUM GOVERNANCE & NON-REPUDIATION**
+* **Affected Subsystem:** `camserv.security.identity.models`, `camserv.security.identity.store`
+* **Root Cause:** Facilities previously shared generic client logins (e.g. "guard_desk"), preventing non-repudiation and forensic accountability during security incidents.
+* **Remediation:** Enforced an individual client account model requiring distinct usernames, named profiles, personal credentials, and individual MFA tokens. All operational actions are permanently bound to specific user IDs in the tamper-evident audit ledger.
+* **Verification:** Tested in `tests/test_phase26_identity_security.py::TestDurableIdentityStore`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### FINDING-P26-08: Complete Recording Pipeline Isolation During Security Lockdown
+* **Severity:** **CRITICAL SURVEILLANCE CONTINUITY**
+* **Affected Subsystem:** `camserv.security.identity.emergency`
+* **Root Cause:** Security lockdown mechanisms in traditional VMS software often halt video ingestion or freeze the application process, inadvertently blinding surveillance coverage during a physical security breach.
+* **Remediation:** Engineered `EmergencyLockdownManager` with strict architectural airgapping. When lockdown is declared, all client sessions are terminated, new logins are blocked, and evidence exports are suspended; however, RTSP ingestion pipelines, continuous recording ledgers, and frame hashing continue 100% uninterrupted.
+* **Verification:** Tested in `tests/test_phase26_identity_security.py::TestEmergencyLockdownAndPipelineIsolation` (2 tests).
+* **Status:** **REMEDIATED & VERIFIED**.

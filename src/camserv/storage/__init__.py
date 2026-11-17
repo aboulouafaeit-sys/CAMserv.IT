@@ -4,6 +4,11 @@ from camserv.storage.adaptive_vault import (
     ForensicChunkSeal,
     SceneMetadataRecord,
 )
+from camserv.storage.continuity_store import (
+    ContinuityStoreCorruptError,
+    ContinuityStoreError,
+    DurableContinuityStore,
+)
 from camserv.storage.evidence import EvidenceRecord, EvidenceStore
 from camserv.storage.forensics import (
     EvidencePackager,
@@ -25,6 +30,9 @@ from camserv.storage.tiered_storage import (
 
 __all__ = [
     "AdaptiveRetentionVault",
+    "ContinuityStoreCorruptError",
+    "ContinuityStoreError",
+    "DurableContinuityStore",
     "EvidencePackager",
     "EvidenceRecord",
     "EvidenceStore",

@@ -124,7 +124,13 @@ def hash_password(password: str, salt: bytes | None = None) -> str:
 
 
 def verify_password(password: str, hashed: str) -> bool:
-    """Constant-time password hash verification."""
+    """Constant-time password hash verification supporting RFC 9106 Argon2id and PBKDF2."""
+    if hashed.startswith("$argon2id$"):
+        try:
+            from camserv.security.identity.password import verify_password as v_argon2id
+            return v_argon2id(password, hashed)
+        except Exception:
+            return False
     try:
         parts = hashed.split("$")
         if len(parts) != 4 or parts[0] != "pbkdf2_sha256":
