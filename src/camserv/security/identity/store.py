@@ -172,7 +172,14 @@ class DurableIdentityStore:
             isolation_level=None,  # autocommit mode, transactions handled explicitly
         )
         self._conn.row_factory = sqlite3.Row
-        self._init_schema()
+        try:
+            self._init_schema()
+        except Exception:
+            try:
+                self._conn.close()
+            except Exception:
+                pass
+            raise
 
     def _init_schema(self) -> None:
         with self._lock:

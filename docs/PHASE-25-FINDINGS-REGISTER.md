@@ -357,3 +357,86 @@ Every finding in this register was evaluated against actual source code, physica
 * **Remediation:** Engineered `EmergencyLockdownManager` with strict architectural airgapping. When lockdown is declared, all client sessions are terminated, new logins are blocked, and evidence exports are suspended; however, RTSP ingestion pipelines, continuous recording ledgers, and frame hashing continue 100% uninterrupted.
 * **Verification:** Tested in `tests/test_phase26_identity_security.py::TestEmergencyLockdownAndPipelineIsolation` (2 tests).
 * **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+## 8. Phase 26.1 Findings & Adversarial Hardening
+
+### FINDING-P26.1-01: WebAuthn Passkey Verification Reality vs Provisional Option Hooks
+* **Severity:** **HIGH ARCHITECTURAL INTEGRITY & TRUTHFULNESS**
+* **Affected Subsystem:** `camserv.security.identity.mfa` (`PasskeyManager`)
+* **Root Cause:** Phase 26 documentation and promotional notes suggested full WebAuthn/Passkey authentication support, whereas `PasskeyManager` only implemented dictionary option generators (`create_registration_options`, `create_assertion_options`) without CBOR parsing, COSE key decoding, `clientDataJSON` challenge/origin verification, or signature counter tracking.
+* **Remediation:** Reclassified `PasskeyManager` truthfully across all architectural documentation as **provisional interface hooks only**. Implemented explicit `NotImplementedError` stubs on verification entry points documenting the exact requirement for an external relying party library (`fido2` or `py_webauthn`) prior to claiming production passkey authentication.
+* **Verification:** Tested in `tests/test_phase26_1_adversarial.py::TestWebAuthnCapabilityVerification` (2 tests).
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### FINDING-P26.1-02: Privileged Local SQLite Forward Audit Hash Chain Rewrite Vulnerability
+* **Severity:** **HIGH FORENSIC INTEGRITY & ANTI-TAMPER**
+* **Affected Subsystem:** `camserv.security.identity.audit`
+* **Root Cause:** Phase 26 relied solely on internal SHA-256 forward chaining (`prev_hash`). An adversary possessing local SQLite write access could alter an audit row, recompute subsequent hashes forward up to the head of the table, and successfully pass internal `verify_chain_integrity()` checks.
+* **Remediation:** Designed and integrated `AuditCheckpoint` with HMAC/Ed25519 signing (`create_checkpoint()`, `verify_against_checkpoint()`). The checkpoint permanently binds sequence count, head entry hash, and timestamp under an external key, rendering internal hash recalculation completely detectable.
+* **Verification:** Tested in `tests/test_phase26_1_adversarial.py::TestAuditLedgerAdversarialAttacks::test_full_forward_chain_rewrite_bypasses_simple_verify_but_detected_by_checkpoint`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### FINDING-P26.1-03: Historical Database Snapshot Rollback Audit Log Eradication
+* **Severity:** **HIGH FORENSIC CONTINUITY**
+* **Affected Subsystem:** `camserv.security.identity.audit`
+* **Root Cause:** An adversary restoring an older SQLite backup snapshot could erase recent security event records while leaving the internal hash chain mathematically valid at the older state.
+* **Remediation:** Enforced checkpoint sequence monotonicity and head hash matching in `verify_against_checkpoint()`. When comparing against an external signed checkpoint, any attempt to roll back to an earlier database state immediately triggers a `Rollback detected` failure.
+* **Verification:** Tested in `tests/test_phase26_1_adversarial.py::TestAuditLedgerAdversarialAttacks::test_database_snapshot_rollback_detected_by_checkpoint`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### FINDING-P26.1-04: Ineffective `os.chmod(0o600)` on Windows NTFS Exposing Bootstrap Token
+* **Severity:** **HIGH LOCAL PRIVILEGE ESCALATION (WINDOWS)**
+* **Affected Subsystem:** `camserv.security.identity.bootstrap`
+* **Root Cause:** On Windows NTFS, Python's `os.chmod(path, 0o600)` only manages the DOS read-only attribute bit. It does not modify NTFS Discretionary Access Control Lists (DACLs), allowing any unprivileged local user who inherits read permissions from parent folders to read `.bootstrap_token`.
+* **Remediation:** Implemented atomic descriptor creation with `os.O_CREAT | os.O_WRONLY | os.O_TRUNC` and explicit Windows NTFS DACL inheritance stripping via `icacls` (`/inheritance:r /grant:r "%USERNAME%":F`), ensuring unprivileged local Windows users cannot inspect the token.
+* **Verification:** Tested in `tests/test_phase26_1_adversarial.py::TestBootstrapSecurityHardening::test_bootstrap_generation_and_consumption`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### FINDING-P26.1-05: Bootstrap Token Generation Vulnerable to Symlink / Junction Traversal
+* **Severity:** **MEDIUM LOCAL ARBITRARY WRITE**
+* **Affected Subsystem:** `camserv.security.identity.bootstrap`
+* **Root Cause:** If `.bootstrap_token` pre-existed as a symbolic link or directory junction, writing the token could follow the link and overwrite arbitrary system files.
+* **Remediation:** Added proactive symlink/reparse point validation before file creation, immediately raising `BootstrapError` if a symlink is encountered.
+* **Verification:** Tested in `tests/test_phase26_1_adversarial.py::TestBootstrapSecurityHardening::test_bootstrap_symlink_rejection`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### FINDING-P26.1-06: Remote Denial of Service via Administrative Account Lockout Flood
+* **Severity:** **HIGH AVAILABILITY & ANTI-DOS**
+* **Affected Subsystem:** `camserv.security.identity.sentinel`
+* **Root Cause:** Applying blanket account lockouts after $N$ failed logins enabled unauthenticated remote attackers to flood the `admin` username with invalid credentials, locking out legitimate administrators and requiring physical appliance power cycling.
+* **Remediation:** Introduced `admin_lockout_protection = True` in `SentinelConfig`. For administrative accounts, consecutive failed logins enforce progressive exponential backoff delays (capped at 8.0s) and trigger step-up challenges, but **never** set the administrator account status to locked.
+* **Verification:** Tested in `tests/test_phase26_1_adversarial.py::TestSentinelAdversarialHardening::test_admin_lockout_dos_mitigation`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### FINDING-P26.1-07: Mobile Guard & VPN Session Revocation False Positives on IP Roaming
+* **Severity:** **MEDIUM OPERATIONAL STABILITY**
+* **Affected Subsystem:** `camserv.security.identity.sentinel`
+* **Root Cause:** Treating every IP mutation during an active session as a session hijacking attack caused immediate session revocation for mobile tablet guards roaming between Wi-Fi access points or users connecting via dynamic corporate VPNs.
+* **Remediation:** Added configurable `allow_ip_roaming = True` and risk-based context tracking in `inspect_session_context`, updating session IP bindings and logging informational audit events without dropping legitimate sessions.
+* **Verification:** Tested in `tests/test_phase26_1_adversarial.py::TestSentinelAdversarialHardening::test_mobile_ip_roaming_support`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### FINDING-P26.1-08: Emergency Lockdown Vulnerability to Underlying Database Disk I/O Stalls
+* **Severity:** **CRITICAL FAILS-CLOSED SECURITY**
+* **Affected Subsystem:** `camserv.security.identity.emergency`
+* **Root Cause:** If `EmergencyLockdownManager.declare_lockdown()` failed during SQLite session revocation queries due to disk degradation or lock contention, the lockdown could fail to engage, leaving client sessions open.
+* **Remediation:** Placed the immediate in-memory barrier (`self._is_active = True`) prior to database operations and wrapped database calls in resilient exception handlers, guaranteeing fail-safe containment regardless of database availability. Enforced administrator-only authorization on `lift_lockdown()`.
+* **Verification:** Tested in `tests/test_phase26_1_adversarial.py::TestEmergencyLockdownFailsafeHardening` (2 tests).
+* **Status:** **REMEDIATED & VERIFIED**.
+

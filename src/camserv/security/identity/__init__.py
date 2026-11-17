@@ -7,6 +7,7 @@ Local-First Zero-Trust Identity, Authentication, Authorization & Account Protect
 
 from camserv.security.identity.audit import (
     GENESIS_HASH,
+    AuditCheckpoint,
     TamperEvidentSecurityAudit,
 )
 from camserv.security.identity.authorization import (
@@ -142,6 +143,7 @@ __all__ = [
     "SentinelMitigation",
     # Audit
     "TamperEvidentSecurityAudit",
+    "AuditCheckpoint",
     "GENESIS_HASH",
     # Secrets
     "CameraCredentialProtection",

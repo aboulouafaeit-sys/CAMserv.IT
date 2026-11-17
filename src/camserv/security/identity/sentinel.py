@@ -41,6 +41,10 @@ class SentinelConfig:
     base_progressive_delay_sec: float = 0.5  # Base delay multiplier
     max_progressive_delay_sec: float = 8.0   # Cap for progressive delay
     max_tracked_entries: int = 1000          # Bounded memory ceiling
+    admin_lockout_protection: bool = True    # Prevent remote DoS lockout of administrators
+    allow_ip_roaming: bool = False           # Configurable roaming for mobile/VPN clients
+    require_step_up_on_ip_change: bool = False
+    exempt_ips: set[str] = field(default_factory=lambda: {"127.0.0.1", "::1"})
 
 
 class SentinelMitigation:
@@ -114,15 +118,20 @@ class CAMservSentinelIdentity:
 
             user = self.store.get_user_by_username(username)
             is_locked = False
+            is_admin = False
             if user:
-                _, is_locked = self.store.record_login_failure(
-                    user.user_id,
-                    lockout_duration_sec=self.config.window_sec,
-                    max_attempts=self.config.max_account_failures,
-                )
+                is_admin = bool(user.is_administrator or getattr(user.role, "value", str(user.role)) == "admin")
+                if is_admin and self.config.admin_lockout_protection:
+                    is_locked = False
+                else:
+                    _, is_locked = self.store.record_login_failure(
+                        user.user_id,
+                        lockout_duration_sec=self.config.window_sec,
+                        max_attempts=self.config.max_account_failures,
+                    )
 
-            # Check IP block threshold
-            if len(ip_q) >= self.config.max_ip_failures:
+            # Check IP block threshold (exempt local console IPs)
+            if ip_address not in self.config.exempt_ips and len(ip_q) >= self.config.max_ip_failures:
                 self._blocked_ips[ip_address] = now + self.config.window_sec
                 ev = SecurityEvent(
                     event_id=uuid.uuid4().hex,
@@ -136,8 +145,8 @@ class CAMservSentinelIdentity:
                 self.store.record_security_event(ev)
                 return SentinelMitigation(action="BLOCK_IP", reason="IP threshold exceeded", event=ev)
 
-            # Check User Lockout threshold
-            if is_locked or len(u_q) >= self.config.max_account_failures:
+            # Check User Lockout threshold (skip if admin with lockout protection enabled)
+            if (is_locked or len(u_q) >= self.config.max_account_failures) and not (is_admin and self.config.admin_lockout_protection):
                 ev = SecurityEvent(
                     event_id=uuid.uuid4().hex,
                     event_type="SENTINEL_ACCOUNT_LOCKED",
@@ -149,6 +158,23 @@ class CAMservSentinelIdentity:
                 )
                 self.store.record_security_event(ev)
                 return SentinelMitigation(action="LOCK_ACCOUNT", reason="User failure limit exceeded", event=ev)
+            elif is_admin and self.config.admin_lockout_protection and len(u_q) >= self.config.max_account_failures:
+                ev = SecurityEvent(
+                    event_id=uuid.uuid4().hex,
+                    event_type="SENTINEL_ADMIN_BRUTE_FORCE_THROTTLED",
+                    severity=SecurityEventSeverity.HIGH,
+                    actor_id=username,
+                    ip_address=ip_address,
+                    details={"failures_in_window": len(u_q), "protection": "ADMIN_LOCKOUT_PREVENTED"},
+                    action_taken="PROGRESSIVE_DELAY_CAPPED",
+                )
+                self.store.record_security_event(ev)
+                return SentinelMitigation(
+                    action="DELAY",
+                    delay_sec=self.config.max_progressive_delay_sec,
+                    reason="Admin account protected from remote lockout DoS",
+                    event=ev,
+                )
 
             # Compute progressive delay
             delay = min(
@@ -204,8 +230,37 @@ class CAMservSentinelIdentity:
         incoming_ip: str,
         incoming_ua: str,
     ) -> SentinelMitigation:
-        """Detect potential session hijacking (IP address change or User-Agent mutation)."""
+        """Detect potential session hijacking with risk-based mobile IP roaming support."""
         if session.ip_address != incoming_ip:
+            if self.config.allow_ip_roaming:
+                # Legitimate IP roaming permitted (mobile networks / VPN transitions)
+                ev = SecurityEvent(
+                    event_id=uuid.uuid4().hex,
+                    event_type="SENTINEL_SESSION_IP_ROAMING",
+                    severity=SecurityEventSeverity.INFO,
+                    actor_id=session.user_id,
+                    ip_address=incoming_ip,
+                    details={"session_id": session.session_id, "previous_ip": session.ip_address, "new_ip": incoming_ip},
+                    action_taken="SESSION_IP_UPDATED",
+                )
+                self.store.record_security_event(ev)
+                session.ip_address = incoming_ip
+                return SentinelMitigation(action="ALLOW", reason="ip_roaming_permitted", event=ev)
+
+            if self.config.require_step_up_on_ip_change:
+                ev = SecurityEvent(
+                    event_id=uuid.uuid4().hex,
+                    event_type="SENTINEL_SESSION_IP_STEP_UP_CHALLENGE",
+                    severity=SecurityEventSeverity.WARNING,
+                    actor_id=session.user_id,
+                    ip_address=incoming_ip,
+                    details={"session_id": session.session_id, "original_ip": session.ip_address, "new_ip": incoming_ip},
+                    action_taken="STEP_UP_REQUIRED",
+                )
+                self.store.record_security_event(ev)
+                return SentinelMitigation(action="STEP_UP_REQUIRED", reason="IP change requires step-up authentication", event=ev)
+
+            # Strict default mode: revoke session immediately
             ev = SecurityEvent(
                 event_id=uuid.uuid4().hex,
                 event_type="SENTINEL_SESSION_IP_MUTATION",

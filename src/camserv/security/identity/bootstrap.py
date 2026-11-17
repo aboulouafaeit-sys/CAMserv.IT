@@ -101,15 +101,35 @@ class LocalAdministratorBootstrap:
         # Save to database
         self.store.store_bootstrap_token(token_hash, expires_at_iso)
 
-        # Write to local file with restricted permissions
+        # Security check: defeat symlink / reparse point attacks
+        if self.token_path.is_symlink():
+            raise BootstrapError("Symlink or reparse point detected at bootstrap token path")
+
+        # Atomic write to local file with restricted permissions
         self.token_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.token_path, "w", encoding="utf-8") as f:
+        fd = os.open(str(self.token_path), os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
+        with open(fd, "w", encoding="utf-8") as f:
             f.write(f"{token}\n")
 
+        # POSIX permission hardening
         try:
             os.chmod(self.token_path, 0o600)
         except Exception:
             pass
+
+        # Windows NTFS DACL hardening: strip inheritance and grant exclusive access to owner
+        import sys
+        if sys.platform == "win32":
+            try:
+                import subprocess
+                u = os.environ.get("USERNAME", "SYSTEM")
+                subprocess.run(
+                    ["icacls", str(self.token_path), "/inheritance:r", "/grant:r", f"{u}:F"],
+                    capture_output=True,
+                    timeout=5.0,
+                )
+            except Exception as exc:
+                logger.warning("bootstrap.windows_dacl_hardening_warning", error=str(exc))
 
         self.store.record_security_event(
             SecurityEvent(

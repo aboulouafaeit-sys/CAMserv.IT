@@ -264,3 +264,17 @@ class PasskeyManager:
             "rpId": self.rp_id,
             "userVerification": "preferred",
         }
+
+    def verify_registration_response(self, response: dict[str, Any], expected_challenge: str) -> bool:
+        """Provisional interface hook. Full WebAuthn RP verification is not implemented."""
+        raise NotImplementedError(
+            "WebAuthn registration verification requires an external RP library (fido2/py_webauthn); "
+            "CAMserv provides option-generation hooks only."
+        )
+
+    def verify_assertion_response(self, response: dict[str, Any], expected_challenge: str) -> bool:
+        """Provisional interface hook. Full WebAuthn RP verification is not implemented."""
+        raise NotImplementedError(
+            "WebAuthn assertion verification requires an external RP library (fido2/py_webauthn); "
+            "CAMserv provides option-generation hooks only."
+        )
