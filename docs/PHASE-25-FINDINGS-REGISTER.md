@@ -440,3 +440,86 @@ Every finding in this register was evaluated against actual source code, physica
 * **Verification:** Tested in `tests/test_phase26_1_adversarial.py::TestEmergencyLockdownFailsafeHardening` (2 tests).
 * **Status:** **REMEDIATED & VERIFIED**.
 
+---
+
+## 9. Phase 26.2 Findings & Final Software Assurance
+
+### FINDING-P26.2-01: Absence of Independent Local Trust Anchor Store for Audit Checkpoints
+* **Severity:** **HIGH FORENSIC INTEGRITY & ANTI-ROLLBACK**
+* **Affected Subsystem:** `camserv.security.identity.audit` (`ExternalCheckpointStore`)
+* **Root Cause:** Phase 26 and 26.1 generated in-memory checkpoints without an independent external store. An adversary restoring a coordinated older backup of the SQLite database could bypass freshness checks because the database hash chain remained internally valid at the older state.
+* **Remediation:** Engineered `ExternalCheckpointStore` persisting checkpoints in an independent JSON store outside `identity.db`. Enforces strict sequence monotonicity (`CheckpointSequenceRegressionError`), immediately detecting and blocking snapshot rollbacks, sequence regressions, and divergent head hashes.
+* **Verification:** Tested in `tests/test_phase26_2_assurance.py::TestAuditCheckpointAssurance::test_coordinated_snapshot_rollback_detected_by_external_store`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### FINDING-P26.2-02: Symmetric HMAC Inability to Provide Auditor Non-Repudiation
+* **Severity:** **MEDIUM REGULATORY AUDITABILITY**
+* **Affected Subsystem:** `camserv.security.identity.audit`
+* **Root Cause:** Symmetric HMAC-SHA256 checkpoints required sharing the secret key with external auditors, enabling anyone who obtained the key to forge valid checkpoints.
+* **Remediation:** Implemented asymmetric Ed25519 checkpoint signing (`create_checkpoint(private_key=...)`) and public-key verification (`verify_against_checkpoint(public_key=...)`), enabling regulatory auditors to verify forensic immutability without the ability to forge checkpoints.
+* **Verification:** Tested in `tests/test_phase26_2_assurance.py::TestAuditCheckpointAssurance::test_ed25519_asymmetric_checkpoint_signing_and_verification`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### FINDING-P26.2-03: Bootstrap File Pre-DACL Token Inscription Exposure Window
+* **Severity:** **HIGH LOCAL PRIVILEGE ESCALATION (WINDOWS)**
+* **Affected Subsystem:** `camserv.security.identity.bootstrap`
+* **Root Cause:** Inscribing the secret token into the file descriptor *before* applying Windows NTFS access controls created a transient window where inherited permissions allowed local unprivileged users (`BUILTIN\Users`) to read the token. Furthermore, using `O_CREAT | O_WRONLY | O_TRUNC` did not prevent existing-path substitution.
+* **Remediation:** Implemented atomic exclusive creation (`os.O_CREAT | os.O_EXCL`), closed the 0-byte file immediately, applied and verified Windows DACL inheritance stripping via `icacls`, and only then inscribed the 256-bit token with `os.fsync()`.
+* **Verification:** Tested in `tests/test_phase26_2_assurance.py::TestWindowsBootstrapHardening::test_atomic_exclusive_creation_and_dacl_application`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### FINDING-P26.2-04: Volatile Emergency Lockdown Resetting on Process Restart
+* **Severity:** **CRITICAL THREAT CONTAINMENT**
+* **Affected Subsystem:** `camserv.security.identity.emergency`
+* **Root Cause:** Emergency lockdown was tracked via a volatile in-memory boolean `_is_active`. An application crash, power cut, or operating system reboot cleared the lockdown state, reopening client access without administrator authorization.
+* **Remediation:** Implemented a durable recovery latch file (`data/.emergency_lockdown.latch`). On startup, `EmergencyLockdownManager` inspects the latch file, restores active lockdown state across restarts, and fails closed (`LOCKDOWN_FAIL_CLOSED_CORRUPTED_LATCH`) if the latch file is corrupt or empty.
+* **Verification:** Tested in `tests/test_phase26_2_assurance.py::TestLockdownDurableRecoveryAndActiveSessionEnforcement::test_durable_latch_survives_process_restart`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### FINDING-P26.2-05: Policy Engine Non-Evaluation of Active Emergency Lockdown
+* **Severity:** **HIGH ACCESS CONTROL**
+* **Affected Subsystem:** `camserv.security.identity.authorization`
+* **Root Cause:** `ZeroTrustPolicyEngine.authorize()` evaluated user permissions without checking whether an emergency lockdown was active, creating a bypass window if database revocation queries were delayed or degraded.
+* **Remediation:** Integrated `EmergencyLockdownManager` directly into `ZeroTrustPolicyEngine`. Step 0 of `authorize()` checks `lockdown_manager.is_active` and immediately denies non-whitelisted operations.
+* **Verification:** Tested in `tests/test_phase26_2_assurance.py::TestLockdownDurableRecoveryAndActiveSessionEnforcement::test_lockdown_enforcement_in_policy_engine`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### FINDING-P26.2-06: Session Manager Allowing Active Client Operations During Lockdown
+* **Severity:** **HIGH SESSION HYGIENE**
+* **Affected Subsystem:** `camserv.security.identity.session`
+* **Root Cause:** `SessionManager.validate_and_touch()` did not evaluate lockdown status, allowing in-flight client sessions to continue accessing resources until database revocation rows updated.
+* **Remediation:** Bound `EmergencyLockdownManager` to `SessionManager`. Calling `validate_and_touch()` during lockdown immediately raises `SessionRevokedError` for non-admin client sessions, and `create_session()` blocks new client logins with `SessionError`.
+* **Verification:** Tested in `tests/test_phase26_2_assurance.py::TestLockdownDurableRecoveryAndActiveSessionEnforcement::test_lockdown_enforcement_in_session_manager`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### FINDING-P26.2-07: Single-Signal Session Roaming Vulnerability to Token Theft
+* **Severity:** **HIGH SESSION HIJACKING DEFENSE**
+* **Affected Subsystem:** `camserv.security.identity.sentinel`
+* **Root Cause:** Evaluating IP change alone either broke legitimate mobile tablet roaming or allowed exfiltrated session tokens to be replayed from alternate devices without challenge.
+* **Remediation:** Implemented multi-signal risk correlation evaluating IP mutation, User-Agent client fingerprint mutation, and action sensitivity. Concurrent IP+UA change immediately revokes the session; User-Agent mutation alone or sensitive actions after roaming trigger `STEP_UP_REQUIRED`.
+* **Verification:** Tested in `tests/test_phase26_2_assurance.py::TestSentinelMultiSignalAdaptiveSecurity` (3 tests).
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### FINDING-P26.2-08: Ambiguous NIST SP 800-63B Phishing Resistance Classification
+* **Severity:** **MEDIUM REGULATORY TRANSPARENCY**
+* **Affected Subsystem:** `camserv.security.identity.mfa`, documentation
+* **Root Cause:** Commercial documentation could conflate internal AAL2 labels with formal federal NIST certification or phishing resistance.
+* **Remediation:** Published comprehensive alignment review (`docs/PHASE-26.2-NIST-AAL-ALIGNMENT.md`) explicitly stating that RFC 6238 TOTP is replay-resistant but NOT phishing-resistant (vulnerable to reverse-proxy interception), and WebAuthn Passkeys are provisional interface hooks only. Disclaimed formal NIST compliance without accredited laboratory assessment.
+* **Verification:** Formally documented in `docs/PHASE-26.2-NIST-AAL-ALIGNMENT.md`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+

@@ -9,9 +9,11 @@ surveillance recording, RTSP ingestion, and cryptographic evidence hashing.
 
 from __future__ import annotations
 
+import json
 import threading
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 import structlog
@@ -38,11 +40,56 @@ PERMITTED_LOCKDOWN_ACTIONS: frozenset[str] = frozenset({
 class EmergencyLockdownManager:
     """Manages emergency appliance lockdown states with absolute recording pipeline isolation."""
 
-    def __init__(self, store: DurableIdentityStore) -> None:
+    def __init__(
+        self,
+        store: DurableIdentityStore,
+        latch_path: str | Path = "data/.emergency_lockdown.latch",
+    ) -> None:
         self.store = store
+        self.latch_path = Path(latch_path)
         self._lock = threading.RLock()
         self._is_active: bool = False
         self._lockdown_details: dict[str, Any] = {}
+
+        # Restore durable lockdown state across process restarts
+        self._restore_latch_state()
+
+    def _restore_latch_state(self) -> None:
+        """Inspect durable recovery latch file to survive application crashes or restarts."""
+        if not self.latch_path.exists():
+            return
+
+        try:
+            content = self.latch_path.read_text(encoding="utf-8").strip()
+            if not content:
+                # 0-byte latch file indicates interrupted write or tampering: fail closed
+                self._is_active = True
+                self._lockdown_details = {
+                    "status": "LOCKDOWN_FAIL_CLOSED_CORRUPTED_LATCH",
+                    "reason": "Empty recovery latch file detected on boot",
+                    "declared_at_utc": datetime.now(timezone.utc).isoformat(),
+                }
+                logger.critical("emergency_lockdown.boot_fail_closed_empty_latch")
+                return
+
+            data = json.loads(content)
+            if data.get("status") == "LOCKDOWN_ACTIVE":
+                self._is_active = True
+                self._lockdown_details = data
+                logger.critical(
+                    "emergency_lockdown.boot_restored_from_durable_latch",
+                    initiated_by=data.get("initiated_by"),
+                    reason=data.get("reason"),
+                )
+        except Exception as exc:
+            # Crucial Security Invariant: Fail closed on corrupt latch file
+            self._is_active = True
+            self._lockdown_details = {
+                "status": "LOCKDOWN_FAIL_CLOSED_CORRUPTED_LATCH",
+                "reason": f"Corrupted recovery latch file: {exc}",
+                "declared_at_utc": datetime.now(timezone.utc).isoformat(),
+            }
+            logger.critical("emergency_lockdown.boot_fail_closed_corrupted_latch", error=str(exc))
 
     @property
     def is_active(self) -> bool:
@@ -54,17 +101,27 @@ class EmergencyLockdownManager:
 
         Revokes all non-admin sessions, suspends external exports, and blocks client logins.
         Video recording and ingestion continue completely uninterrupted.
-        Fails safe in memory even if the database is partially degraded.
+        Fails safe in memory and atomically persists the durable recovery latch.
         """
         with self._lock:
             # Immediate fail-safe in-memory barrier
             self._is_active = True
             now = datetime.now(timezone.utc).isoformat()
             self._lockdown_details = {
+                "status": "LOCKDOWN_ACTIVE",
                 "initiated_by": initiated_by,
                 "reason": reason,
                 "declared_at_utc": now,
             }
+
+            # Atomically persist durable recovery latch file
+            try:
+                self.latch_path.parent.mkdir(parents=True, exist_ok=True)
+                tmp_latch = self.latch_path.with_suffix(".tmp")
+                tmp_latch.write_text(json.dumps(self._lockdown_details, indent=2), encoding="utf-8")
+                tmp_latch.replace(self.latch_path)
+            except Exception as exc:
+                logger.error("emergency_lockdown.latch_persistence_error", error=str(exc))
 
             revoked_count = 0
             try:
@@ -133,7 +190,14 @@ class EmergencyLockdownManager:
                     raise PermissionError(f"User '{lifted_by}' is not authorized to lift emergency lockdown")
 
             self._is_active = False
+            self._lockdown_details = {}
             now = datetime.now(timezone.utc).isoformat()
+
+            # Atomically remove durable recovery latch file
+            try:
+                self.latch_path.unlink(missing_ok=True)
+            except Exception as exc:
+                logger.error("emergency_lockdown.latch_removal_error", error=str(exc))
 
             try:
                 ev = SecurityEvent(

@@ -50,12 +50,18 @@ class SessionManager:
         idle_timeout_sec: float = 1800.0,      # 30 minutes
         absolute_timeout_sec: float = 43200.0,  # 12 hours
         max_concurrent_sessions: int = 5,
+        lockdown_manager: Any | None = None,
     ) -> None:
         self.store = store
         self.idle_timeout_sec = idle_timeout_sec
         self.absolute_timeout_sec = absolute_timeout_sec
         self.max_concurrent_sessions = max_concurrent_sessions
+        self.lockdown_manager = lockdown_manager
         self._lock = threading.RLock()
+
+    def set_lockdown_manager(self, lockdown_manager: Any) -> None:
+        """Dynamically bind emergency lockdown manager."""
+        self.lockdown_manager = lockdown_manager
 
     def create_session(
         self,
@@ -64,8 +70,14 @@ class SessionManager:
         ip_address: str = "127.0.0.1",
         user_agent: str = "local_client",
     ) -> SessionRecord:
-        """Create a new session, enforcing concurrent session limits."""
+        """Create a new session, enforcing concurrent session limits and lockdown barriers."""
         with self._lock:
+            # Emergency lockdown check: non-admin logins blocked
+            if self.lockdown_manager and self.lockdown_manager.is_active:
+                role_str = getattr(user.role, "value", str(user.role))
+                if role_str != "admin" and not user.is_administrator:
+                    raise SessionError("Cannot create client session: emergency appliance lockdown is active")
+
             # Enforce max concurrent sessions by revoking oldest if limit exceeded
             active_sessions = self.store.list_active_sessions_for_user(user.user_id)
             if len(active_sessions) >= self.max_concurrent_sessions:
@@ -105,6 +117,12 @@ class SessionManager:
 
         if session.is_revoked:
             raise SessionRevokedError(f"Session has been revoked: {session.revocation_reason or 'unspecified'}")
+
+        # Emergency appliance lockdown check
+        if self.lockdown_manager and self.lockdown_manager.is_active:
+            role_str = getattr(session.role, "value", str(session.role))
+            if role_str != "admin":
+                raise SessionRevokedError("Emergency appliance lockdown active: client sessions suspended")
 
         if not session.is_active(
             idle_timeout_sec=self.idle_timeout_sec,

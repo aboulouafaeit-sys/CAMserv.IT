@@ -109,8 +109,17 @@ class AuthorizationDecision:
 class ZeroTrustPolicyEngine:
     """Deny-by-default, object-level policy engine protecting surveillance assets."""
 
-    def __init__(self, store: DurableIdentityStore) -> None:
+    def __init__(
+        self,
+        store: DurableIdentityStore,
+        lockdown_manager: Any | None = None,
+    ) -> None:
         self.store = store
+        self.lockdown_manager = lockdown_manager
+
+    def set_lockdown_manager(self, lockdown_manager: Any) -> None:
+        """Dynamically bind emergency lockdown manager."""
+        self.lockdown_manager = lockdown_manager
 
     def authorize(
         self,
@@ -124,12 +133,24 @@ class ZeroTrustPolicyEngine:
         """Evaluate access authorization for a user against an asset.
 
         Follows Zero-Trust Deny-by-Default principles:
+        0. Check emergency lockdown state (blocks all non-whitelisted actions).
         1. Check account status (must be ACTIVE, not locked or suspended).
         2. Check session validity (if provided).
         3. Check Authentication Assurance Level (AAL) requirements.
         4. Check role-level permission grant.
         5. Check object-level resource scope / camera assignment (BOLA/IDOR check).
         """
+        # 0. Emergency Appliance Lockdown Check
+        if self.lockdown_manager and self.lockdown_manager.is_active:
+            is_admin = bool(user.is_administrator or getattr(user.role, "value", str(user.role)) == "admin")
+            if not self.lockdown_manager.can_perform_action(action, is_admin=is_admin):
+                return AuthorizationDecision(
+                    allowed=False,
+                    reason=f"Emergency appliance lockdown active: action '{action}' blocked",
+                    action=action,
+                    resource_type=resource_type,
+                    resource_id=resource_id,
+                )
         # 1. Account status validation
         if user.status != AccountStatus.ACTIVE or user.is_locked():
             return AuthorizationDecision(

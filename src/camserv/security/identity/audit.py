@@ -13,12 +13,18 @@ import hmac
 import json
 import secrets
 import sqlite3
+import threading
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import structlog
+from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.primitives.asymmetric.ed25519 import (
+    Ed25519PrivateKey,
+    Ed25519PublicKey,
+)
 
 from camserv.security.identity.models import SecurityEvent, SecurityEventSeverity
 from camserv.security.identity.store import DurableIdentityStore
@@ -26,6 +32,12 @@ from camserv.security.identity.store import DurableIdentityStore
 logger = structlog.get_logger(__name__)
 
 GENESIS_HASH = "GENESIS_SECURITY_AUDIT_HASH_PHASE26_00000000"
+
+
+class CheckpointSequenceRegressionError(ValueError):
+    """Raised when an incoming checkpoint attempts to roll back or regress sequence number."""
+
+    pass
 
 
 @dataclass(slots=True)
@@ -37,13 +49,114 @@ class AuditCheckpoint:
     head_entry_hash: str
     created_at_utc: str
     signature: str
+    algorithm: str = "HMAC-SHA256"
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> AuditCheckpoint:
+        if "algorithm" not in data:
+            data = dict(data)
+            data["algorithm"] = "HMAC-SHA256"
         return cls(**data)
+
+
+class ExternalCheckpointStore:
+    """Durable, independent local trust anchor store for audit checkpoints outside SQLite database.
+
+    Enforces strict sequence monotonicity to detect and block rollback attacks,
+    coordinated database snapshot restorations, and missing checkpoint generations.
+    """
+
+    def __init__(self, store_path: str | Path = "data/checkpoints/trust_anchor.json") -> None:
+        self.store_path = Path(store_path)
+        self._lock = threading.RLock()
+        self.store_path.parent.mkdir(parents=True, exist_ok=True)
+
+    def save_checkpoint(
+        self,
+        checkpoint: AuditCheckpoint,
+        allow_equal_sequence: bool = False,
+    ) -> None:
+        """Persist a signed checkpoint. Enforces sequence monotonicity to defeat snapshot rollback attacks."""
+        with self._lock:
+            latest = self.get_latest_checkpoint()
+            if latest is not None:
+                if checkpoint.sequence_number < latest.sequence_number:
+                    raise CheckpointSequenceRegressionError(
+                        f"Monotonicity violation: attempted to store checkpoint at sequence "
+                        f"{checkpoint.sequence_number}, but latest external trust anchor is at sequence "
+                        f"{latest.sequence_number}. Snapshot rollback attack detected!"
+                    )
+                if (
+                    not allow_equal_sequence
+                    and checkpoint.sequence_number == latest.sequence_number
+                    and checkpoint.head_entry_hash != latest.head_entry_hash
+                ):
+                    raise CheckpointSequenceRegressionError(
+                        f"Divergent head hash at sequence {checkpoint.sequence_number}: expected "
+                        f"'{latest.head_entry_hash}', got '{checkpoint.head_entry_hash}'"
+                    )
+
+            checkpoints = self.get_all_checkpoints()
+            if checkpoints and checkpoints[-1].checkpoint_id == checkpoint.checkpoint_id:
+                return
+
+            checkpoints.append(checkpoint)
+
+            # Atomic write to external trust anchor file
+            temp_path = self.store_path.with_suffix(".tmp")
+            data = [c.to_dict() for c in checkpoints]
+            temp_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+            temp_path.replace(self.store_path)
+
+            logger.info(
+                "external_checkpoint_stored",
+                checkpoint_id=checkpoint.checkpoint_id,
+                sequence=checkpoint.sequence_number,
+                algorithm=checkpoint.algorithm,
+            )
+
+    def get_latest_checkpoint(self) -> AuditCheckpoint | None:
+        """Retrieve the most recent trusted checkpoint."""
+        with self._lock:
+            checkpoints = self.get_all_checkpoints()
+            return checkpoints[-1] if checkpoints else None
+
+    def get_all_checkpoints(self) -> list[AuditCheckpoint]:
+        """Retrieve all checkpoints in sequence order."""
+        with self._lock:
+            if not self.store_path.exists():
+                return []
+            try:
+                content = self.store_path.read_text(encoding="utf-8").strip()
+                if not content:
+                    return []
+                raw_list = json.loads(content)
+                return [AuditCheckpoint.from_dict(item) for item in raw_list]
+            except Exception as exc:
+                logger.error(
+                    "external_checkpoint_store.read_error",
+                    path=str(self.store_path),
+                    error=str(exc),
+                )
+                return []
+
+    def verify_store_monotonicity(self) -> tuple[bool, str | None]:
+        """Verify that all externally held checkpoints have non-decreasing sequence numbers."""
+        with self._lock:
+            checkpoints = self.get_all_checkpoints()
+            last_seq = -1
+            for c in checkpoints:
+                if c.sequence_number < last_seq:
+                    return (
+                        False,
+                        f"Monotonicity break in external store at checkpoint {c.checkpoint_id}: "
+                        f"sequence {c.sequence_number} < previous {last_seq}",
+                    )
+                last_seq = c.sequence_number
+            return (True, None)
 
 
 class TamperEvidentSecurityAudit:
@@ -104,8 +217,15 @@ class TamperEvidentSecurityAudit:
 
             return (True, len(rows), None)
 
-    def create_checkpoint(self, signing_key: bytes | None = None) -> AuditCheckpoint:
-        """Create a cryptographically signed checkpoint of the current audit chain head."""
+    def create_checkpoint(
+        self,
+        signing_key: bytes | None = None,
+        private_key: Ed25519PrivateKey | None = None,
+    ) -> AuditCheckpoint:
+        """Create a cryptographically signed checkpoint of the current audit chain head.
+
+        Supports symmetric HMAC-SHA256 or asymmetric Ed25519 signing.
+        """
         valid, count, err = self.verify_chain_integrity()
         if not valid:
             raise RuntimeError(f"Cannot checkpoint corrupted audit ledger: {err}")
@@ -121,8 +241,16 @@ class TamperEvidentSecurityAudit:
         cid = f"chk_{secrets.token_hex(8)}"
         payload = f"{cid}:{count}:{head_hash}:{now_utc}"
 
-        key = signing_key or b"camserv-default-internal-audit-checkpoint-key-v1"
-        signature = hmac.new(key, payload.encode("utf-8"), hashlib.sha256).hexdigest()
+        if private_key is not None:
+            # Asymmetric Ed25519 signature
+            sig_bytes = private_key.sign(payload.encode("utf-8"))
+            signature = sig_bytes.hex()
+            algorithm = "Ed25519"
+        else:
+            # Symmetric HMAC-SHA256 signature
+            key = signing_key or b"camserv-default-internal-audit-checkpoint-key-v1"
+            signature = hmac.new(key, payload.encode("utf-8"), hashlib.sha256).hexdigest()
+            algorithm = "HMAC-SHA256"
 
         return AuditCheckpoint(
             checkpoint_id=cid,
@@ -130,23 +258,36 @@ class TamperEvidentSecurityAudit:
             head_entry_hash=head_hash,
             created_at_utc=now_utc,
             signature=signature,
+            algorithm=algorithm,
         )
 
     def verify_against_checkpoint(
         self,
         checkpoint: AuditCheckpoint,
         signing_key: bytes | None = None,
+        public_key: Ed25519PublicKey | None = None,
     ) -> tuple[bool, str | None]:
         """Verify that current database state matches an externally held signed checkpoint.
 
         Detects full-chain recalculation and historical database rollback attacks.
+        Supports both HMAC-SHA256 and Ed25519 verification.
         """
         # 1. Verify checkpoint signature
-        key = signing_key or b"camserv-default-internal-audit-checkpoint-key-v1"
         payload = f"{checkpoint.checkpoint_id}:{checkpoint.sequence_number}:{checkpoint.head_entry_hash}:{checkpoint.created_at_utc}"
-        expected_sig = hmac.new(key, payload.encode("utf-8"), hashlib.sha256).hexdigest()
-        if not hmac.compare_digest(checkpoint.signature, expected_sig):
-            return (False, "Checkpoint signature invalid or forged")
+
+        if checkpoint.algorithm == "Ed25519":
+            if public_key is None:
+                return (False, "Ed25519 public key required to verify Ed25519 checkpoint")
+            try:
+                sig_bytes = bytes.fromhex(checkpoint.signature)
+                public_key.verify(sig_bytes, payload.encode("utf-8"))
+            except (InvalidSignature, ValueError) as exc:
+                return (False, f"Ed25519 checkpoint signature invalid or forged: {exc}")
+        else:
+            key = signing_key or b"camserv-default-internal-audit-checkpoint-key-v1"
+            expected_sig = hmac.new(key, payload.encode("utf-8"), hashlib.sha256).hexdigest()
+            if not hmac.compare_digest(checkpoint.signature, expected_sig):
+                return (False, "Checkpoint signature invalid or forged")
 
         # 2. Check row count and head hash at that sequence number
         with self.store._lock:
@@ -173,6 +314,29 @@ class TamperEvidentSecurityAudit:
                 )
 
         return (True, None)
+
+    def create_and_persist_checkpoint(
+        self,
+        external_store: ExternalCheckpointStore,
+        signing_key: bytes | None = None,
+        private_key: Ed25519PrivateKey | None = None,
+    ) -> AuditCheckpoint:
+        """Create a checkpoint and atomically anchor it into an independent external store."""
+        checkpoint = self.create_checkpoint(signing_key=signing_key, private_key=private_key)
+        external_store.save_checkpoint(checkpoint)
+        return checkpoint
+
+    def verify_against_external_store(
+        self,
+        external_store: ExternalCheckpointStore,
+        signing_key: bytes | None = None,
+        public_key: Ed25519PublicKey | None = None,
+    ) -> tuple[bool, str | None]:
+        """Verify the current database against the latest checkpoint held in the external store."""
+        latest = external_store.get_latest_checkpoint()
+        if latest is None:
+            return (True, None)
+        return self.verify_against_checkpoint(latest, signing_key=signing_key, public_key=public_key)
 
     def export_jsonl(self, export_path: str | Path) -> int:
         """Export verified audit trail to a standalone JSONL file with hash chain metadata."""

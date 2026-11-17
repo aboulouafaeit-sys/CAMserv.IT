@@ -44,7 +44,19 @@ class SentinelConfig:
     admin_lockout_protection: bool = True    # Prevent remote DoS lockout of administrators
     allow_ip_roaming: bool = False           # Configurable roaming for mobile/VPN clients
     require_step_up_on_ip_change: bool = False
+    require_step_up_on_ua_change: bool = True
     exempt_ips: set[str] = field(default_factory=lambda: {"127.0.0.1", "::1"})
+    sensitive_actions: frozenset[str] = field(
+        default_factory=lambda: frozenset({
+            "camera:configure",
+            "evidence:export",
+            "evidence:delete",
+            "system:firmware_update",
+            "system:admin",
+            "emergency:lift",
+            "account:role_change",
+        })
+    )
 
 
 class SentinelMitigation:
@@ -229,9 +241,86 @@ class CAMservSentinelIdentity:
         session: SessionRecord,
         incoming_ip: str,
         incoming_ua: str,
+        action: str | None = None,
     ) -> SentinelMitigation:
-        """Detect potential session hijacking with risk-based mobile IP roaming support."""
-        if session.ip_address != incoming_ip:
+        """Detect potential session hijacking with multi-signal risk correlation.
+
+        Evaluates:
+        1. Concurrent IP and User-Agent mutation (high risk of token theft).
+        2. User-Agent / client fingerprint mutation.
+        3. IP address roaming across subnets vs same subnet.
+        4. Action sensitivity (routine read vs high-impact admin/export action).
+        """
+        ip_changed = session.ip_address != incoming_ip
+        ua_changed = session.user_agent != incoming_ua
+
+        # Multi-signal check 1: Simultaneous IP and UA mutation indicates probable session token theft/replay
+        if ip_changed and ua_changed:
+            ev = SecurityEvent(
+                event_id=uuid.uuid4().hex,
+                event_type="SENTINEL_SESSION_DUAL_MUTATION",
+                severity=SecurityEventSeverity.CRITICAL,
+                actor_id=session.user_id,
+                ip_address=incoming_ip,
+                details={
+                    "session_id": session.session_id,
+                    "orig_ip": session.ip_address,
+                    "new_ip": incoming_ip,
+                    "orig_ua": session.user_agent,
+                    "new_ua": incoming_ua,
+                },
+                action_taken="SESSION_REVOKED",
+            )
+            self.store.record_security_event(ev)
+            self.store.revoke_session(session.session_id, reason="concurrent_ip_and_ua_mutation")
+            return SentinelMitigation(
+                action="REVOKE_SESSION",
+                reason="Concurrent IP and User-Agent mutation detected",
+                event=ev,
+            )
+
+        # Multi-signal check 2: User-Agent mutation alone
+        if ua_changed and self.config.require_step_up_on_ua_change:
+            ev = SecurityEvent(
+                event_id=uuid.uuid4().hex,
+                event_type="SENTINEL_SESSION_UA_MUTATION",
+                severity=SecurityEventSeverity.WARNING,
+                actor_id=session.user_id,
+                ip_address=incoming_ip,
+                details={
+                    "session_id": session.session_id,
+                    "orig_ua": session.user_agent,
+                    "new_ua": incoming_ua,
+                },
+                action_taken="STEP_UP_REQUIRED",
+            )
+            self.store.record_security_event(ev)
+            return SentinelMitigation(
+                action="STEP_UP_REQUIRED",
+                reason="Client User-Agent fingerprint mutation requires step-up authentication",
+                event=ev,
+            )
+
+        # Multi-signal check 3: IP address mutation
+        if ip_changed:
+            # Check action sensitivity: even if roaming is enabled, sensitive actions after roaming require step-up
+            if action and action in self.config.sensitive_actions:
+                ev = SecurityEvent(
+                    event_id=uuid.uuid4().hex,
+                    event_type="SENTINEL_SESSION_ROAMING_SENSITIVE_ACTION_STEP_UP",
+                    severity=SecurityEventSeverity.WARNING,
+                    actor_id=session.user_id,
+                    ip_address=incoming_ip,
+                    details={"session_id": session.session_id, "action": action, "ip": incoming_ip},
+                    action_taken="STEP_UP_REQUIRED",
+                )
+                self.store.record_security_event(ev)
+                return SentinelMitigation(
+                    action="STEP_UP_REQUIRED",
+                    reason=f"Sensitive action '{action}' after network roaming requires step-up authentication",
+                    event=ev,
+                )
+
             if self.config.allow_ip_roaming:
                 # Legitimate IP roaming permitted (mobile networks / VPN transitions)
                 ev = SecurityEvent(

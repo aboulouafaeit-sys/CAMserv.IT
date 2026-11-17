@@ -101,35 +101,65 @@ class LocalAdministratorBootstrap:
         # Save to database
         self.store.store_bootstrap_token(token_hash, expires_at_iso)
 
-        # Security check: defeat symlink / reparse point attacks
-        if self.token_path.is_symlink():
+        # Security check: defeat symlink / junction / reparse point attacks
+        if self.token_path.is_symlink() or os.path.islink(self.token_path):
             raise BootstrapError("Symlink or reparse point detected at bootstrap token path")
 
-        # Atomic write to local file with restricted permissions
         self.token_path.parent.mkdir(parents=True, exist_ok=True)
-        fd = os.open(str(self.token_path), os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
-        with open(fd, "w", encoding="utf-8") as f:
-            f.write(f"{token}\n")
 
-        # POSIX permission hardening
-        try:
-            os.chmod(self.token_path, 0o600)
-        except Exception:
-            pass
+        # Defeat pre-created target substitution attacks
+        if self.token_path.exists():
+            try:
+                self.token_path.unlink()
+            except Exception as exc:
+                raise BootstrapError(f"Cannot unlink pre-existing token file: {exc}")
 
-        # Windows NTFS DACL hardening: strip inheritance and grant exclusive access to owner
+        # Step 1: Atomic exclusive file creation with O_CREAT | O_EXCL
+        # This guarantees that open fails if another process created the file in a TOCTOU race
+        fd = os.open(str(self.token_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        os.close(fd)  # Created as 0-byte file; permissions applied BEFORE writing sensitive content
+
+        # Step 2: Apply OS access controls BEFORE writing secret token
         import sys
         if sys.platform == "win32":
             try:
                 import subprocess
                 u = os.environ.get("USERNAME", "SYSTEM")
+                # Strip inheritance and grant exclusive Full control to owner and SYSTEM
                 subprocess.run(
-                    ["icacls", str(self.token_path), "/inheritance:r", "/grant:r", f"{u}:F"],
+                    ["icacls", str(self.token_path), "/inheritance:r", "/grant:r", f"{u}:F", "/grant:r", "SYSTEM:F"],
                     capture_output=True,
                     timeout=5.0,
                 )
+                # Verify resulting DACL does not grant access to unprivileged users
+                proc_verify = subprocess.run(
+                    ["icacls", str(self.token_path)],
+                    capture_output=True,
+                    text=True,
+                    timeout=5.0,
+                )
+                out = proc_verify.stdout
+                if "BUILTIN\\Users" in out or "Everyone" in out or "NT AUTHORITY\\Authenticated Users" in out:
+                    self.token_path.unlink(missing_ok=True)
+                    raise BootstrapError("Windows DACL hardening verification failed: unprivileged accounts retain access")
             except Exception as exc:
+                if isinstance(exc, BootstrapError):
+                    raise
                 logger.warning("bootstrap.windows_dacl_hardening_warning", error=str(exc))
+        else:
+            try:
+                os.chmod(self.token_path, 0o600)
+            except Exception:
+                pass
+
+        # Step 3: Write token content into the pre-hardened file and flush/sync
+        with open(self.token_path, "w", encoding="utf-8") as f:
+            f.write(f"{token}\n")
+            f.flush()
+            try:
+                os.fsync(f.fileno())
+            except Exception:
+                pass
 
         self.store.record_security_event(
             SecurityEvent(
@@ -286,13 +316,35 @@ class LocalAdministratorBootstrap:
         }
 
     def _shred_token_file(self) -> None:
-        """Securely overwrite and remove the bootstrap token file."""
+        """Securely overwrite and remove the bootstrap token file.
+
+        Note on Solid-State Storage & Flash Wear-Leveling Reality:
+        Overwriting logical file sectors on modern flash media (SSDs, eMMC, NVMe)
+        updates logical blocks via the Flash Translation Layer (FTL). Wear-leveling
+        and out-of-place writes mean physical flash cells may retain old bit patterns
+        until background garbage collection or TRIM runs. True physical sanitization
+        relies on full-disk hardware encryption (BitLocker/LUKS) or NVMe Secure Erase.
+        Software multi-pass overwrite is applied as best-effort defense-in-depth.
+        """
         if self.token_path.exists():
             try:
-                size = self.token_path.stat().st_size
+                size = max(self.token_path.stat().st_size, 64)
+                # Pass 1: Cryptographic pseudo-random bytes
                 with open(self.token_path, "wb") as f:
-                    f.write(os.urandom(max(size, 64)))
+                    f.write(os.urandom(size))
                     f.flush()
+                    try:
+                        os.fsync(f.fileno())
+                    except Exception:
+                        pass
+                # Pass 2: Zeroes
+                with open(self.token_path, "wb") as f:
+                    f.write(b"\x00" * size)
+                    f.flush()
+                    try:
+                        os.fsync(f.fileno())
+                    except Exception:
+                        pass
                 self.token_path.unlink()
             except Exception as exc:
                 logger.warning("failed_to_shred_bootstrap_token_file", error=str(exc))
