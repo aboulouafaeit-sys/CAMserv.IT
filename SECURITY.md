@@ -6,9 +6,9 @@ CAMserv provides continuous security updates and patches for active release trac
 
 | Version Track | Supported | Security Patch SLA |
 | :--- | :---: | :--- |
-| **0.2.x (Current / Active)** | **Yes** | Within 48 hours for Critical / High severity |
-| **0.1.x (Legacy Baseline)** | **Yes** | Backported critical security fixes |
-| **< 0.1.0** | No | Upgrade to latest release |
+| **0.10.x (Current Release Candidate / Active)** | **Yes** | Within 48 hours for Critical / High severity |
+| **0.9.x (Legacy Baseline)** | **Yes** | Backported critical security fixes |
+| **< 0.9.0** | No | Upgrade to latest release |
 
 ---
 

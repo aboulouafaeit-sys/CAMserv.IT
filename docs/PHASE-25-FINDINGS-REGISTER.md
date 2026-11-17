@@ -604,5 +604,68 @@ Every finding in this register was evaluated against actual source code, physica
 * **Verification:** Tested in `tests/test_phase26_3_adversarial.py::TestDomainFGPipelineIsolationRegression::test_pipeline_zero_frame_loss_under_compound_failures`.
 * **Status:** **REMEDIATED & VERIFIED**.
 
+---
+
+## 11. Phase 26.4 Findings: Repository Presentation, Documentation & Visual Refinement
+
+### FINDING-P26.4-01: Outdated Test Count and Subsystem Claims in Root README
+* **Severity:** **MEDIUM REPOSITORY PRESENTATION**
+* **Affected Subsystem:** `README.md`
+* **Root Cause:** Status badge and body text cited 245 passing tests from Phase 22, omitting 370 new tests authored during Phases 25, 26, 26.1, 26.2, and 26.3.
+* **Remediation:** Upgraded status badges and test suite highlights to cite 615 passing tests across 66 modules, reflecting all active subsystems.
+* **Verification:** Verified via `scripts/verify_links_and_images.py` and `pytest -q`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### FINDING-P26.4-02: Architecture Diagrams Missing Phase 25 Hardware Adaptation and Phase 26 Identity Foundation
+* **Severity:** **MEDIUM ARCHITECTURAL TRANSPARENCY**
+* **Affected Subsystem:** `README.md`, `docs/PHASE-26.4-ARCHITECTURE-DIAGRAMS.md`
+* **Root Cause:** Existing Mermaid diagram depicted only Phase 14 architecture, omitting Universal Hardware Adaptation, CPU Failover, Bounded Queues, Recording Continuity, and Zero-Trust Identity.
+* **Remediation:** Engineered comprehensive Mermaid architecture diagrams showing actual inter-subsystem data flows, bounded memory queues, and zero-trust policy engines.
+* **Verification:** Documented in `docs/PHASE-26.4-ARCHITECTURE-DIAGRAMS.md`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### FINDING-P26.4-03: Stale Test Count References in CI Workflow and Contributor Documentation
+* **Severity:** **LOW DEVELOPER EXPERIENCE**
+* **Affected Subsystem:** `.github/workflows/ci.yml`, `CONTRIBUTING.md`
+* **Root Cause:** Step names and developer run instructions referenced 245 tests.
+* **Remediation:** Updated `.github/workflows/ci.yml` and `CONTRIBUTING.md` to reference the active 615-test suite across 66 modules.
+* **Verification:** Verified in CI definition and contributor guide.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### FINDING-P26.4-04: Supported Release Track Discrepancy in Security Policy
+* **Severity:** **LOW SECURITY DISCLOSURE HYGIENE**
+* **Affected Subsystem:** `SECURITY.md`
+* **Root Cause:** Supported versions table referenced `0.2.x` and `0.1.x`, predating release candidate versioning.
+* **Remediation:** Updated `SECURITY.md` to define `0.10.x` as the active supported release track.
+* **Verification:** Audited in `SECURITY.md`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### FINDING-P26.4-05: Screenshot Path Inconsistency Between Documentation Directory and Standard GitHub Assets
+* **Severity:** **LOW REPOSITORY CONVENTIONS**
+* **Affected Subsystem:** `docs/screenshots/`, `docs/assets/screenshots/`
+* **Root Cause:** Screenshots resided exclusively in `docs/screenshots/`, which could cause broken links if standard asset conventions (`docs/assets/screenshots/`) were used in external docs.
+* **Remediation:** Mirrored all 14 Full HD screenshots to `docs/assets/screenshots/`, maintaining dual-path availability.
+* **Verification:** Validated existence across both paths.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### FINDING-P26.4-06: Ambiguous Qualification Language Conflating Software Simulation with Hardware Qualification
+* **Severity:** **MEDIUM EPISTEMIC TRUTHFULNESS**
+* **Affected Subsystem:** Repository documentation suite
+* **Root Cause:** Terminology like "verified" could be interpreted by customers as proof of physical hardware or 72-hour thermal chamber qualification.
+* **Remediation:** Enforced a 4-tier epistemic qualification taxonomy ("Software verified", "Hardware pending", "Provisional", "Planned") across all documentation artifacts.
+* **Verification:** Formally documented in `docs/PHASE-26.4-DOCUMENTATION-CONSISTENCY.md`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+
 
 

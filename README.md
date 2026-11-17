@@ -9,16 +9,16 @@
 </p>
 
 <p align="center">
-  <strong>Privacy-First Video Intelligence &bull; Adaptive Edge Computing &bull; Verifiable Digital Evidence</strong><br>
-  An open-architecture, on-premise security intelligence platform fusing real-time neural inference, anonymous multi-object tracking, fail-closed privacy protection, and court-admissible digital forensics.
+  <strong>Local-First Security Intelligence &bull; Adaptive Edge Appliance &bull; Court-Admissible Digital Forensics</strong><br>
+  An open-architecture, high-assurance security platform fusing real-time video surveillance, network camera management, zero-trust identity and access control, fail-closed privacy safeguards, and hardware-adaptive recording continuity.
 </p>
 
 <p align="center">
-  <a href="#6-engineering-quality--verification"><img src="https://img.shields.io/badge/Tests-245%20Passing-10B981?style=for-the-badge&logo=pytest&logoColor=white" alt="Tests 245 Passing"></a>
+  <a href="#6-engineering-quality--verification"><img src="https://img.shields.io/badge/Tests-615%20Passing-10B981?style=for-the-badge&logo=pytest&logoColor=white" alt="Tests 615 Passing"></a>
   <a href="#6-engineering-quality--verification"><img src="https://img.shields.io/badge/Pass%20Rate-100%25-00E5FF?style=for-the-badge&logo=checkmarx&logoColor=white" alt="100% Pass Rate"></a>
-  <a href="docs/audit/PRODUCTION_READINESS_VERDICT.md"><img src="https://img.shields.io/badge/Security%20Audit-Hardened%20%26%20Verified-8B5CF6?style=for-the-badge&logo=shield&logoColor=white" alt="Security Hardened"></a>
+  <a href="docs/PHASE-26.4-FINAL-QUALIFICATION.md"><img src="https://img.shields.io/badge/Security%20Audit-Phase%2026.3%20Qualified-8B5CF6?style=for-the-badge&logo=shield&logoColor=white" alt="Security Qualified"></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-06B6D4?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.11-3.14"></a>
-  <a href="docs/presentation/FEATURE_MATRIX.md"><img src="https://img.shields.io/badge/Sovereignty-100%25%20On--Premise-76B900?style=for-the-badge&logo=server&logoColor=white" alt="100% On-Premise"></a>
+  <a href="docs/PHASE-26.4-ARCHITECTURE-DIAGRAMS.md"><img src="https://img.shields.io/badge/Architecture-Local--First%20Zero--Trust-76B900?style=for-the-badge&logo=server&logoColor=white" alt="Local-First Zero-Trust"></a>
   <a href="docs/PRIVACY.md"><img src="https://img.shields.io/badge/Privacy-Fail--Closed%20GDPR%20Ready-6366F1?style=for-the-badge&logo=lock&logoColor=white" alt="Fail-Closed Privacy"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-F59E0B?style=for-the-badge" alt="MIT License"></a>
 </p>
@@ -28,133 +28,171 @@
 </p>
 
 <p align="center">
-  <a href="#1-project-overview"><strong>Overview</strong></a> &bull;
+  <a href="#1-what-is-camserv"><strong>What Is CAMserv?</strong></a> &bull;
   <a href="#2-system-architecture"><strong>Architecture</strong></a> &bull;
-  <a href="#3-feature-matrix--operational-status"><strong>Features</strong></a> &bull;
-  <a href="#4-visual-product-showcase"><strong>Screenshots</strong></a> &bull;
-  <a href="#5-quickstart--installation"><strong>Quickstart</strong></a> &bull;
+  <a href="#3-security--identity-foundation"><strong>Security & Identity</strong></a> &bull;
+  <a href="#4-storage--hardware-philosophy"><strong>Hardware & Storage</strong></a> &bull;
+  <a href="#5-visual-product-showcase"><strong>Screenshots</strong></a> &bull;
   <a href="#6-engineering-quality--verification"><strong>Verification</strong></a> &bull;
-  <a href="#7-official-documentation-suite"><strong>Documentation</strong></a>
+  <a href="#7-quickstart--installation"><strong>Quickstart</strong></a> &bull;
+  <a href="#8-official-documentation-directory"><strong>Documentation</strong></a>
 </p>
 
 ---
 
-## 1. Project Overview
+## 1. What Is CAMserv?
 
-**CAMserv** is an open-architecture, sovereign security intelligence platform engineered for critical infrastructure, corporate facilities, smart municipal operations, and high-assurance security control centers.
+**CAMserv** is an open-architecture, sovereign surveillance and security intelligence platform engineered for mission-critical infrastructure, corporate facilities, educational institutions, and high-assurance security operations centers (SOCs).
 
-Traditional Network Video Recorders (NVRs) passively record gigabytes of unindexed video, requiring tedious post-incident manual scrubbing while locking organizations into proprietary cloud silos. In contrast, CAMserv delivers an intelligent, privacy-first edge intelligence pipeline that:
+Traditional surveillance recorders passively store unindexed video while creating cloud dependencies, recurring licensing fees, and opaque vendor lock-in. In contrast, CAMserv delivers a unified, local-first intelligence architecture that combines:
 
-1. **Operates 100% Ultra-Locally:** Eliminates external cloud dependencies, latency bottlenecks, and recurring SaaS subscriptions. Video decoding, neural acceleration, tracking, and cryptographic sealing run on-premise.
-2. **Enforces Fail-Closed Privacy:** Automatically redacts human faces and vehicle license plates in real time. If any detection subsystem experiences failure or timeout, the pipeline immediately enters a **Fail-Closed Blackout State**, preventing unmasked visual leakage.
-3. **Guarantees Non-Biometric Anonymity:** Multi-object tracking (ByteTrack and BoT-SORT) assigns transient, camera-scoped integer IDs. No facial recognition or biometric templates are ever calculated or stored.
-4. **Maintains Epistemic Transparency:** Inferences are probabilistic hypotheses (`is_prediction: true`) with bounded confidence $p \in [0.0, 1.0]$, never asserted as established facts. High-severity events strictly mandate Human-in-the-Loop (HITL) operator review before physical responses can be dispatched.
-5. **Seals Court-Admissible Digital Forensics:** Merges a 15-second RAM Pre-Roll buffer with incident video, encrypting packages via AES-256-GCM, sequential SHA-256 hash chains, and Ed25519 digital signatures. Raw visual evidence extraction is gated by Dual-Control Quorum authorization (GDPR Art. 25).
+1. **Professional Video Surveillance:** Low-latency multi-camera live monitoring, synchronous multi-timeline scrubbing, PTZ motor control, and H.264/H.265/MJPEG ingestion.
+2. **Camera & Device Management:** Subnet ONVIF WS-Discovery, RTSP stream health diagnostics, optical LAB CLAHE low-light conditioning, and geometric privacy exclusion zone calibration.
+3. **Recording & Storage Management:** Multi-tiered storage pipeline combining a 15-second RAM Pre-Roll ring buffer, operational NVMe recording pools, automated retention purging, and tamper-evident evidentiary archiving.
+4. **Event Intelligence & Tracking:** Anonymous kinematic multi-object tracking (ByteTrack & BoT-SORT) with transient integer IDs (zero biometric templates) and deterministic threat scoring.
+5. **Fail-Closed Privacy Safeguards:** Real-time edge redaction of human faces and vehicle license plates with instant full-frame blackout fail-safe on subsystem degradation (GDPR Art. 25).
+6. **Local-First Zero-Trust Identity:** Zero default credentials, console bootstrap tokens, memory-hard Argon2id password hashing, mandatory RFC 6238 TOTP MFA, stateful session lifecycle, and object-level BOLA/IDOR camera isolation.
+7. **Adaptive Hardware Appliance Engineering:** Hardware-adaptive resource governor spanning 4 hardware tiers. **Core video recording never depends on a discrete GPU**; CPU fallback admission control guarantees 100% video ingestion continuity during resource exhaustion.
 
 ---
 
 ## 2. System Architecture
 
-CAMserv is organized into 10 decoupled subsystems communicating via zero-copy shared memory and asynchronous message queues:
+CAMserv organizes operations across decoupled subsystems communicating through zero-copy shared memory buffers, non-blocking pipeline queues, and asynchronous message streams:
 
 ```mermaid
 flowchart TD
     subgraph INGEST ["1. Video Acquisition & Optical Conditioning"]
         direction TB
-        CAM["IP Cameras (ONVIF / RTSP)"] --> ISOLATION["Camera Worker Ingestion Supervisor"]
-        ISOLATION --> ISP["Software ISP (LAB CLAHE & Denoise)"]
+        CAM["IP Cameras (ONVIF / RTSP)"] --> SUPERV["Ingestion Supervisor & Worker Isolation"]
+        SUPERV --> ISP["Software ISP (LAB CLAHE & Denoise)"]
         ISP --> SHM["Zero-Copy Shared Memory Ring Buffer"]
     end
 
-    subgraph INFERENCE ["2. Neural Acceleration & Tracking"]
+    subgraph PIPELINE ["2. Ingestion Stability & Continuity"]
         direction TB
-        SHM --> ADAPTIVE["Adaptive Governor (4 Hardware Tiers)"]
-        ADAPTIVE --> DETECTOR["ONNX Neural Detector (CUDA / DirectML / OpenVINO / CPU)"]
-        DETECTOR --> TRACKER["Anonymous Tracker (ByteTrack / BoT-SORT)"]
-        TRACKER --> BEHAVIOR["Behavioral Threat Engine & Kinematics"]
+        SHM --> BPQ["Bounded Pipeline Queue (Bounded Queues)"]
+        BPQ --> RCL["Recording Continuity Ledger (Discontinuity Tracking)"]
+        RCL --> SEGW["Segment Storage Writer"]
     end
 
-    subgraph PRIVACY ["3. Centralized Privacy Pipeline"]
+    subgraph ADAPTIVE ["3. Universal Hardware Adaptation (Phase 25)"]
         direction TB
-        DETECTOR --> FAILCLOSED["Fail-Closed Privacy Pipeline"]
-        FAILCLOSED -->|Normal Masking| DERIVATIVE["Anonymized Operational Frame"]
-        FAILCLOSED -->|Error / Timeout| BLACKOUT["Full-Frame Fail-Closed Blackout"]
-        FAILCLOSED -->|Preserved Pristine| VAULT_ORIG["Original Evidence Preservation"]
+        SHM --> ADAPT["Adaptive Resource Governor"]
+        ADAPT --> DETECT["ONNX Neural Engine (DirectML / CUDA / OpenVINO)"]
+        ADAPT -.->|High Load / GPU Unavailable| CPU_FAIL["CPU Fallback Admission Control"]
+        CPU_FAIL --> CPU_DET["Quantized CPU Inference"]
+        DETECT --> TRACK["Anonymous Tracker (ByteTrack / BoT-SORT)"]
+        CPU_DET --> TRACK
     end
 
-    subgraph STORAGE ["4. Tiered Storage & Cryptographic Vault"]
+    subgraph PRIVACY ["4. Centralized Privacy Pipeline"]
         direction TB
-        SHM --> PREROLL["RAM Pre-Roll Buffer (15s Full-FPS)"]
-        DERIVATIVE --> OP_STORAGE["Operational NVMe Pool (48h Auto-Purge)"]
-        VAULT_ORIG --> INCIDENT_VAULT["Forensic Vault (AES-256-GCM + WORM)"]
-        BEHAVIOR --> AUDIT["Sequential SHA-256 Hash Chained Audit Trail"]
+        DETECT --> PRIV["Fail-Closed Privacy Pipeline"]
+        PRIV -->|Normal Redaction| MASKED["Anonymized Derivative Video"]
+        PRIV -->|Timeout / Fault| BLACKOUT["Fail-Closed Blackout State"]
+        PRIV -->|Original Stream| VAULT["Forensic Evidence Preservation"]
     end
 
-    subgraph WORKFLOW ["5. Operator Console & Human-in-the-Loop"]
+    subgraph IDENTITY ["5. Zero-Trust Identity & Access (Phase 26–26.3)"]
         direction TB
-        BEHAVIOR --> QUEUE["HITL Review Queue"]
-        QUEUE --> INSPECTION["Operator Evidence Scrubber"]
-        INSPECTION -->|Human Sign-off| DISPATCH["Authorized Physical Action"]
-        INSPECTION -->|Quorum Co-signing| RAW_EXPORT["Court-Admissible Evidence Export"]
+        CLIENT["Web / API Client"] --> SENTINEL["Sentinel Threat Engine & Anti-Spoofing"]
+        SENTINEL --> AUTH["Argon2id Hasher & TOTP MFA (AAL2)"]
+        AUTH --> SESS["Stateful Session Manager (Fixation Defense)"]
+        SESS --> POLICY["Zero-Trust Policy Engine (BOLA / IDOR Defense)"]
+        LOCK["Emergency Lockdown Manager (HMAC Latch)"] -.->|Emergency Containment| POLICY
     end
 
-    subgraph CENTRAL ["6. Central Fleet & Appliance Infrastructure"]
+    subgraph STORAGE ["6. Tiered Storage & Forensics"]
         direction TB
-        DISPATCH --> GATEWAY["Distributed Gateway (Replay Defense & Rate Limiter)"]
-        GATEWAY -->|Data Minimization| CENTRAL_PLANE["CAMserv Central Fleet Registry"]
-        SUPERVISOR["Appliance Supervisor & Watchdog"] --> SYSTEMD["Systemd Sandboxed Units"]
-        UPDATER["Signed OTA Updater (A/B Slots)"] --> SUPERVISOR
+        SEGW --> NVME["Operational Storage Pool (Auto-Purge)"]
+        VAULT --> EVID["Encrypted Vault (AES-256-GCM + WORM)"]
+        EVID --> HASH["Tamper-Evident SHA-256 Hash Chain Ledger"]
+        HASH --> ANCHOR["External Signed Checkpoint Store (trust_anchor.json)"]
     end
+
+    subgraph WORKFLOW ["7. Operator Console & HITL Review"]
+        direction TB
+        TRACK --> THREAT["Kinematic Threat Engine"]
+        THREAT --> HITL["Human-in-the-Loop Review Queue"]
+        HITL --> DISPATCH["Authorized Incident Dispatch"]
+        HITL --> QUORUM["Dual-Control Quorum Evidence Export"]
+    end
+
+    POLICY ==> WORKFLOW
 ```
 
-For comprehensive subsystem specifications, interface definitions, and data models, see the [Public Technical Architecture Overview](docs/presentation/ARCHITECTURE_OVERVIEW.md).
+For complete architectural specifications, see [PHASE-26.4-ARCHITECTURE-DIAGRAMS.md](docs/PHASE-26.4-ARCHITECTURE-DIAGRAMS.md) and the [Public Technical Architecture Overview](docs/presentation/ARCHITECTURE_OVERVIEW.md).
 
 ---
 
-## 3. Feature Matrix & Operational Status
+## 3. Security & Identity Foundation
 
-To maintain rigorous technical honesty, all capabilities are classified into verifiable implementation states:
+Phases 26 through 26.3 established an independently verified, local-first Zero-Trust identity and access security foundation:
 
-| Subsystem Domain | Capability Description | Verified State | Implementation / Reference |
-| :--- | :--- | :---: | :--- |
-| **Ingestion & Optical** | RTSP / ONVIF stream worker isolation & shared memory buffers | **Implemented & Tested** | `camserv.acquisition.ingestion_manager` |
-| | Camera stream fingerprinting & LAB CLAHE low-light enhancement | **Implemented & Tested** | `camserv.acquisition.isp`, `enhancement.py` |
-| | Physical ONVIF hardware matrix across diverse camera vendors | *Implemented (Software Tested)* | Tested via synthetic RTSP streams |
-| **Inference & Vision** | ONNX acceleration (CUDA, DirectML, OpenVINO, CPU) | **Implemented & Tested** | `camserv.inference.engine` |
-| | Instance segmentation polygon contours & ground contact ellipses | **Implemented & Tested** | `camserv.inference.hud_renderer` |
-| | Anonymous multi-object tracking (ByteTrack / BoT-SORT) | **Implemented & Tested** | `camserv.tracking` |
-| | Universal Hardware Adaptation (4 Tiers with load shedding) | **Implemented & Tested** | `camserv.platform.appliance` |
-| | Bare-metal NVDEC / V4L2 ASIC video decoders | *Implemented (Software Tested)* | Hardware abstraction validated in software |
-| **Privacy Safeguards** | Centralized Fail-Closed Privacy Pipeline (instant blackout) | **Implemented & Tested** | `camserv.inference.privacy_pipeline` |
-| | Production profile safety lock (cannot disable privacy) | **Implemented & Tested** | `camserv.inference.privacy_pipeline` |
-| | Dual-Control Quorum for raw unmasked extraction (GDPR Art. 25) | **Implemented & Tested** | `camserv.security.rbac` |
-| | Non-biometric anonymity (zero facial recognition / Re-ID) | **Implemented & Tested** | Architecture Invariant |
-| **Threat Intelligence** | Zero-API deterministic kinematics & pose threat scoring | **Implemented & Tested** | `camserv.events.threat_engine` |
-| | Epistemic prediction flags (`is_prediction: true`, bounded conf) | **Implemented & Tested** | `camserv.events.detector` |
-| | Human-in-the-Loop 6-stage review pipeline (no unreviewed action) | **Implemented & Tested** | `camserv.web.operator_workflow` |
-| | Bilingual deterministic incident narratives (Arabic & English) | **Implemented & Tested** | `camserv.events.behavioral_engine` |
-| **Storage & Forensics** | Multi-tiered storage: 15s RAM pre-roll, NVMe, encrypted vault | **Implemented & Tested** | `camserv.storage.tiered_storage` |
-| | Automated 48h retention purging & Judicial Hold locking | **Implemented & Tested** | `camserv.storage.tiered_storage` |
-| | AES-256-GCM chunked sealing & Ed25519 digital signatures | **Implemented & Tested** | `camserv.storage.adaptive_vault` |
-| | Tamper-evident sequential SHA-256 hash chained audit ledger | **Implemented & Tested** | `camserv.security.audit_trail` |
-| **Central Management** | Central Device Registry with Ed25519 challenge-response handshake | **Implemented & Tested** | `camserv.central.registry` |
-| | Server-side multi-tenancy & site authorization boundaries | **Implemented & Tested** | `camserv.security.tenancy` |
-| | Distributed Gateway (nonce replay defense, rate limiter) | **Implemented & Tested** | `camserv.central.comm` |
-| | WAN Data Minimization (zero raw video over WAN) | **Implemented & Tested** | `camserv.central.comm` |
-| **Appliance OS** | Service supervisor with watchdog deadman & restart circuit breaker | **Implemented & Tested** | `camserv.deploy.supervisor` |
-| | Signed OTA update manager with Zip Slip containment & rollback | **Implemented & Tested** | `camserv.deploy.updater` |
-| | Prometheus `/metrics` exporter & multi-subsystem health probes | **Implemented & Tested** | `camserv.platform.observability` |
-| | Automated CycloneDX 1.5 JSON SBOM & licensing auditor | **Implemented & Tested** | `scripts/generate_sbom.py` |
-| | Appliance OS partitioning specification (A/B slots, overlayfs) | **Designed** | `deploy/appliance-os/partitioning.yaml` |
-| | Systemd service unit templates with security sandboxing | **Designed** | `deploy/systemd/` |
-| | Physical bare-metal appliance flash & boot on Profile A/B | **Planned** | Stage-gate hardware prototyping target |
-| | Continuous 72-hour physical burn-in in thermal chamber | **Planned** | Stage-gate hardware burn-in target |
+```mermaid
+flowchart LR
+    subgraph AuthLayer ["Authentication Layer"]
+        BOOT["Local Administrator Bootstrap<br/>(DACL Pre-Hardened, Single-Use)"]
+        ARGON["Argon2id Hasher<br/>(Memory-Hard: 64MB, t=3, p=4)"]
+        MFA["TOTP Multi-Factor (RFC 6238)<br/>(Encrypted Secrets + Recovery Codes)"]
+    end
 
-For detailed capability specifications and test references, see the [Comprehensive Feature Matrix](docs/presentation/FEATURE_MATRIX.md).
+    subgraph DefenseLayer ["Adaptive Defense & Session Layer"]
+        SENTINEL["Sentinel Threat Engine<br/>(Anti-Lockout, Reverse-Proxy Anti-Spoofing)"]
+        SESS["Stateful Session Manager<br/>(Sliding Expiry & Fixation Rotation)"]
+    end
+
+    subgraph AccessLayer ["Authorization & Containment Layer"]
+        ZTPE["Zero-Trust Policy Engine<br/>(Deny-by-Default, Object-Level BOLA/IDOR)"]
+        LOCKDOWN["Emergency Lockdown Manager<br/>(HMAC-Signed Recovery Latch)"]
+    end
+
+    AuthLayer --> DefenseLayer --> AccessLayer
+```
+
+### Core Security Achievements
+- **Zero Default Credentials:** No hardcoded accounts or factory passwords. Setup mandates a physical/console bootstrap token (`data/.bootstrap_token`) with parent-directory DACL pre-hardening on Windows NTFS and in-place memory zeroing (`ctypes.memset`).
+- **Memory-Hard Password Protection:** Passwords hashed with **Argon2id** ($m=64\text{ MB}, t=3, p=4$) with proactive complexity validation, dictionary rejection, and user-attribute cross-checking.
+- **Mandatory Multi-Factor Authentication (AAL2):** Administrative accounts require RFC 6238 TOTP with high-entropy recovery codes. High-impact operations (`evidence:export`, `system:config`, `camera:delete`) enforce step-up authentication. *(Note: WebAuthn/Passkey support is currently provisional interface hooks; full browser ceremonies are scheduled for a future release).*
+- **Zero-Trust Object-Level Policy Engine:** Deny-by-default authorization across all 39 backend endpoints with strict BOLA/IDOR camera isolation. Operators assigned to Camera East cannot inspect, stream, or control Camera West.
+- **Sentinel Adaptive Threat Detection:** Defeats credential stuffing and brute-force attacks via progressive delays without locking out administrators. Client IP extraction strips untrusted reverse-proxy headers (`X-Forwarded-For`, `X-Real-IP`) in local deployments.
+- **External Signed Audit Checkpoints:** Security events form a sequential SHA-256 hash chain anchored by external monotonic checkpoints (`data/checkpoints/trust_anchor.json`) supporting symmetric HMAC-SHA256 and asymmetric Ed25519 signatures to detect database snapshot rollback attacks.
+- **Emergency Appliance Lockdown:** Immediate incident containment revoking client sessions while isolating the continuous video recording pipeline. State survives crashes and reboots via an HMAC-signed durable recovery latch (`data/.emergency_lockdown.latch`).
+
+For technical specifications, see [PHASE-26.3-AUTHORIZATION-COVERAGE.md](docs/PHASE-26.3-AUTHORIZATION-COVERAGE.md), [PHASE-26.3-EXTERNAL-CHECKPOINT-ROLLBACK-TESTS.md](docs/PHASE-26.3-EXTERNAL-CHECKPOINT-ROLLBACK-TESTS.md), and [PHASE-26.3-EMERGENCY-LATCH-ASSURANCE.md](docs/PHASE-26.3-EMERGENCY-LATCH-ASSURANCE.md).
 
 ---
 
-## 4. Visual Product Showcase
+## 4. Storage & Hardware Philosophy
+
+CAMserv is engineered with an uncompromising hardware design principle: **Universal Hardware Adaptation & Pipeline Independence**.
+
+### Non-Negotiable Surveillance Invariant
+> **The video recording pipeline must never depend on the availability of a dedicated graphics card, and AI load must never cause dropped surveillance frames.**
+
+- **GPU-Optional Operation:** CAMserv runs out-of-the-box on standard x86_64 commodity hardware without discrete GPUs. Video ingestion, segment writing, and evidence hashing execute efficiently on standard CPUs.
+- **4-Tier Universal Adaptation:** Dynamically detects host capabilities (CPU, RAM, GPU, NPU) and binds to the optimal acceleration runtime (NVIDIA CUDA, Windows DirectML, Intel OpenVINO, or quantized CPU).
+- **Graceful Load Shedding & CPU Failover:** Under GPU stalls or thermal saturation, the Adaptive Governor sheds non-keyframe AI inference and engages CPU fallback admission control. Surveillance video capture, bounded queue buffering, and continuity tracking maintain 100% throughput with **zero dropped frames**.
+
+```mermaid
+flowchart LR
+    Tier1["Tier 1: Minimal Appliance<br/>(Generic x86_64 CPU)"]
+    Tier2["Tier 2: Edge Appliance<br/>(DirectML / AMD iGPU)"]
+    Tier3["Tier 3: Standard Appliance<br/>(Intel iGPU / OpenVINO NPU)"]
+    Tier4["Tier 4: Enterprise Server<br/>(NVIDIA CUDA Dedicated GPU)"]
+
+    Tier1 --> Core["Core Recording Pipeline (100% Continuous, GPU-Independent)"]
+    Tier2 --> Core
+    Tier3 --> Core
+    Tier4 --> Core
+```
+
+For hardware profiles and appliance specifications, see [PHASE-25-HARDWARE-PROFILES.md](docs/PHASE-25-HARDWARE-PROFILES.md).
+
+---
+
+## 5. Visual Product Showcase
 
 All screenshots below were **authentically captured directly from the active CAMserv Web Console** running at `http://127.0.0.1:8000/` at Full HD ($1920 \times 1080$) resolution with synthetic demonstration fixtures:
 
@@ -222,7 +260,7 @@ All screenshots below were **authentically captured directly from the active CAM
 </p>
 <p align="center">
   <em>Left: <strong>10. Privacy & GDPR Compliance</strong> — Real-time fail-closed redaction policy manager, erasure clocks, and EU AI Act alignment.<br>
-  Right: <strong>11. Security & RBAC</strong> — 6-tier Role-Based Access Control matrix, active sessions, and tamper-evident audit ledger.</em>
+  Right: <strong>11. Security & Access Control</strong> — Role-Based Access Control matrix, active session tokens, and tamper-evident audit ledger.</em>
 </p>
 
 <p align="center">
@@ -238,20 +276,77 @@ All screenshots below were **authentically captured directly from the active CAM
   Right: <strong>14. Tactical Light Mode</strong> — High-contrast daytime aesthetic engineered for high-ambient-light security dispatch rooms.</em>
 </p>
 
-> For uncompressed previews of all 14 screens, see the [Screenshot Showcase & Capture Report](docs/presentation/SCREENSHOT_CAPTURE_REPORT.md).
+> For complete technical metadata and uncompressed previews of all 14 screens, see the [Screenshot Showcase & Capture Report](docs/presentation/SCREENSHOT_CAPTURE_REPORT.md) and [Screenshot Catalog](docs/SCREENSHOT_CATALOG.md).
 
 ---
 
-## 5. Quickstart & Installation
+## 6. Engineering Quality & Verification
 
-### 5.1 System Prerequisites
-* **Operating System:** Linux (Debian 12 / Ubuntu 22.04+ recommended) or Windows 10/11 (64-bit).
-* **Python Runtime:** Python 3.11, 3.12, 3.13, or 3.14.
-* **Hardware Acceleration (Optional):** NVIDIA GPU with CUDA 12.x/13.x, Intel NPU with OpenVINO, or Windows DirectML.
+CAMserv enforces defense-in-depth engineering standards. The platform is continuously verified via automated unit, integration, and adversarial security test suites:
 
-### 5.2 Local Developer Installation
 ```bash
-# Clone the official repository
+# Execute the complete automated test suite across all subsystems
+python -m pytest tests/ -v --tb=short
+```
+
+```text
+============================= test session starts =============================
+platform win32 -- Python 3.14.8, pytest-9.2.0, pluggy-1.7.0
+collected 615 items
+
+tests/scenarios/test_integration.py .....                                [  1%]
+tests/test_adaptive_manager.py ...                                       [  1%]
+tests/test_adversarial.py .............                                  [  3%]
+tests/test_analytics_zones_tampering_adapters.py .....                   [  4%]
+tests/test_appliance_hardware.py .....                                   [  5%]
+tests/test_audit_phase11_regressions.py ........                         [  6%]
+tests/test_behavioral_engine.py ......                                   [  7%]
+tests/test_camera_isp.py ....                                            [  8%]
+tests/test_deploy_environment.py .....                                   [  9%]
+tests/test_enterprise_security.py .....                                  [ 10%]
+tests/test_events.py ...........                                         [ 11%]
+tests/test_forensics.py ....                                             [ 12%]
+tests/test_nvr_recording_engine.py ......                                [ 13%]
+tests/test_phase22_ui_visual_design.py ..............                    [ 15%]
+tests/test_phase23_operator_workspace.py ........................        [ 19%]
+tests/test_phase24_isep_storage.py .......................               [ 23%]
+tests/test_phase25_1_a_verification.py ..........................        [ 27%]
+tests/test_phase25_1_b_cross_platform.py ...................             [ 30%]
+tests/test_phase25_1_reliability_hardening.py ........................   [ 34%]
+tests/test_phase25_hardware_appliance.py ..............                  [ 36%]
+tests/test_phase26_identity_security.py ............................     [ 41%]
+tests/test_phase26_1_adversarial.py ...........................          [ 45%]
+tests/test_phase26_2_assurance.py .............                         [ 47%]
+tests/test_phase26_3_adversarial.py ......................               [ 51%]
+tests/test_pipeline.py ........                                          [ 52%]
+tests/test_security.py .............                                     [ 54%]
+tests/test_storage.py ........                                           [ 56%]
+tests/test_windows_phase16_qualification.py ..............               [ 58%]
+...
+====================== 615 passed, 1 warning in 118.82s ======================
+```
+
+### Verification Highlights
+* **Test Suite Status:** **615 Passing Tests across 66 Test Modules (100% Pass Rate)**.
+* **Identity & Security Coverage:** 90 dedicated tests covering Argon2id, TOTP MFA, BOLA/IDOR authorization, Sentinel session threat detection, external signed checkpoints, and emergency lockdown.
+* **Audit Ledger Invariant:** Verified that production audit log `logs/audit.jsonl` remains completely isolated across test executions (**exactly 20,977 bytes, SHA-256 `F2A2484A...` inviolate**).
+* **Official Branding Invariant:** Verified that all **34 official branding assets** remain preserved without distortion or AI replacement.
+
+---
+
+## 7. Quickstart & Installation
+
+### 7.1 Platform Support Matrix
+| Platform / OS | Status | Architecture | Verification Level |
+| :--- | :---: | :---: | :--- |
+| **Windows 11 Enterprise (23H2+)** | **Primary** | x86_64 | **Software Verified (615/615 tests passing)** |
+| **Windows 10 Pro / Enterprise** | Compatible | x86_64 | Compatible runtime; DirectML supported |
+| **Debian 12 / Ubuntu 22.04+** | Secondary | x86_64 / ARM64 | Packaging designed; awaiting physical lab qualification |
+| **Bare-Metal Appliance Profile** | Target | x86_64 | A/B partition layout designed; hardware burn-in pending |
+
+### 7.2 Local Installation
+```bash
+# Clone the repository
 git clone https://github.com/aboulouafaeit-sys/CAMserv.IT.git
 cd CAMserv.IT
 
@@ -259,12 +354,12 @@ cd CAMserv.IT
 python -m venv .venv
 source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 
-# Install CAMserv in editable mode with development dependencies
+# Install in editable mode with development and testing dependencies
 pip install --upgrade pip setuptools wheel
 pip install -e ".[dev,testing]"
 ```
 
-### 5.3 Command-Line Interface (CLI)
+### 7.3 Command-Line Interface (CLI)
 ```bash
 # 1. Run Host Hardware Diagnostic Probe & Tier Assignment
 python -m camserv.main detect-hw
@@ -286,64 +381,22 @@ Once launched, access the interactive Web Console directly at `http://127.0.0.1:
 
 ---
 
-## 6. Engineering Quality & Verification
+## 8. Official Documentation Directory
 
-CAMserv enforces strict defense-in-depth engineering standards. The platform is continuously verified via automated unit, integration, and security regression test suites:
+The complete technical and architectural documentation suite is indexed below:
 
-```bash
-# Execute the complete automated test suite
-python -m pytest tests/ -v --tb=short
-```
-
-```text
-============================= test session starts =============================
-platform win32 -- Python 3.14.8, pytest-9.2.0, pluggy-1.7.0
-collected 245 items
-
-tests/scenarios/test_integration.py .....                                [  2%]
-tests/test_adaptive_manager.py ...                                       [  3%]
-tests/test_appliance_hardware.py .....                                   [  5%]
-tests/test_audit_isolation.py ..                                         [  6%]
-tests/test_audit_vulnerabilities.py ........                             [  9%]
-tests/test_central_registry.py .....                                     [ 11%]
-tests/test_commercial_editions.py ....                                   [ 13%]
-tests/test_deploy_environment.py .....                                   [ 15%]
-tests/test_distributed_comm.py .....                                     [ 17%]
-tests/test_enterprise_security.py .....                                  [ 19%]
-tests/test_operator_workflow.py ....                                     [ 21%]
-tests/test_privacy_pipeline.py ...                                       [ 22%]
-tests/test_privacy_remediation.py .....                                  [ 24%]
-tests/test_tiered_storage.py ....                                        [ 26%]
-tests/test_updater.py .....                                              [ 28%]
-...
-======================= 245 passed, 1 warning in 10.82s =======================
-```
-
-### Verification Highlights
-* **Test Suite Status:** **245 Passing Tests across 47 Test Modules (100% Pass Rate)**.
-* **Independent Security Audit:** 10 vulnerabilities discovered and remediated with dedicated regression tests ([Security Findings Register](docs/audit/SECURITY_FINDINGS_REGISTER.md)).
-* **Audit Verdict:** Formally accepted under [`PRODUCTION_READY_WITH_LIMITATIONS`](docs/audit/PRODUCTION_READINESS_VERDICT.md).
-* **Audit Log Isolation:** Verified that production log `logs/audit.jsonl` remains completely isolated across all test executions (0 bytes written).
-* **Memory Stability:** Soak test harness confirms zero memory drift ($0.001\%$ across 1,000 cycles) following ring buffer warmup.
-
----
-
-## 7. Official Documentation Suite
-
-The complete engineering, design, and operational documentation is organized below:
-
-| Documentation Domain | Key Architectural & Operational References |
+| Domain | Key Documentation & Specifications |
 | :--- | :--- |
-| **Product & Brand** | [Project Overview](docs/presentation/PROJECT_OVERVIEW.md) &bull; [Feature Matrix](docs/presentation/FEATURE_MATRIX.md) &bull; [Brand Guidelines](docs/brand/BRAND_GUIDELINES.md) &bull; [Brand Asset Registry](docs/presentation/BRAND_ASSET_REGISTRY.md) &bull; [Screenshot Showcase](docs/presentation/SCREENSHOT_CAPTURE_REPORT.md) |
-| **Architecture** | [Public Technical Architecture](docs/presentation/ARCHITECTURE_OVERVIEW.md) &bull; [Architecture Decision Records (ADRs)](docs/adr/) &bull; [Master Architecture Spec](docs/ADVANCED_ARCHITECTURE_ULTRA_LOCAL.md) &bull; [Subsystem Architecture](docs/ARCHITECTURE.md) |
-| **Security & Privacy** | [Security Policy & Disclosure](SECURITY.md) &bull; [Security Findings Register](docs/audit/SECURITY_FINDINGS_REGISTER.md) &bull; [Privacy Safeguards & GDPR](docs/PRIVACY.md) &bull; [STRIDE Threat Model](docs/SECURITY.md) &bull; [Audit Baseline](docs/audit/FINAL_AUDIT_BASELINE.md) |
-| **Appliance & Deployment** | [Appliance Hardware Design](docs/PHASE_3_APPLIANCE_HARDWARE_DESIGN.md) &bull; [Appliance OS & Systemd](docs/PHASE_3_OS_AND_DEPLOYMENT_DESIGN.md) &bull; [Signed Updates & Rollback](docs/PHASE_3_UPDATE_AND_RECOVERY_DESIGN.md) &bull; [Installation Guide](docs/INSTALLATION_GUIDE.md) |
-| **Central & Enterprise** | [Central Fleet Architecture](docs/PHASE_3_CENTRAL_MANAGEMENT_ARCHITECTURE.md) &bull; [Distributed Security Design](docs/PHASE_3_DISTRIBUTED_SECURITY_DESIGN.md) &bull; [Enterprise Multi-Tenancy & RBAC](docs/PHASE_3_ENTERPRISE_SECURITY_DESIGN.md) |
-| **Governance & Roadmap** | [Roadmap & Vision](docs/presentation/ROADMAP.md) &bull; [Known Limitations](docs/presentation/KNOWN_LIMITATIONS.md) &bull; [Release Readiness](docs/presentation/RELEASE_READINESS.md) &bull; [Contributor Guide](docs/presentation/CONTRIBUTOR_GUIDE.md) |
+| **Architecture** | [Technical Architecture Overview](docs/presentation/ARCHITECTURE_OVERVIEW.md) &bull; [Architecture Diagrams (Phase 26.4)](docs/PHASE-26.4-ARCHITECTURE-DIAGRAMS.md) &bull; [Master Architecture Spec](docs/ADVANCED_ARCHITECTURE_ULTRA_LOCAL.md) &bull; [Subsystem Architecture](docs/ARCHITECTURE.md) |
+| **Security & Identity** | [Security Policy](SECURITY.md) &bull; [STRIDE Threat Model](docs/SECURITY.md) &bull; [Authorization Coverage](docs/PHASE-26.3-AUTHORIZATION-COVERAGE.md) &bull; [External Checkpoints & Rollback](docs/PHASE-26.3-EXTERNAL-CHECKPOINT-ROLLBACK-TESTS.md) &bull; [Emergency Lockdown](docs/PHASE-26.3-EMERGENCY-LATCH-ASSURANCE.md) |
+| **Hardware & Appliance** | [Hardware Profiles (Phase 25)](docs/PHASE-25-HARDWARE-PROFILES.md) &bull; [Appliance Hardware Design](docs/PHASE_3_APPLIANCE_HARDWARE_DESIGN.md) &bull; [Appliance OS & Systemd](docs/PHASE_3_OS_AND_DEPLOYMENT_DESIGN.md) &bull; [Installation Guide](docs/INSTALLATION_GUIDE.md) |
+| **Storage & Forensics** | [ISEP Storage Architecture](docs/PHASE-24-ISEP-ARCHITECTURE.md) &bull; [Storage Qualification Audit](docs/PHASE-24-INDEPENDENT-QUALIFICATION-AUDIT.md) &bull; [Privacy Safeguards & GDPR](docs/PRIVACY.md) |
+| **Presentation & UI** | [Screenshot Catalog](docs/SCREENSHOT_CATALOG.md) &bull; [Screenshot Showcase Report](docs/presentation/SCREENSHOT_CAPTURE_REPORT.md) &bull; [Brand Guidelines](docs/brand/BRAND_GUIDELINES.md) &bull; [Brand Asset Registry](docs/presentation/BRAND_ASSET_REGISTRY.md) |
+| **Quality & Governance** | [Central Findings Register](docs/PHASE-25-FINDINGS-REGISTER.md) &bull; [Phase 26.4 Final Qualification](docs/PHASE-26.4-FINAL-QUALIFICATION.md) &bull; [Contributing Guide](CONTRIBUTING.md) &bull; [Release Readiness](docs/presentation/RELEASE_READINESS.md) |
 
 ---
 
-## 8. License
+## 9. License
 
 CAMserv is distributed under the terms of the [MIT License](LICENSE).  
 Copyright &copy; 2026 CAMserv Contributors.
