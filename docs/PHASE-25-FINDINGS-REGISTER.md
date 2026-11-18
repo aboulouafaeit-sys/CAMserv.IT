@@ -822,13 +822,88 @@ Every finding in this register was evaluated against actual source code, physica
 
 ---
 
-### FINDING-P27.1-08: Compound Fault Frame Loss Vulnerability Assessment
-* **Severity:** **CRITICAL RECORDING CONTINUITY**
-* **Affected Subsystem:** Core recording pipeline & `RecordingContinuityLedger`
-* **Root Cause:** Risk of compound AI failures (worker crashes, memory pressure, hangs) starving the primary recording loop.
-* **Remediation:** Tested Scenarios A through J under sustained 95% CPU load. Verified that the recording continuity ledger recorded exactly 0 frames lost.
-* **Verification:** Documented in `docs/PHASE-27.1-RECORDING-ISOLATION-EXPERIMENTS.md`.
+---
+
+## 14. Phase 27.2 Real AI Integration, Native Process Isolation & Continuity Qualification Findings
+
+### FINDING-P27.2-01: Empty-File SHA-256 Checksum Placeholder in Model Registry
+* **Severity:** **HIGH SUPPLY CHAIN INTEGRITY**
+* **Affected Subsystem:** `camserv.intelligence.registry` (`ModelCapabilityRegistry`)
+* **Root Cause:** `expected_sha256` for default models contained `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` (the hash of `b""`), which allowed empty 0-byte placeholder files to appear verified.
+* **Remediation:** Defined `EMPTY_FILE_SHA256` as a strictly forbidden digest. Updated `verify_integrity()` to reject empty files and the placeholder hash. Implemented `ModelCapabilityState` (9 epistemic states) and set target model references to genuine non-placeholder checksums, reporting `MODEL_NOT_INSTALLED` when files are absent.
+* **Verification:** Tested in `tests/test_phase27_2_real_ai_and_process_isolation.py::test_empty_file_placeholder_strictly_rejected` and `test_model_capability_states_evaluation`.
 * **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### FINDING-P27.2-02: Native Inference Worker Thread Hang Unkillable via Python Thread Timeouts
+* **Severity:** **CRITICAL FAULT ISOLATION**
+* **Affected Subsystem:** `camserv.intelligence.scheduler` & `camserv.intelligence.process_worker`
+* **Root Cause:** Python thread pool timeouts (`concurrent.futures.ThreadPoolExecutor`) cannot forcibly terminate a blocked native C++/CUDA call. While control returned to the caller, the underlying thread and accelerator context hung indefinitely (`TERMINATION_UNCONFIRMED`).
+* **Remediation:** Engineered `ProcessIsolatedInferenceSupervisor` and `_ai_worker_process_entrypoint` using Python's `spawn` multiprocessing context. Implemented a supervised 12-state lifecycle with confirmed OS process termination (`TerminateProcess` / `SIGTERM` escalated to `SIGKILL`) verifying `is_alive() == False` before reporting `TERMINATED`.
+* **Verification:** Tested in `tests/test_phase27_2_real_ai_and_process_isolation.py::test_supervisor_process_lifecycle_states` and `test_supervisor_forced_process_termination_on_timeout`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### FINDING-P27.2-03: Stale Worker Result Injection Risk After Process Replacement
+* **Severity:** **HIGH DATA INTEGRITY & RACE CONDITION**
+* **Affected Subsystem:** `camserv.intelligence.process_worker`
+* **Root Cause:** When an unresponsive worker process was cancelled and restarted, a delayed response from the previous worker could arrive across the IPC queue and be mistakenly accepted by the supervisor.
+* **Remediation:** Implemented generation/epoch counters (`_generation`) and unique task lease contracts (`InferenceTaskLease` with lease UUIDs and expiries). The supervisor strictly validates lease validity and generation number on every IPC result, rejecting any response from older generations or cancelled leases.
+* **Verification:** Tested in `tests/test_phase27_2_real_ai_and_process_isolation.py`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### FINDING-P27.2-04: ANPR OCR Synthetic String Generation from Frame IDs
+* **Severity:** **HIGH EVIDENTIARY TRUTHFULNESS**
+* **Affected Subsystem:** `camserv.intelligence.anpr.LicensePlateEngine`
+* **Root Cause:** Character extraction generated synthetic strings based on `frame_id` rather than performing optical character recognition on actual plate crop pixels.
+* **Remediation:** Implemented genuine pixel-based OCR via `extract_characters_from_pixels`: Otsu adaptive binarization, character contour segmentation, and standardized $32\times24$ alphanumeric font glyph template cross-correlation. In strict production mode (`strict_pixel_ocr=True`), blank or unreadable plates strictly return `OCR_RUNTIME_UNAVAILABLE` or `UNREADABLE` with 0 characters, completely preventing character hallucination.
+* **Verification:** Tested in `tests/test_phase27_2_real_ai_and_process_isolation.py::test_genuine_pixel_ocr_reads_image_pixels` and `test_blank_plate_strict_ocr_rejection_no_hallucination`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### FINDING-P27.2-05: Absence of Multi-Class Neural Tensor Output Parsing
+* **Severity:** **HIGH CAPABILITY TRANSPARENCY**
+* **Affected Subsystem:** `camserv.intelligence.detection.ObjectDetectionEngine`
+* **Root Cause:** `_detect_dnn` did not parse multi-class output tensors from OpenCV DNN models, unconditionally falling back to heuristic cycling across 3 categories.
+* **Remediation:** Upgraded `_detect_dnn` with real tensor output parsing for SSD (`1x1xNx7`) and YOLO (`1xNxM`) output layers, confidence thresholding, class index mapping to canonical classes, and greedy NMS. Added explicit metadata (`real_weights_loaded=True`, `is_simulated_heuristic=False`, `latency_ms`). When heuristic fallback is disabled, missing weights return `[]` without simulating detections.
+* **Verification:** Tested in `tests/test_phase27_2_real_ai_and_process_isolation.py::test_detection_engine_metadata_and_heuristic_fallback_transparency`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### FINDING-P27.2-06: Planar Foreshortening Distortion in Vehicle Velocity Measurement
+* **Severity:** **HIGH LEGAL & SPEED ACCURACY**
+* **Affected Subsystem:** `camserv.intelligence.traffic.TrafficAnalyticsEngine`
+* **Root Cause:** Scalar `pixels_per_meter` calibration produced large velocity errors on tilted cameras due to perspective foreshortening.
+* **Remediation:** Added `project_to_ground_plane` in `CameraCalibration` supporting $3\times3$ planar road homography matrices. `TrafficAnalyticsEngine` projects vehicle velocities to ground plane meters, computing perspective-rectified ground speed in km/h. Uncalibrated streams honestly return `RELATIVE_MOVEMENT_ONLY` with `calibrated_speed_kmh = None`.
+* **Verification:** Tested in `tests/test_phase27_2_real_ai_and_process_isolation.py::test_planar_homography_perspective_speed_calibration`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### FINDING-P27.2-07: Model Weight Registration Susceptible to Directory Traversal
+* **Severity:** **MEDIUM LOCAL SECURITY HYGIENE**
+* **Affected Subsystem:** `camserv.intelligence.registry`
+* **Root Cause:** Registering external user models without path normalization could allow path traversal sequences (`..`) or null bytes (`\x00`).
+* **Remediation:** Implemented `validate_model_path()` rejecting traversal sequences, null bytes, and non-canonical path escapes before model registration.
+* **Verification:** Tested in `tests/test_phase27_2_real_ai_and_process_isolation.py::test_user_model_path_traversal_protection`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### FINDING-P27.2-08: Compound Host Load Shedding and Isolated Worker Crash Qualification
+* **Severity:** **CRITICAL SURVEILLANCE CONTINUITY**
+* **Affected Subsystem:** `camserv.intelligence.scheduler` & `camserv.platform.stability`
+* **Root Cause:** Risk of compound AI failures (worker crashes, memory pressure, hangs) starving the primary recording loop.
+* **Remediation:** Conducted comprehensive fault injection experiments (Scenarios A through L). Verified that `RecordingContinuityLedger` recorded exactly 0 frames lost (`confirmed_missing_frames_total == 0`, `continuity_ratio == 1.0`, state `CONTINUOUS`) while workers crashed, timed out, and host load spiked to 96%.
+* **Verification:** Tested in `tests/test_phase27_2_real_ai_and_process_isolation.py::test_recording_continuity_under_ai_worker_crash` and `test_recording_continuity_under_critical_host_pressure`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
 
 
 

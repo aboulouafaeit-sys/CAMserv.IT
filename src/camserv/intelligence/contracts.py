@@ -68,15 +68,38 @@ class TrackLifecycleState(str, enum.Enum):
     REMOVED = "removed"      # Evicted from tracker (exited scene or timed out)
 
 
-class WorkerLifecycleState(str, enum.Enum):
-    """Accurate lifecycle states for AI inference workers."""
+class ModelCapabilityState(str, enum.Enum):
+    """Epistemic operational readiness and verification state of an AI model."""
 
+    MODEL_NOT_INSTALLED = "model_not_installed"
+    MODEL_LOADING = "model_loading"
+    MODEL_READY = "model_ready"
+    MODEL_INTEGRITY_VERIFIED = "model_integrity_verified"
+    MODEL_INTEGRITY_FAILED = "model_integrity_failed"
+    MODEL_RUNTIME_UNAVAILABLE = "model_runtime_unavailable"
+    MODEL_UNSUPPORTED = "model_unsupported"
+    MODEL_LICENSE_UNVERIFIED = "model_license_unverified"
+    MODEL_INFERENCE_FAILED = "model_inference_failed"
+
+
+class WorkerLifecycleState(str, enum.Enum):
+    """
+    Accurate lifecycle states for AI inference workers (Phase 27.2 Process Isolation).
+    No state may falsely claim a worker process has terminated.
+    """
+
+    CREATED = "created"
+    STARTING = "starting"
+    READY = "ready"
     RUNNING = "running"                                    # Actively executing task
+    UNRESPONSIVE = "unresponsive"                          # Health check missed or lease expired
     CANCELLATION_REQUESTED = "cancellation_requested"      # Timeout or stop signal sent
-    TERMINATION_UNCONFIRMED = "termination_unconfirmed"    # Caller released, but native thread termination unconfirmed
-    TERMINATED = "terminated"                              # Worker thread/process confirmed dead
-    RESTART_PENDING = "restart_pending"                    # Queued for restart
-    RECOVERY_FAILED = "recovery_failed"                    # Recovery failed
+    GRACEFUL_TERMINATION_REQUESTED = "graceful_termination_requested"  # Graceful exit requested
+    FORCE_TERMINATION_REQUESTED = "force_termination_requested"        # Escalating to SIGTERM/SIGKILL
+    TERMINATION_UNCONFIRMED = "termination_unconfirmed"    # Native execution timed out, exit unconfirmed
+    TERMINATED = "terminated"                              # Worker process confirmed dead via OS check
+    RESTART_PENDING = "restart_pending"                    # Queued for restart with incremented generation
+    RECOVERY_FAILED = "recovery_failed"                    # Recovery or restart circuit breaker tripped
 
 
 class SpeedMeasurementStatus(str, enum.Enum):
@@ -104,6 +127,9 @@ class PlateProcessingStatus(str, enum.Enum):
     UNREADABLE = "unreadable"                  # Plate failed optical quality assessment
     REVIEW_REQUIRED = "review_required"        # Human verification workflow needed
     UNAUTHORIZED = "unauthorized"              # ANPR disabled or unauthorized for camera
+    UNSUPPORTED_FORMAT = "unsupported_format"  # Plate format syntax unrecognized
+    OCR_RUNTIME_UNAVAILABLE = "ocr_runtime_unavailable"  # OCR model or runtime unavailable
+    OCR_SIMULATED = "ocr_simulated"            # Test simulator / synthetic fallback
 
 
 class TrafficCongestionLevel(str, enum.Enum):
@@ -282,6 +308,25 @@ class CameraCalibration:
     calibration_date_utc: str = ""
     notes: str = "Uncalibrated default — relative pixel movement only."
 
+    def project_to_ground_plane(self, u: float, v: float) -> tuple[float, float] | None:
+        """
+        Project image coordinates (u, v) to ground plane (X_w, Y_w) in meters using
+        the 3x3 planar homography matrix H.
+        [X', Y', W']^T = H * [u, v, 1]^T
+        X_w = X' / W', Y_w = Y' / W'
+        """
+        if not self.homography_matrix or len(self.homography_matrix) != 3:
+            return None
+        h = self.homography_matrix
+        if any(len(row) != 3 for row in h):
+            return None
+        xp = h[0][0] * u + h[0][1] * v + h[0][2]
+        yp = h[1][0] * u + h[1][1] * v + h[1][2]
+        wp = h[2][0] * u + h[2][1] * v + h[2][2]
+        if abs(wp) < 1e-6:
+            return None
+        return (xp / wp, yp / wp)
+
 
 @dataclass(slots=True)
 class TrafficCountingLine:
@@ -428,3 +473,21 @@ class CameraIntelligenceConfig:
     anpr_legal_justification: str = ""
     calibration: CameraCalibration = field(default_factory=lambda: CameraCalibration(camera_id="default"))
     metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class InferenceTaskLease:
+    """Lease contract governing an execution task assigned to an isolated worker."""
+
+    lease_id: str
+    worker_id: str
+    generation: int
+    camera_id: str
+    created_at_utc: float
+    expires_at_utc: float
+    is_cancelled: bool = False
+
+    @property
+    def is_expired(self) -> bool:
+        return time.time() > self.expires_at_utc
+

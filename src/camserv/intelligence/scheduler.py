@@ -22,11 +22,14 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, TypeVar
 
 from camserv.intelligence.contracts import (
+    BoundingBox,
+    DetectionPrediction,
     EngineHealthStatus,
     HardwareOperatingTier,
     IntelligencePriority,
     WorkerLifecycleState,
 )
+from camserv.intelligence.process_worker import ProcessIsolatedInferenceSupervisor
 
 T = TypeVar("T")
 
@@ -141,6 +144,7 @@ class AIResourceScheduler:
         self._active_tasks = 0
         self._camera_queues: dict[str, collections.deque[float]] = {}
         self._worker_states: dict[str, WorkerLifecycleState] = {}
+        self._supervisors: dict[str, ProcessIsolatedInferenceSupervisor] = {}
         self._next_worker_id: int = 1
         self._metrics = SchedulerMetrics(current_tier=self._tier)
 
@@ -319,6 +323,80 @@ class AIResourceScheduler:
                 if queue and len(queue) > 0:
                     queue.popleft()
 
+    def get_or_create_process_supervisor(
+        self,
+        camera_id: str,
+    ) -> ProcessIsolatedInferenceSupervisor:
+        """Retrieve or initialize a dedicated process-isolated supervisor for a camera."""
+        with self._lock:
+            if camera_id not in self._supervisors:
+                self._supervisors[camera_id] = ProcessIsolatedInferenceSupervisor(
+                    worker_id=f"proc_{camera_id}_{len(self._supervisors) + 1}",
+                    task_timeout_sec=self._worker_timeout_sec,
+                    auto_restart=True,
+                )
+            return self._supervisors[camera_id]
+
+    def execute_process_isolated(
+        self,
+        camera_id: str,
+        frame: Any,
+        frame_id: int = 0,
+        priority: IntelligencePriority = IntelligencePriority.AI_ANALYTICS,
+        timeout_override_sec: float | None = None,
+        fallback_value: list[DetectionPrediction] | None = None,
+    ) -> tuple[list[DetectionPrediction], bool, str]:
+        """
+        Execute visual inference in a separate OS process with true OS process termination.
+        Guarantees that hung native execution can be forcefully terminated at the OS process level.
+        """
+        if not self.check_admission(camera_id, priority):
+            return fallback_value or [], False, "RESOURCE_ADMISSION_REJECTED"
+
+        supervisor = self.get_or_create_process_supervisor(camera_id)
+        worker_id = supervisor.worker_id
+
+        with self._lock:
+            self._worker_states[worker_id] = supervisor.state
+            self._active_tasks += 1
+
+        timeout = timeout_override_sec or self._worker_timeout_sec
+        try:
+            preds, success, msg = supervisor.submit_and_wait(
+                frame=frame,
+                camera_id=camera_id,
+                frame_id=frame_id,
+                timeout_sec=timeout,
+            )
+            with self._lock:
+                self._worker_states[worker_id] = supervisor.state
+                if success:
+                    self._metrics.total_completed += 1
+                elif "TIMEOUT" in msg:
+                    self._metrics.total_timeouts += 1
+                else:
+                    self._metrics.total_worker_errors += 1
+            return (preds if success else (fallback_value or [])), success, msg
+        except Exception as exc:
+            with self._lock:
+                self._metrics.total_worker_errors += 1
+                self._worker_states[worker_id] = WorkerLifecycleState.RECOVERY_FAILED
+            return (
+                fallback_value or [],
+                False,
+                f"PROCESS_WORKER_ERROR: {type(exc).__name__}: {str(exc)}",
+            )
+        finally:
+            with self._lock:
+                self._active_tasks = max(0, self._active_tasks - 1)
+                queue = self._camera_queues.get(camera_id)
+                if queue and len(queue) > 0:
+                    queue.popleft()
+
     def shutdown(self, wait: bool = True) -> None:
-        """Safely terminate scheduler workers."""
+        """Safely terminate scheduler workers and all isolated process supervisors."""
+        with self._lock:
+            for sup in self._supervisors.values():
+                sup.shutdown()
+            self._supervisors.clear()
         self._executor.shutdown(wait=wait)

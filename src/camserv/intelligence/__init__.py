@@ -11,6 +11,7 @@ local-first edge and appliance surveillance deployments.
 from camserv.intelligence.anpr import (
     LicensePlateEngine,
     assess_plate_quality,
+    extract_characters_from_pixels,
 )
 from camserv.intelligence.classification import ObjectClassificationEngine
 from camserv.intelligence.contracts import (
@@ -24,9 +25,11 @@ from camserv.intelligence.contracts import (
     EpistemicLevel,
     EvidenceLink,
     HardwareOperatingTier,
+    InferenceTaskLease,
     IntelligenceEvent,
     IntelligenceEventType,
     IntelligencePriority,
+    ModelCapabilityState,
     PlateProcessingStatus,
     PlateQualityAssessment,
     PlateQualityGrade,
@@ -49,9 +52,13 @@ from camserv.intelligence.detection import (
 from camserv.intelligence.events import EventDetectionEngine
 from camserv.intelligence.evidence import EvidenceProvenanceEngine
 from camserv.intelligence.health import IntelligenceHealthMonitor
+from camserv.intelligence.process_worker import ProcessIsolatedInferenceSupervisor
 from camserv.intelligence.registry import (
+    DEFAULT_MODELS,
+    EMPTY_FILE_SHA256,
     ModelCapabilityRecord,
     ModelCapabilityRegistry,
+    validate_model_path,
 )
 from camserv.intelligence.rules import (
     PROFILE_DEFAULTS,
@@ -84,6 +91,7 @@ __all__ = [
     "ConfigurableRulesEngine",
     "EvidenceProvenanceEngine",
     "AIResourceScheduler",
+    "ProcessIsolatedInferenceSupervisor",
     "ModelCapabilityRegistry",
     "IntelligenceHealthMonitor",
     # Contracts & Dataclasses
@@ -98,6 +106,7 @@ __all__ = [
     "PlateQualityAssessment",
     "PlateRecognitionResult",
     "IntelligenceEvent",
+    "InferenceTaskLease",
     "EvidenceLink",
     "CameraIntelligenceConfig",
     "SceneReasoningRecord",
@@ -117,11 +126,16 @@ __all__ = [
     "EpistemicLevel",
     "WorkerLifecycleState",
     "SpeedMeasurementStatus",
+    "ModelCapabilityState",
     # Constants & Helpers
     "CANONICAL_CLASSES",
     "PROFILE_DEFAULTS",
+    "DEFAULT_MODELS",
+    "EMPTY_FILE_SHA256",
     "apply_nms",
     "assess_plate_quality",
+    "extract_characters_from_pixels",
+    "validate_model_path",
     # Exceptions
     "ResourceAdmissionError",
     "WorkerExecutionTimeoutError",

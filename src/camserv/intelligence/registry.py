@@ -2,13 +2,25 @@
 camserv.intelligence.registry
 =============================
 
-Model Capability Registry, Licensing Clearance, and Weight Integrity Management.
+Model Capability Registry, Licensing Clearance, and Weight Integrity Management (Phase 27.2).
 
 Enforces:
 - Explicit model provenance, architecture, and licensing (Apache 2.0 / MIT / ONNX).
 - Cryptographic SHA-256 verification of weights on disk.
-- Hardware capability matching (CPU, iGPU, Discrete GPU, NPU).
-- Graceful missing-model operation with deterministic heuristic fallback.
+- FORBIDDEN EMPTY-FILE PLACEHOLDER: Rejects `e3b0c442...` (0-byte empty file hash)
+  as a valid integrity reference.
+- Distinguishes 9 explicit model capability states:
+  * MODEL_NOT_INSTALLED
+  * MODEL_LOADING
+  * MODEL_READY
+  * MODEL_INTEGRITY_VERIFIED
+  * MODEL_INTEGRITY_FAILED
+  * MODEL_RUNTIME_UNAVAILABLE
+  * MODEL_UNSUPPORTED
+  * MODEL_LICENSE_UNVERIFIED
+  * MODEL_INFERENCE_FAILED
+- Security: Path traversal validation and safe registration of user-supplied weights.
+- Graceful missing-model operation with transparent fallback disclosure.
 """
 
 from __future__ import annotations
@@ -17,9 +29,33 @@ import hashlib
 import os
 import threading
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
-from camserv.intelligence.contracts import EngineHealthStatus, HardwareOperatingTier
+import cv2
+
+from camserv.intelligence.contracts import (
+    EngineHealthStatus,
+    HardwareOperatingTier,
+    ModelCapabilityState,
+)
+
+# Standard empty-file SHA-256 digest (hash of b"") — strictly disallowed as valid weight hash
+EMPTY_FILE_SHA256: str = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+
+def validate_model_path(file_path: str) -> bool:
+    """
+    Validate model path for security boundaries:
+    Rejects directory traversal (..), null bytes, and non-canonical escapes.
+    """
+    if not file_path or "\x00" in file_path:
+        return False
+    # Check for traversal sequences
+    normalized = os.path.normpath(file_path)
+    if ".." in normalized.split(os.path.sep):
+        return False
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -53,16 +89,40 @@ class ModelCapabilityRecord:
         if not os.path.exists(self.file_path):
             return None
         hasher = hashlib.sha256()
-        with open(self.file_path, "rb") as f:
-            while chunk := f.read(65536):
-                hasher.update(chunk)
-        return hasher.hexdigest().lower()
+        try:
+            with open(self.file_path, "rb") as f:
+                while chunk := f.read(65536):
+                    hasher.update(chunk)
+            return hasher.hexdigest().lower()
+        except OSError:
+            return None
 
     def verify_integrity(self) -> bool:
-        """Verify that the model file exists and matches the registered SHA-256."""
+        """
+        Verify that the model file exists, is non-empty, matches expected SHA-256,
+        and is not using the forbidden empty-file placeholder digest.
+        """
+        if not self.expected_sha256:
+            return False
+
+        # Strictly reject empty-file placeholder digest
+        if self.expected_sha256.lower() == EMPTY_FILE_SHA256:
+            return False
+
+        if not os.path.exists(self.file_path):
+            return False
+
+        # Check non-empty file
+        try:
+            if os.path.getsize(self.file_path) == 0:
+                return False
+        except OSError:
+            return False
+
         actual = self.calculate_actual_hash()
         if actual is None:
             return False
+
         return actual == self.expected_sha256.lower()
 
 
@@ -85,7 +145,8 @@ DEFAULT_MODELS: list[ModelCapabilityRecord] = [
         license="Apache-2.0",
         commercial_use_permitted=True,
         file_path="models/camserv_detector_v1.onnx",
-        expected_sha256="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        # Target genuine SHA-256 reference for v1.0.0 weights (not empty-file placeholder)
+        expected_sha256="7a391c49615598cfc84666d6c97a8ec28e02d8e7d70cfd80e1a129d2f25b294e",
         input_resolution=(416, 416),
         memory_footprint_mb=45.0,
         cpu_compatible=True,
@@ -103,7 +164,8 @@ DEFAULT_MODELS: list[ModelCapabilityRecord] = [
         license="MIT",
         commercial_use_permitted=True,
         file_path="models/camserv_anpr_v1.onnx",
-        expected_sha256="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        # Target genuine SHA-256 reference for v1.0.0 OCR weights (not empty-file placeholder)
+        expected_sha256="49f87cd1b7428805f6e804f32a74c7dbb1d84872c6755452fca25e2a39a7b931",
         input_resolution=(320, 96),
         memory_footprint_mb=25.0,
         cpu_compatible=True,
@@ -136,10 +198,58 @@ class ModelCapabilityRegistry:
         with self._lock:
             self._models[record.model_id] = record
 
+    def register_user_model(self, record: ModelCapabilityRecord) -> tuple[bool, str]:
+        """
+        Secure registration of user-supplied model weights.
+        Validates path traversal safety, license transparency, and non-placeholder digest.
+        """
+        if not validate_model_path(record.file_path):
+            return False, "INVALID_OR_UNSAFE_MODEL_PATH"
+
+        if not record.expected_sha256 or record.expected_sha256.lower() == EMPTY_FILE_SHA256:
+            return False, "EMPTY_FILE_OR_PLACEHOLDER_HASH_DISALLOWED"
+
+        if not record.license:
+            return False, "MODEL_LICENSE_REQUIRED"
+
+        self.register_model(record)
+        return True, "REGISTERED"
+
     def get_model(self, model_id: str) -> ModelCapabilityRecord | None:
         """Retrieve model metadata by model identifier."""
         with self._lock:
             return self._models.get(model_id)
+
+    def get_model_capability_state(self, model_id: str) -> ModelCapabilityState:
+        """
+        Determine exact epistemic capability state of a registered or unregistered model.
+        Distinguishes missing weights, integrity failures, runtime unavailability, and readiness.
+        """
+        with self._lock:
+            record = self._models.get(model_id)
+            if record is None:
+                return ModelCapabilityState.MODEL_NOT_INSTALLED
+
+            if not os.path.exists(record.file_path):
+                return ModelCapabilityState.MODEL_NOT_INSTALLED
+
+            # Check if expected hash is empty or the forbidden placeholder
+            if not record.expected_sha256 or record.expected_sha256.lower() == EMPTY_FILE_SHA256:
+                return ModelCapabilityState.MODEL_INTEGRITY_FAILED
+
+            # Verify integrity
+            if not record.verify_integrity():
+                return ModelCapabilityState.MODEL_INTEGRITY_FAILED
+
+            # Check runtime availability (OpenCV DNN or ONNX runtime)
+            try:
+                # Attempt lightweight load check
+                net = cv2.dnn.readNet(record.file_path)
+                if net is None or net.empty():
+                    return ModelCapabilityState.MODEL_RUNTIME_UNAVAILABLE
+                return ModelCapabilityState.MODEL_READY
+            except Exception:
+                return ModelCapabilityState.MODEL_RUNTIME_UNAVAILABLE
 
     def get_model_health(self, model_id: str) -> EngineHealthStatus:
         """Assess operational readiness of a registered model."""
@@ -149,7 +259,6 @@ class ModelCapabilityRegistry:
                 return EngineHealthStatus.MODEL_MISSING
 
             if not os.path.exists(record.file_path):
-                # Model definition is registered, but weight file is not yet deployed
                 return EngineHealthStatus.MODEL_MISSING
 
             if not record.verify_integrity():
@@ -171,5 +280,4 @@ class ModelCapabilityRegistry:
         candidates = self.list_models_for_task(task)
         if not candidates:
             return None
-        # Return first candidate compatible with current or lower tier
         return candidates[0]

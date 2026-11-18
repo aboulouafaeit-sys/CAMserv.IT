@@ -190,13 +190,43 @@ class TrafficAnalyticsEngine:
             calibrated_kmh: float | None = None
             queue_length_m: float = 0.0
             speed_status = SpeedMeasurementStatus.RELATIVE_MOVEMENT_ONLY
+            projection_method = "uncalibrated_pixel_space"
 
-            if self.calibration.is_calibrated and self.calibration.pixels_per_meter > 0:
-                ppm = self.calibration.pixels_per_meter
-                speed_m_s = avg_px_sec / ppm
-                calibrated_kmh = round(speed_m_s * 3.6, 2)
-                queue_length_m = round(stationary_count * (5.0 / ppm * 10.0), 1)  # Est. 5m per vehicle
-                speed_status = SpeedMeasurementStatus.CALIBRATED_ACCURATE
+            if self.calibration.is_calibrated:
+                # 1. Perspective planar homography ground-plane projection if matrix available
+                if self.calibration.homography_matrix:
+                    ground_speeds_kmh: list[float] = []
+                    for trk in vehicles:
+                        vx, vy = trk.velocity_pixels_per_sec
+                        cx, cy = trk.bbox.center
+                        pt0 = self.calibration.project_to_ground_plane(cx, cy)
+                        pt1 = self.calibration.project_to_ground_plane(cx + vx, cy + vy)
+                        if pt0 is not None and pt1 is not None:
+                            # Ground plane velocity in meters per second
+                            dx_m = pt1[0] - pt0[0]
+                            dy_m = pt1[1] - pt0[1]
+                            v_m_s = (dx_m ** 2 + dy_m ** 2) ** 0.5
+                            ground_speeds_kmh.append(v_m_s * 3.6)
+
+                    if ground_speeds_kmh:
+                        calibrated_kmh = round(float(sum(ground_speeds_kmh) / len(ground_speeds_kmh)), 2)
+                        speed_status = SpeedMeasurementStatus.CALIBRATED_ACCURATE
+                        projection_method = "planar_homography_3x3"
+                        queue_length_m = round(stationary_count * 5.0, 1)  # 5m per vehicle on calibrated ground plane
+                    elif not pixel_velocities:
+                        speed_status = SpeedMeasurementStatus.SPEED_UNAVAILABLE
+                    else:
+                        speed_status = SpeedMeasurementStatus.RELATIVE_MOVEMENT_ONLY
+
+                # 2. Linear pixel-per-meter scalar approximation fallback
+                elif self.calibration.pixels_per_meter > 0:
+                    ppm = self.calibration.pixels_per_meter
+                    speed_m_s = avg_px_sec / ppm
+                    calibrated_kmh = round(speed_m_s * 3.6, 2)
+                    queue_length_m = round(stationary_count * (5.0 / ppm * 10.0), 1)  # Est. 5m per vehicle
+                    speed_status = SpeedMeasurementStatus.CALIBRATED_ACCURATE
+                    projection_method = "linear_pixel_ratio_scalar"
+
             elif not pixel_velocities:
                 speed_status = SpeedMeasurementStatus.SPEED_UNAVAILABLE
             else:
@@ -222,5 +252,6 @@ class TrafficAnalyticsEngine:
                         for lid, l in self._counting_lines.items()
                     },
                     "calibration_error_margin": self.calibration.error_margin_percent if self.calibration.is_calibrated else None,
+                    "projection_method": projection_method,
                 },
             )
