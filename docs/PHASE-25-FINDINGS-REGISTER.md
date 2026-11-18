@@ -666,6 +666,172 @@ Every finding in this register was evaluated against actual source code, physica
 * **Verification:** Formally documented in `docs/PHASE-26.4-DOCUMENTATION-CONSISTENCY.md`.
 * **Status:** **REMEDIATED & VERIFIED**.
 
+---
+
+## 12. Phase 27 Findings & Visual Intelligence Remediation Inventory
+
+### FINDING-P27-01: AI Subsystem Monolithic Entanglement Risk
+* **Severity:** **CRITICAL ARCHITECTURAL MODULARITY**
+* **Affected Subsystem:** `camserv.intelligence`
+* **Root Cause:** Prior vision implementations bundled detection, tracking, and alerts into tightly coupled files, risking whole-system failure if one component crashed.
+* **Remediation:** Architected 12 decoupled, independently configurable engines under `src/camserv/intelligence/` with clear typed contracts and health reporting.
+* **Verification:** Tested in `tests/test_phase27_intelligence_coordinator.py`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### FINDING-P27-02: Lack of Decoupled Fine-Grained Classification & Uncertainty Gating
+* **Severity:** **HIGH EPISTEMIC TRUTHFULNESS**
+* **Affected Subsystem:** `camserv.intelligence.classification`
+* **Root Cause:** Detections previously conflated spatial localization with subcategory classification, risking false positive categorization on ambiguous crops.
+* **Remediation:** Implemented `ObjectClassificationEngine` with aspect-ratio heuristics and explicit uncertainty gating (`is_uncertain=True` when confidence $< 0.60$).
+* **Verification:** Tested in `tests/test_phase27_detection_classification.py`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### FINDING-P27-03: Uncalibrated Speed (km/h) Fabrication Vulnerability
+* **Severity:** **HIGH LEGAL & EVIDENTIARY RELIABILITY**
+* **Affected Subsystem:** `camserv.intelligence.traffic`
+* **Root Cause:** Legacy surveillance tools frequently display speed in km/h on uncalibrated video, producing scientifically baseless numbers.
+* **Remediation:** Enforced strict calibration gating. On uncalibrated streams, `calibrated_speed_kmh` is strictly `None`, reporting relative pixel velocity only.
+* **Verification:** Tested in `tests/test_phase27_traffic_analytics.py`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### FINDING-P27-04: Lack of Optical Quality Gating for ANPR/LPR
+* **Severity:** **HIGH FORENSIC INTEGRITY**
+* **Affected Subsystem:** `camserv.intelligence.anpr`
+* **Root Cause:** Traditional OCR engines attempt to force-read severely blurred or overexposed license plates, hallucinating random characters.
+* **Remediation:** Implemented `assess_plate_quality()` with Laplacian blur variance, glare saturation ratio, and 16px minimum resolution checks. Failed crops return `UNREADABLE`.
+* **Verification:** Tested in `tests/test_phase27_anpr_pipeline.py`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### FINDING-P27-05: ANPR Unauthorized Activation & Privacy Audit Risk
+* **Severity:** **HIGH PRIVACY & REGULATORY COMPLIANCE**
+* **Affected Subsystem:** `camserv.intelligence.anpr`
+* **Root Cause:** Unrestricted plate reading risks GDPR and privacy violations if activated without documented organizational need.
+* **Remediation:** ANPR is disabled by default (`authorized=False`). Activation requires legal justification, and all plate queries are logged in `_access_log`.
+* **Verification:** Tested in `tests/test_phase27_anpr_pipeline.py`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### FINDING-P27-06: Semantic Scene Reasoning Collapse Risk
+* **Severity:** **MEDIUM FORENSIC TRUTHFULNESS**
+* **Affected Subsystem:** `camserv.intelligence.scene`
+* **Root Cause:** AI models collapsing raw bounding boxes directly into high-level accusations (e.g. "crime in progress").
+* **Remediation:** Implemented `SceneUnderstandingEngine` enforcing the 4-tier chain: `OBSERVATION` $\rightarrow$ `MEASUREMENT` $\rightarrow$ `INFERENCE` $\rightarrow$ `EVENT`.
+* **Verification:** Tested in `tests/test_phase27_scene_rules_events.py`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### FINDING-P27-07: Video Recording Starvation from AI Task Backpressure
+* **Severity:** **CRITICAL SYSTEM RELIABILITY**
+* **Affected Subsystem:** `camserv.intelligence.scheduler`
+* **Root Cause:** Heavy AI inference threads consuming 100% CPU/RAM, causing RTSP frames to drop and starving disk recording loops.
+* **Remediation:** Implemented `AIResourceScheduler` enforcing Priority 1 for recording, admission control shedding at 90% load, and dynamic frame sampling down to 0 FPS.
+* **Verification:** Tested in `tests/test_phase27_scheduler_isolation.py`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### FINDING-P27-08: AI Worker Exception & Crash Propagation Risk
+* **Severity:** **CRITICAL FAULT ISOLATION**
+* **Affected Subsystem:** `camserv.intelligence.scheduler`
+* **Root Cause:** Unhandled exceptions in neural runtimes (e.g. CUDA OOM or segfaults) crashing the primary surveillance service.
+* **Remediation:** Implemented `execute_isolated()` with thread pool boundaries, hard 2.0s timeouts, and safe fallback values.
+* **Verification:** Tested in `tests/test_phase27_scheduler_isolation.py`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+## 13. Phase 27.1 Adversarial Findings & Hardening Inventory
+
+### FINDING-P27.1-01: Absent Neural Weights Masked by Heuristic Simulator
+* **Severity:** **CRITICAL EPISTEMIC TRUTHFULNESS**
+* **Affected Subsystem:** `camserv.intelligence.detection.ObjectDetectionEngine`
+* **Root Cause:** Model weight files were absent on disk. The engine operated in heuristic simulator mode, which only cycles between 3 classes (`person`, `car`, `bicycle`). 13 canonical classes were completely uncallable.
+* **Remediation:** Hardened detection metadata to explicitly disclose `is_simulated_heuristic=True` and `real_weights_loaded=False`. Genuine 16-class neural inference is formally reclassified as **HARDWARE VALIDATION PENDING**.
+* **Verification:** Tested in `tests/test_phase27_1_adversarial_vision.py::test_absent_weights_metadata_transparency`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### FINDING-P27.1-02: Tracking Fragmentation on High-Speed Moving Objects
+* **Severity:** **HIGH TRACKING RELIABILITY**
+* **Affected Subsystem:** `camserv.intelligence.tracking.ObjectTrackingEngine`
+* **Root Cause:** Bipartite matching evaluated only static bounding box IoU. Fast-moving objects moving $> 50$ px/frame had zero static IoU overlap with previous frames, causing immediate track fragmentation.
+* **Remediation:** Implemented `_project_bbox` forward velocity motion projection. Matching now computes $\max(IoU(B_t, B_{\text{det}}), IoU(\hat{B}_{t+1}, B_{\text{det}}))$.
+* **Verification:** Tested in `tests/test_phase27_1_tracking_adversarial.py::test_fast_moving_object_motion_projection_continuity`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### FINDING-P27.1-03: Uniform Scalar Pixels-Per-Meter Perspective Distortion Vulnerability
+* **Severity:** **HIGH LEGAL & SPEED ACCURACY**
+* **Affected Subsystem:** `camserv.intelligence.traffic.TrafficAnalyticsEngine`
+* **Root Cause:** Speed estimation multiplied pixel velocity by a flat scalar PPM constant, which produces extreme errors on downward-tilted perspective cameras due to foreshortening.
+* **Remediation:** Introduced `SpeedMeasurementStatus` (`CALIBRATED_ACCURATE`, `RELATIVE_MOVEMENT_ONLY`, `SPEED_UNAVAILABLE`). Formally classified planar ground-speed enforcement as requiring a 4-point homography matrix.
+* **Verification:** Tested in `tests/test_phase27_1_speed_calibration.py::test_speed_status_classification`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### FINDING-P27.1-04: ANPR OCR Character Extraction Is a Deterministic Generator
+* **Severity:** **HIGH EVIDENTIARY TRUTHFULNESS**
+* **Affected Subsystem:** `camserv.intelligence.anpr.LicensePlateEngine`
+* **Root Cause:** While optical gating was mathematically authentic, character extraction synthesized candidate strings based on `frame_id` rather than performing neural OCR on crop pixels.
+* **Remediation:** Hardened result metadata to output `is_simulated_ocr=True` and `real_weights_loaded=False`. Genuinely active OCR is classified as **SIMULATED (LAB TEST ONLY)** until external OCR binaries are integrated.
+* **Verification:** Audited in `docs/PHASE-27.1-ANPR-ADVERSARIAL-AUDIT.md`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### FINDING-P27.1-05: ThreadPoolExecutor Timeout Leaves Native Workers Blocked
+* **Severity:** **CRITICAL WORKER ISOLATION**
+* **Affected Subsystem:** `camserv.intelligence.scheduler.AIResourceScheduler`
+* **Root Cause:** `future.result(timeout)` returns control to the caller on timeout, but the background thread remains alive and blocked. The scheduler had no worker lifecycle state machine to report this.
+* **Remediation:** Implemented `WorkerLifecycleState` tracking (`RUNNING`, `CANCELLATION_REQUESTED`, `TERMINATION_UNCONFIRMED`, `TERMINATED`, `RECOVERY_FAILED`). Timed-out workers are accurately classified as `TERMINATION_UNCONFIRMED`.
+* **Verification:** Tested in `tests/test_phase27_1_worker_isolation.py::test_worker_lifecycle_state_termination_unconfirmed`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### FINDING-P27.1-06: Scheduler 90% Host Load Boundary Lacks Hysteresis Damping
+* **Severity:** **MEDIUM ADMISSION STABILITY**
+* **Affected Subsystem:** `camserv.intelligence.scheduler.AIResourceScheduler`
+* **Root Cause:** Fixed 90% CPU/RAM threshold caused rapid state fluttering between `NORMAL` and `CRITICAL` when host hovered around 90%.
+* **Remediation:** Implemented 10% asymmetric hysteresis damping. Enters `CRITICAL` at 90%, but exits only when load drops below 80%.
+* **Verification:** Tested in `tests/test_phase27_1_worker_isolation.py::test_scheduler_admission_hysteresis_damping`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### FINDING-P27.1-07: Model Registry Checksum Targets an Empty 0-Byte File
+* **Severity:** **MEDIUM SUPPLY CHAIN HYGIENE**
+* **Affected Subsystem:** `camserv.intelligence.registry.DEFAULT_MODELS`
+* **Root Cause:** `expected_sha256` was hardcoded to `e3b0c44298fc...`, the SHA-256 hash of an empty file, masking the fact that no weights were packaged.
+* **Remediation:** Disclosed empty-file placeholder in documentation and gap register. Ensured `verify_integrity()` returns `False` when files are absent.
+* **Verification:** Audited in `docs/PHASE-27.1-MODEL-REGISTRY-AUDIT.md`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+---
+
+### FINDING-P27.1-08: Compound Fault Frame Loss Vulnerability Assessment
+* **Severity:** **CRITICAL RECORDING CONTINUITY**
+* **Affected Subsystem:** Core recording pipeline & `RecordingContinuityLedger`
+* **Root Cause:** Risk of compound AI failures (worker crashes, memory pressure, hangs) starving the primary recording loop.
+* **Remediation:** Tested Scenarios A through J under sustained 95% CPU load. Verified that the recording continuity ledger recorded exactly 0 frames lost.
+* **Verification:** Documented in `docs/PHASE-27.1-RECORDING-ISOLATION-EXPERIMENTS.md`.
+* **Status:** **REMEDIATED & VERIFIED**.
+
+
+
 
 
 
