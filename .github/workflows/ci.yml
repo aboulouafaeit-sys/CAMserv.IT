@@ -31,7 +31,7 @@ jobs:
           python -m pip install --upgrade pip setuptools wheel
           pip install -e ".[testing]"
 
-      - name: Execute Automated Test Suite (615 Tests)
+      - name: Execute Automated Test Suite (725 Tests)
         env:
           PYTHONPATH: src
         run: |
@@ -42,6 +42,13 @@ jobs:
           PYTHONPATH: src
         run: |
           python -m camserv.main detect-hw
+
+      - name: Verify Hardware Trust-Anchor CLI
+        env:
+          PYTHONPATH: src
+        run: |
+          python -m camserv.security.key_anchor status
+          python -m camserv.security.key_anchor fingerprint --help
 
       - name: Run Forensic Audit Chain Verification
         env:

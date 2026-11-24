@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# CAMserv 0.9.0-rc1 Native Debian Installation & Qualification Script
+# CAMserv 0.10.0-rc7 Native Debian Installation & Qualification Script
 # Target: Debian 12 (Bookworm) / Debian 13 (Trixie)
 # Architectures: amd64 / arm64
 # ==============================================================================
 set -euo pipefail
 
 echo "=========================================================="
-echo "CAMserv 0.9.0-rc1 Native Debian Qualification"
+echo "CAMserv 0.10.0-rc7 Native Debian Qualification"
 echo "=========================================================="
 
 ARCH=$(dpkg --print-architecture)
-PKG_NAME="camserv_0.9.0-rc1_${ARCH}.deb"
+PKG_NAME="camserv_0.10.0-rc7_${ARCH}.deb"
 
 echo "[1/8] Verifying Debian package file..."
 if [ ! -f "${PKG_NAME}" ]; then
@@ -63,5 +63,5 @@ else
 fi
 
 echo "=========================================================="
-echo "CAMserv 0.9.0-rc1 Native Debian Qualification: PASSED"
+echo "CAMserv 0.10.0-rc7 Native Debian Qualification: PASSED"
 echo "=========================================================="

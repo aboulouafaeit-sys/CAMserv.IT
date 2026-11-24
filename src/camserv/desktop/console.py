@@ -2,7 +2,7 @@
 camserv.desktop.console
 =======================
 
-Windows Desktop Operator Console application for CAMserv 0.10.0-alpha2.
+Windows Desktop Operator Console application for CAMserv 0.10.0-rc7.
 Built with Tkinter/ttk for native Windows look & feel and high reliability in control rooms.
 Provides live camera monitoring, timeline playback, incident management, and SCM health.
 """
@@ -896,7 +896,7 @@ class DesktopOperatorConsole:
         tk = self._tk
         self.statusbar = tk.Label(
             self._root,
-            text="CAMserv Operator Console 0.10.0 (Pre-LTS) | Platform: Windows 11 AMD64 | Consensus: Active | Audit: Intact",
+            text="CAMserv Operator Console 0.10.0-rc7 (Pre-LTS) | Platform: Windows 11 AMD64 | Consensus: Active | Audit: Intact",
             bd=0,
             relief=tk.FLAT,
             anchor=tk.W,

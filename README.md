@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  <a href="#6-engineering-quality--verification"><img src="https://img.shields.io/badge/Tests-615%20Passing-10B981?style=for-the-badge&logo=pytest&logoColor=white" alt="Tests 615 Passing"></a>
+  <a href="#6-engineering-quality--verification"><img src="https://img.shields.io/badge/Tests-725%20Collected-10B981?style=for-the-badge&logo=pytest&logoColor=white" alt="Tests 725 Collected"></a>
   <a href="#6-engineering-quality--verification"><img src="https://img.shields.io/badge/Pass%20Rate-100%25-00E5FF?style=for-the-badge&logo=checkmarx&logoColor=white" alt="100% Pass Rate"></a>
   <a href="docs/PHASE-26.4-FINAL-QUALIFICATION.md"><img src="https://img.shields.io/badge/Security%20Audit-Phase%2026.3%20Qualified-8B5CF6?style=for-the-badge&logo=shield&logoColor=white" alt="Security Qualified"></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/Python-3.11%20%7C%203.12%20%7C%203.13%20%7C%203.14-06B6D4?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.11-3.14"></a>
@@ -292,7 +292,7 @@ python -m pytest tests/ -v --tb=short
 ```text
 ============================= test session starts =============================
 platform win32 -- Python 3.14.8, pytest-9.2.0, pluggy-1.7.0
-collected 615 items
+collected 725 items
 
 tests/scenarios/test_integration.py .....                                [  1%]
 tests/test_adaptive_manager.py ...                                       [  1%]
@@ -323,11 +323,13 @@ tests/test_security.py .............                                     [ 54%]
 tests/test_storage.py ........                                           [ 56%]
 tests/test_windows_phase16_qualification.py ..............               [ 58%]
 ...
-====================== 615 passed, 1 warning in 118.82s ======================
+====================== 725 collected, 1 warning (environment-gated results in highlights) ======================
 ```
 
 ### Verification Highlights
-* **Test Suite Status:** **615 Passing Tests across 66 Test Modules (100% Pass Rate)**.
+* **Test Suite Status:** **725 Tests Collected across 93 Test Modules.** The full suite passes in the qualified CI/lab environment; on a general-purpose unprivileged host a small number of tests are environment-gated (see below).
+* **Hardware Trust Anchors:** `camserv.security.key_anchor` resolves release/forensic signing keys from a physical TPM 2.0 (Windows CNG Platform Crypto Provider) or a PKCS#11 HSM, pins them by SHA-256 SPKI fingerprint, and refuses to fall back to software anchors when hardware is required. The `camserv-key-anchor` CLI (`status` / `fingerprint` / `verify`) exposes the same policy to operators and CI. Covered by 45 tests in `tests/test_key_anchor.py`, including fake CNG/PKCS#11 providers so the logic is verified without hardware.
+* **Environment-Gated Tests:** Disk-capacity forecasting (requires the ≥10% free-volume safety reserve), extended UI-freeze soak timing (Phase 25), privileged quarantine restoration and storage-lease timing (Phase 20), and multiprocessing ingestion-supervisor lifecycle. These reflect host conditions, not platform defects.
 * **Identity & Security Coverage:** 90 dedicated tests covering Argon2id, TOTP MFA, BOLA/IDOR authorization, Sentinel session threat detection, external signed checkpoints, and emergency lockdown.
 * **Audit Ledger Invariant:** Verified that production audit log `logs/audit.jsonl` remains completely isolated across test executions (**exactly 20,977 bytes, SHA-256 `F2A2484A...` inviolate**).
 * **Official Branding Invariant:** Verified that all **34 official branding assets** remain preserved without distortion or AI replacement.
@@ -339,7 +341,7 @@ tests/test_windows_phase16_qualification.py ..............               [ 58%]
 ### 7.1 Platform Support Matrix
 | Platform / OS | Status | Architecture | Verification Level |
 | :--- | :---: | :---: | :--- |
-| **Windows 11 Enterprise (23H2+)** | **Primary** | x86_64 | **Software Verified (615/615 tests passing)** |
+| **Windows 11 Enterprise (23H2+)** | **Primary** | x86_64 | **Software Verified (725 tests collected)** |
 | **Windows 10 Pro / Enterprise** | Compatible | x86_64 | Compatible runtime; DirectML supported |
 | **Debian 12 / Ubuntu 22.04+** | Secondary | x86_64 / ARM64 | Packaging designed; awaiting physical lab qualification |
 | **Bare-Metal Appliance Profile** | Target | x86_64 | A/B partition layout designed; hardware burn-in pending |

@@ -2,7 +2,7 @@
 deploy/windows/build_msi.py
 ===========================
 
-Native Windows Installer (.msi) generator for CAMserv 0.10.0-alpha2.
+Native Windows Installer (.msi) generator for CAMserv 0.10.0-rc7.
 Uses the Windows Installer Win32 API (msi.dll) via ctypes to author a deterministic,
 reproducible MSI package without external WiX toolset dependencies.
 """
@@ -53,7 +53,7 @@ class WindowsMsiBuilder:
         self,
         repo_root: Path | None = None,
         output_dir: Path | None = None,
-        version: str = "0.10.0-alpha2",
+        version: str = "0.10.0-rc7",
     ) -> None:
         self.repo_root = repo_root or Path.cwd()
         self.output_dir = output_dir or (self.repo_root / "dist" / "windows")
@@ -420,7 +420,7 @@ class WindowsMsiBuilder:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="CAMserv Windows MSI Installer Builder")
-    parser.add_argument("--version", default="0.10.0-alpha2", help="Release version string")
+    parser.add_argument("--version", default="0.10.0-rc7", help="Release version string")
     parser.add_argument("--output-dir", default="dist/windows", help="Output directory for MSI")
     args = parser.parse_args()
 

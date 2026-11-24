@@ -14,6 +14,7 @@ import json
 import shutil
 import time
 import zipfile
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -94,6 +95,25 @@ class SignedUpdateManager:
 
     def __init__(self, trusted_release_keys: list[str]) -> None:
         self.trusted_release_keys = trusted_release_keys
+
+    @classmethod
+    def from_trust_anchors(cls, anchors: Iterable[Any]) -> SignedUpdateManager:
+        """Build a manager from resolved TPM/HSM trust anchors (Ed25519 only)."""
+        from camserv.security.key_anchor import TrustAnchor
+
+        keys: list[str] = []
+        for anchor in anchors:
+            if not isinstance(anchor, TrustAnchor):
+                raise UpdateSignatureError(
+                    "Trust anchors must be camserv.security.key_anchor.TrustAnchor instances."
+                )
+            if not anchor.is_ed25519:
+                raise UpdateSignatureError(
+                    f"Anchor '{anchor.purpose}' uses {anchor.algorithm}; "
+                    "update bundles require Ed25519 trust anchors."
+                )
+            keys.append(anchor.public_key_hex())
+        return cls(keys)
 
     @classmethod
     def create_update_package(

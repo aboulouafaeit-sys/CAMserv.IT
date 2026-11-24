@@ -88,5 +88,5 @@ The software implementation is hardened, reproducible, and robustly protected ag
 
 ### Prerequisites for General Availability (GA):
 1. **Physical Laboratory Soak:** Execute 72-hour sustained recording soak across physical hardware testbeds under elevated thermal and load stress.
-2. **TPM 2.0 Master Key Binding:** Bind `master.key` to physical TPM 2.0 endorsement keys via Microsoft TBS (Windows) and PKCS#11 / tpm2-tss (Linux).
+2. **TPM 2.0 Master Key Binding:** Bind `master.key` to physical TPM 2.0 endorsement keys via Microsoft TBS (Windows) and PKCS#11 / tpm2-tss (Linux). *Software prerequisite delivered in RC7:* `camserv.security.key_anchor` (CNG/PKCS#11 public-key anchoring with SHA-256 SPKI pins and fail-closed hardware policy); physical sealing/attestation remains hardware-gated.
 3. **WebAuthn Full RP Integration:** If platform passkeys are required for production GA, integrate a certified WebAuthn RP library (`fido2` or `py_webauthn`) with full attestation validation.

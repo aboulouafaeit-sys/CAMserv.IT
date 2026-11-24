@@ -46,7 +46,7 @@ In accordance with Section 11 of the engineering mission:
 
 The following items represent the only remaining prerequisites before unconditional General Availability (GA):
 
-- **GATE-HW-01 (Physical TPM 2.0 Platform Binding):** Transition master key storage from software filesystem ACLs to physical TPM 2.0 endorsement key sealing via Microsoft TBS on Windows and PKCS#11 / `tpm2-tss` on Linux.
+- **GATE-HW-01 (Physical TPM 2.0 Platform Binding):** Transition master key storage from software filesystem ACLs to physical TPM 2.0 endorsement key sealing via Microsoft TBS on Windows and PKCS#11 / `tpm2-tss` on Linux. *Software prerequisite delivered:* `camserv.security.key_anchor` resolves and pins TPM 2.0 (Windows CNG) / PKCS#11 HSM public keys with fail-closed policy, and `camserv-key-anchor verify` gates a policy file in CI; physical endorsement-key sealing, sealing-to-PCR and attestation remain hardware-gated.
 - **GATE-HW-02 (72-Hour Environmental Thermal Soak):** Execute 72-hour sustained multi-camera recording under elevated thermal conditions (50°C chamber) and power-transient load drops.
 - **GATE-OS-01 (Linux Debian Physical Testbed Validation):** Execute `tests/test_phase25_1_b_cross_platform.py` on an accredited Debian/Ubuntu bare-metal server to transition POSIX signal handling from mocked verification to native Linux execution.
 

@@ -349,6 +349,40 @@ class RBACRole(BaseModel):
     )
 
 
+class KeyAnchorSettings(BaseModel):
+    """Hardware trust-anchor policy for TPM 2.0 / PKCS#11 HSM key anchoring."""
+
+    require_hardware: bool = Field(
+        False,
+        description=(
+            "Reject software-file trust anchors at resolve time. Enable on appliances "
+            "that must be rooted in a physical TPM/HSM (see the Phase 26.2 hardware gate)."
+        ),
+    )
+    policy_path: Path | None = Field(
+        None,
+        description="JSON trust-anchor policy consumed by the camserv-key-anchor CLI.",
+    )
+    tpm_key_name: str | None = Field(
+        None,
+        description=(
+            "Persisted CNG key name in the Microsoft Platform Crypto Provider "
+            "(TPM 2.0) used as the platform trust anchor."
+        ),
+    )
+    pkcs11_uri: str | None = Field(
+        None,
+        description=(
+            "PKCS#11 URI of an HSM-resident public key, e.g. "
+            "'pkcs11:module=/usr/lib/softhsm/libsofthsm2.so;token=camserv;object=release-pub'."
+        ),
+    )
+    pinned_fingerprints: dict[str, str] = Field(
+        default_factory=dict,
+        description="purpose -> expected SHA-256 SPKI fingerprint, enforced when resolving.",
+    )
+
+
 class SecuritySettings(BaseModel):
     """Security configuration."""
 
@@ -387,6 +421,10 @@ class SecuritySettings(BaseModel):
     )
     audit_hmac_key: SecretStr | None = Field(
         None, description="HMAC key for audit log chain integrity."
+    )
+    key_anchors: KeyAnchorSettings = Field(
+        default_factory=KeyAnchorSettings,
+        description="TPM 2.0 / PKCS#11 trust-anchor policy (fail-closed when required).",
     )
 
     @model_validator(mode="after")

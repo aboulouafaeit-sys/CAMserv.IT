@@ -41,7 +41,7 @@ pip install -e ".[dev,testing]"
 
 ### Running the Test Suite
 ```bash
-# Run the complete test suite (615 automated tests across 66 modules)
+# Run the complete test suite (725 automated tests across 93 modules)
 python -m pytest tests/ -v
 
 # Run with short traceback

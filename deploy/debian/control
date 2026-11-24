@@ -1,5 +1,5 @@
 Package: camserv
-Version: 0.9.0-rc1
+Version: 0.10.0-rc7
 Section: video
 Priority: optional
 Architecture: amd64

@@ -321,14 +321,14 @@ def test_hardware_adapters_fail_cleanly_when_device_absent() -> None:
 @pytest.mark.unit
 def test_version_manifest_alignment() -> None:
     """Verify that CAMserv __version__ matches pyproject.toml and CycloneDX SBOM."""
-    assert __version__ == "0.9.0-rc1"
+    assert __version__ == "0.10.0-rc7"
 
     pyproject_path = Path("pyproject.toml")
     assert pyproject_path.exists()
     content = pyproject_path.read_text(encoding="utf-8")
-    assert 'version = "0.9.0-rc1"' in content
+    assert 'version = "0.10.0-rc7"' in content
 
     sbom_path = Path("deploy/sbom/camserv-sbom.json")
     assert sbom_path.exists()
     sbom_data = json.loads(sbom_path.read_text(encoding="utf-8"))
-    assert sbom_data["metadata"]["component"]["version"] == "0.9.0-rc1"
+    assert sbom_data["metadata"]["component"]["version"] == "0.10.0-rc7"

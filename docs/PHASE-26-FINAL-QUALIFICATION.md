@@ -52,3 +52,4 @@ Based on verifiable, reproducible test evidence executed on the target environme
    - Implement mutual TLS (mTLS) client certificate authentication for inter-appliance clustering and remote console synchronization.
 2. **Phase 28 — Hardware Security Module (HSM) & TPM 2.0 Integration:**
    - Bind the root master secret key (`data/secrets/master.key`) to appliance physical TPM 2.0 endorsement keys using Microsoft TBS (Windows) and PKCS#11 / tpm2-tss (Linux).
+   - *Status (RC7):* software-side hardware trust-anchor resolution is delivered in `camserv.security.key_anchor` (TPM 2.0 Windows CNG and PKCS#11 HSM public-key resolution, SHA-256 SPKI pinning, fail-closed policy, `camserv-key-anchor` CLI). Physical endorsement-key sealing and attestation remain hardware-gated.

@@ -15,7 +15,7 @@
     "component": {
       "type": "application",
       "name": "camserv",
-      "version": "0.9.0-rc1",
+      "version": "0.10.0-rc7",
       "licenses": [
         {
           "license": {

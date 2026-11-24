@@ -8,7 +8,7 @@
 set -euo pipefail
 
 PACKAGE_NAME="camserv"
-VERSION="${1:-0.9.0-rc1}"
+VERSION="${1:-0.10.0-rc7}"
 ARCH="${2:-amd64}"
 
 echo "[*] Initializing CAMserv Debian package build for ${PACKAGE_NAME} v${VERSION} (${ARCH})..."

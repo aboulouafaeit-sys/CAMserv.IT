@@ -48,7 +48,7 @@ class DesktopServiceClient:
         url = f"{self.base_url}{endpoint}"
         headers = {
             "Accept": "application/json",
-            "User-Agent": "CAMserv-Desktop-Console/0.10.0-alpha2 (Windows NT 10.0; Win64; x64)",
+            "User-Agent": "CAMserv-Desktop-Console/0.10.0-rc7 (Windows NT 10.0; Win64; x64)",
         }
         if self.token:
             headers["Authorization"] = f"Bearer {self.token}"

@@ -21,6 +21,7 @@ import sys
 import time
 import json
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
@@ -469,7 +470,7 @@ class TestISEPRetentionPolicyEngine:
         f2.write_bytes(b"DATA2")
         f3.write_bytes(b"DATA3")
 
-        now = 1000000.0
+        now = datetime(2026, 11, 17, 12, 0, 0, tzinfo=timezone.utc).timestamp()
 
         # Segment 1: Expired normal continuous recording (100 hours old)
         s1 = RecordingSegmentMetadata(
@@ -533,7 +534,9 @@ class TestISEPRetentionPolicyEngine:
         )
 
         # Execute safe cleanup
-        report = engine.execute_safe_cleanup([s1, s2, s3], operator_authorization="DAILY_SCHEDULED_PURGE")
+        report = engine.execute_safe_cleanup(
+            [s1, s2, s3], operator_authorization="DAILY_SCHEDULED_PURGE", now=now
+        )
 
         assert report["purged_count"] == 1
         assert "s1_expired" in report["purged_segment_ids"]

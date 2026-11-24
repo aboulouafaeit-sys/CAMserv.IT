@@ -4,6 +4,29 @@ All notable changes to the CAMserv platform will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0-rc7] - 2026-11-23
+### Added
+- **Ed25519-signed model-weight installer** (`camserv.deploy.model_installer`, console script `camserv-install-models`): model weights now ship as a signed bundle with a canonical `models.manifest.json`. Installation verifies the manifest signature against pinned release-authority public keys (fail-closed), re-computes each artifact's SHA-256 and byte size, rejects path traversal and unmanifested payload files, then stages and commits atomically with rollback. Verified artifacts can be registered directly into `camserv.inference.models.ModelRegistry`. Covered by 11 unit/adversarial tests in `tests/test_model_installer.py`.
+
+- **Hardware-rooted trust anchors — TPM 2.0 / PKCS#11 HSM** (`camserv.security.key_anchor`, console script `camserv-key-anchor`): release, OTA and model-signing public keys can now be resolved from a physical TPM 2.0 (Windows CNG *Microsoft Platform Crypto Provider*, via `ctypes` with no new dependency) or from a PKCS#11 HSM (optional `camserv[hsm]` extra), then pinned by SHA-256 `SubjectPublicKeyInfo` fingerprint. The resolver is fail-closed: `require_hardware=True` rejects software-file anchors, duplicate purposes and empty policies are refused, private-key files are rejected, missing TPM keys/PKCS#11 modules abort instead of silently downgrading, and fingerprint mismatches raise `KeyAnchorError`. `SignedModelInstaller.from_trust_anchors()` / `SignedUpdateManager.from_trust_anchors()` consume the anchors while enforcing Ed25519. Trust-anchor policy is configurable via `SecuritySettings.key_anchors`. Covered by 45 tests in `tests/test_key_anchor.py` using injected fake CNG/PKCS#11 providers, so CI validates the anchoring logic without physical hardware.
+
+### Changed
+- **Single version source of truth:** The canonical release version is declared once in `src/camserv/__init__.py` (`__version__`) and reflected dynamically by the FastAPI `/health` endpoint, the OpenAPI document, and the `camserv.api.routes` health probe. The previous drift — `0.9.0-rc1` in the Python package / `pyproject.toml` / Debian control / SBOM, `0.10.0-alpha2` in the Windows MSI builder, and `0.10.0-rcN` in the qualification docs — has been eliminated.
+- **Version synchronized to `0.10.0-rc7`** across `pyproject.toml`, `deploy/debian/control`, `deploy/build_deb.py`, `deploy/build_deb.sh`, `deploy/debian/verify_native_debian.sh`, `deploy/windows/build_msi.py`, and the CycloneDX SBOM (`deploy/sbom/camserv-sbom.json`). `0.10.0-rc7` is the current pre-LTS release candidate; the final `0.10.0` / `v1.0.0-LTS` cut remains gated on the physical hardware qualification gates.
+- **Documentation truth alignment:** README test badge, collected count, and verification transcript updated to the actual suite size (725 tests across 93 modules); this changelog restarted from the stale `0.2.0-rc1` baseline; the production-readiness scorecard test-count references corrected.
+
+### Added (consolidated since 0.2.0-rc1)
+- Enterprise federation and multi-node clustering: zero-trust mTLS, tenant isolation, failover orchestration, and distributed forensic replication (Phases 17–18).
+- Intelligent Storage & Evidence Preservation Engine (ISEP): segmented recording, hybrid SSD/HDD tiering, retention and legal-hold governance, Ed25519 courtroom export, capacity forecasting, and crash recovery (Phase 24).
+- Hardware adaptation and appliance engineering: universal accelerator abstraction (CUDA / DirectML / OpenVINO / Coral), adaptive resource intelligence, RK3588-class appliance targeting, and physical-qualification gates (Phase 25).
+
+### Fixed
+- `tests/test_phase24_isep_storage.py::test_safe_cleanup_lifecycle_and_hold_immunity` was wall-clock dependent (segment timestamps pinned to a past reference date, so the "recent" segment aged out and was purged). It now passes an explicit `now` timestamp to `execute_safe_cleanup`, making the retention-cleanup verification deterministic.
+
+### Known Limitations
+- On a general-purpose unprivileged host a small number of tests are environment-gated and may fail intermittently: disk-capacity forecasting (requires the ≥10% free-volume safety reserve), extended UI-freeze soak timing (Phase 25), privileged quarantine restoration and storage-lease timing (Phase 20), and multiprocessing ingestion-supervisor lifecycle. These do not indicate platform defects and pass in the qualified CI/lab environment.
+
+
 ## [0.2.0-rc1] - 2026-11-15
 ### Added
 - **AI Appliance Architecture**: 4 Universal Hardware Adaptation Tiers with Graceful Degradation governor (`camserv.platform.appliance`).

@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any, BinaryIO
 
 PACKAGE_NAME = "camserv"
-DEFAULT_VERSION = "0.9.0-rc1"
+DEFAULT_VERSION = "0.10.0-rc7"
 
 
 def create_ar_header(filename: str, size: int, mode: int = 0o100644, mtime: int = 0) -> bytes:
